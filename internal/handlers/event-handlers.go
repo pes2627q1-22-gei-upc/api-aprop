@@ -44,3 +44,8 @@ func HandleGetEvent(w http.ResponseWriter, r *http.Request){
 		WriteError(w, err)
 	}
 }
+
+func HandleListEvents(w http.ResponseWriter, r *http.Request){
+	events := ServeListEvents()
+	WriteJSON(w, 200, events)
+}

@@ -13,12 +13,15 @@ import (
 	"strings"
 	"time"
 	"io"
+	"strconv"
 )
 
 var (
 	ErrEventNotFound = errors.New("event not found")
 	ErrInvalidEvent  = errors.New("invalid event")
 )
+
+var Events EventStore = NewMemoryStore()
 
 type EventStore interface {
 	Create(title string, description string) (Event, error)
@@ -79,12 +82,10 @@ func (s *memoryStore) List() []Event {
 }
 
 func LoadOfficialEvents() {
-	Events := NewMemoryStore()
-	
 	godotenv.Load(".env.example")
 	apptoken := os.Getenv("APP_TOKEN")
 
-	jsonBody := []byte(`{"query": "SELECT *", "order":"data_inici DESC" "page":{"pageNumber":1,"pageSize":10}"}`)
+	jsonBody := []byte(`{"query": "SELECT *", "page":{"pageNumber":1,"pageSize":10}}`)
  	bodyReader := bytes.NewReader(jsonBody)
 
  	req, err := http.NewRequest(http.MethodPost, "https://analisi.transparenciacatalunya.cat/api/v3/views/rhpv-yr4f/query.json", bodyReader)
@@ -107,50 +108,82 @@ func LoadOfficialEvents() {
 	if err2 != nil{
 		panic(err2)
 	}
-	err3 := json.Unmarshal([]byte(bodyBytes), &body)
+
+	err3 := json.Unmarshal(bodyBytes, &body)
 	if err3 != nil {
-		panic(err2)
+		panic(err3)
 	}
 
 	for _, val := range body{
 		var e Event
 		var tmp string
-		e.Code, _=val["codi"].(int64)
-		e.Title, _=val["denominaci"].(string)
-		e.Subtitle, _=val["subt_tol"].(string)
-		e.Schedule, _=val["horari"].(string)
-		e.Tickets, _=val["entrades"].(string)
-		e.URL, _=val["url"].(string)
-		e.TicketsURL, _=val["linkbotoentrades"].(string)
-		e.Description, _=val["descripcio"].(string)
-		e.Free, _=val["gratuita"].(bool)
-		e.Permanent, _=val["permanent"].(bool)
-		tmp, _ = val["enlla_os"].(string)
-		e.RelatedURLs=strings.Split(tmp, ",")
-		tmp, _ = val["enllac1_nom"].(string)
-		e.URLnames=append(e.URLnames, tmp)
-		tmp, _ = val["enllac2_nom"].(string)
-		e.URLnames=append(e.URLnames, tmp)
-		tmp, _ = val["enllac3_nom"].(string)
-		e.URLnames=append(e.URLnames, tmp)
-		tmp, _ = val["modalitat"].(string)
-		e.Online=(tmp=="Virtual")
-		tmp, _ = val["imatges"].(string)
-		e.Images=strings.Split(tmp, ",")
-		e.Videos, _=val["v_deos"].(string)
-		e.Address, _=val["adre_a"].(string)
-		e.PostalCode, _=val["codi_postal"].(string)
-		e.Email, _=val["email"].(string)
-		e.Place, _=val["espai"].(string)
-		e.Latitude, _=val["latitud"].(float32)
-		e.Longitude, _=val["longitud"].(float32)
-		e.Phone, _=val["tel_fon"].(string)
-		e.ActivityURL, _=val["urlactivitat"].(string)
-		tmp, _ = val["data_inici"].(string)
-		e.StartDate, err=time.Parse("2020-05-31T00:00:00.000", tmp)
-		tmp, _ = val["data_fi"].(string)
-		e.EndDate, err=time.Parse("2020-05-31T00:00:00.000", tmp)
 
-		Events.EventCreate(e)
+		if v, ok := val["codi"].(string); ok {
+			code64, _ := strconv.ParseInt(v, 10, 64)
+			e.Code = code64
+		}
+
+		e.Title, _ = val["denominaci"].(string)
+		e.Subtitle, _ = val["subt_tol"].(string)
+		e.Schedule, _ = val["horari"].(string)
+		e.Tickets, _ = val["entrades"].(string)
+		e.URL, _ = val["url"].(string)
+		e.TicketsURL, _ = val["linkbotoentrades"].(string)
+		e.Description, _ = val["descripcio"].(string)
+		e.Free, _ = val["gratuita"].(bool)
+		e.Permanent, _ = val["permanent"].(bool)
+
+		tmp, _ = val["enlla_os"].(string)
+		e.RelatedURLs = strings.Split(tmp, ",")
+
+		for _, key := range []string{
+			"enllac1_nom", "enllac2_nom", "enllac3_nom",
+		} {
+			if v, ok := val[key].(string); ok && v != "" {
+				e.URLnames = append(e.URLnames, v)
+			}
+		}
+
+		tmp, _ = val["modalitat"].(string)
+		e.Online = tmp == "Virtual"
+
+		tmp, _ = val["imatges"].(string)
+		e.Images = strings.Split(tmp, ",")
+
+		e.Videos, _ = val["v_deos"].(string)
+		e.Address, _ = val["adre_a"].(string)
+		e.PostalCode, _ = val["codi_postal"].(string)
+		e.Email, _ = val["email"].(string)
+		e.Place, _ = val["espai"].(string)
+
+		if v, ok := val["latitud"].(float64); ok {
+			e.Latitude = float32(v)
+		}
+		if v, ok := val["longitud"].(float64); ok {
+			e.Longitude = float32(v)
+		}
+
+		e.Phone, _ = val["tel_fon"].(string)
+		e.ActivityURL, _ = val["urlactivitat"].(string)
+
+		if tmp, ok := val["data_inici"].(string); ok && tmp != "" {
+			e.StartDate, err = time.Parse("2006-01-02T15:04:05.000", tmp)
+			if err != nil {
+				fmt.Println("Start date error:", err, tmp)
+			}
+		}
+
+		if tmp, ok := val["data_fi"].(string); ok && tmp != "" {
+			e.EndDate, err = time.Parse("2006-01-02T15:04:05.000", tmp)
+			if err != nil {
+				fmt.Println("End date error:", err, tmp)
+			}
+		}
+
+		_, err := Events.EventCreate(e)
+		if err != nil {
+			fmt.Println("Error creating event:", err)
+			continue
+		}
 	}
 }

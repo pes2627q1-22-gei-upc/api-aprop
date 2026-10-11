@@ -4,14 +4,11 @@ import (
 	"log"
 	"net/http"
 	. "api-aprop/internal/router"
-	// Debug temporal
-	. "api-aprop/internal/services"
+	. "api-aprop/internal/repositories"
 )
 
 func main() {
-	// Debug temporal
-	Events.Create("Event1", "Description1")
-	Events.Create("Event2", "Description2")
+	LoadOfficialEvents()
 
 	log.Fatal(http.ListenAndServe(":8080", MakeRouter()))
 }

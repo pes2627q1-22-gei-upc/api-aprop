@@ -10,9 +10,7 @@ func MakeRouter() (*http.ServeMux){
 	mux := http.NewServeMux()
 
 	// Method + literal path.
-	mux.HandleFunc("GET /events", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "list all events")
-	})
+	mux.HandleFunc("GET /events", HandleListEvents)
 
 	// Method + wildcard path segment. {id} is captured by name.
 	mux.HandleFunc("GET /events/{id}", HandleGetEvent)
