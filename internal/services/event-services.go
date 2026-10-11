@@ -7,7 +7,7 @@ import (
 
 var Events EventStore = NewMemoryStore()
 
-func ServeGetEvent(id int64) (Event, error) {
+func ServeGetEvent(id int) (Event, error) {
 	ev, err := Events.Get(id)
 	if err==nil {
 		return ev, err

@@ -35,7 +35,8 @@ func WriteError(w http.ResponseWriter, err error) {
 }
 
 func HandleGetEvent(w http.ResponseWriter, r *http.Request){
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	id64, err := strconv.ParseInt(r.PathValue("id"), 10, 32)
+	id := int(id64)
 	event, err := ServeGetEvent(id)
 	if err==nil{
 		WriteJSON(w, 200, event)
