@@ -1,8 +1,8 @@
 package handlers
 
 import (
-	. "api-aprop/internal/services"
-	. "api-aprop/internal/repositories"
+	. "api-aprop/internal/services/event_service"
+	. "api-aprop/internal/repositories/event_repository"
 	"encoding/json"
 	"net/http"
 	"log"

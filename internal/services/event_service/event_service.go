@@ -1,8 +1,8 @@
 package services
 
 import (
-	. "api-aprop/internal/repositories"
-	. "api-aprop/internal/models"
+	. "api-aprop/internal/repositories/event_repository"
+	. "api-aprop/internal/models/event_model"
 )
 
 func ServeGetEvent(id int) (Event, error) {

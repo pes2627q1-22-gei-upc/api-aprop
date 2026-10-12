@@ -1,4 +1,4 @@
-package repositories
+package event_repository
 
 import (
 	"errors"
@@ -6,7 +6,7 @@ import (
 	"sync"
 	"encoding/json"
 	"net/http"
-	. "api-aprop/internal/models"
+	. "api-aprop/internal/models/event_model"
 	"github.com/joho/godotenv"
 	"os"
 	"bytes"
