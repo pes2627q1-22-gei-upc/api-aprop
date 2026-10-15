@@ -1,18 +1,109 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"strconv"
+	"syscall"
+	"time"
 
+	"github.com/joho/godotenv"
+
+	"api-aprop/internal/clients/gencat_client"
+	"api-aprop/internal/handlers/event_handler"
+	"api-aprop/internal/repositories/memory_event_repository"
 	"api-aprop/internal/router"
-	"api-aprop/internal/repositories/event_repository"
+	"api-aprop/internal/services/event_service"
 )
 
-func main() {
-	event_repository.LoadOfficialEvents() 
+const defaultGencatEventsURL = "https://analisi.transparenciacatalunya.cat/api/v3/views/rhpv-yr4f/query.json"
 
-	if err := http.ListenAndServe(":8080", router.MakeRouter()); err != nil {
-		log.Fatalf("Error init server: %v", err)
+func main() {
+	// Configuration
+	if err := godotenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Fatalf("load .env: %v", err)
 	}
- 
+
+	port := getEnv("PORT", "8080")
+	appToken := os.Getenv("APP_TOKEN")
+	gencatEventsURL := getEnv("GENCAT_EVENTS_URL", defaultGencatEventsURL)
+	gencatPageSize, err := strconv.Atoi(getEnv("GENCAT_PAGE_SIZE", "10"))
+	if err != nil {
+		log.Fatalf("invalid GENCAT_PAGE_SIZE: %v", err)
+	}
+	tlsCertFile := os.Getenv("TLS_CERT_FILE")
+	tlsKeyFile := os.Getenv("TLS_KEY_FILE")
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// Clients
+	httpClient := &http.Client{Timeout: 15 * time.Second}
+	gencatClient := gencat_client.NewGencatClient(httpClient, gencatEventsURL, appToken)
+
+	// Repositories
+	eventRepository := memory_event_repository.NewMemoryEventRepository()
+
+	// Services
+	eventService := event_service.NewEventService(eventRepository, gencatClient)
+
+	// Handlers
+	eventHandler := event_handler.NewEventHandler(eventService)
+
+	// Initial data
+	if err := eventService.LoadOfficialEvents(ctx, gencatPageSize); err != nil {
+		log.Printf("could not load official events: %v", err)
+	}
+
+	// Server: HTTP/1.1, HTTP/2 over TLS and HTTP/2 without TLS (h2c)
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
+	protocols.SetHTTP2(true)
+	protocols.SetUnencryptedHTTP2(true)
+
+	srv := &http.Server{
+		Addr:              ":" + port,
+		Handler:           router.NewRouter(eventHandler),
+		Protocols:         protocols,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+
+	serverErr := make(chan error, 1)
+	go func() {
+		if tlsCertFile != "" && tlsKeyFile != "" {
+			log.Printf("listening on %s (TLS)", srv.Addr)
+			serverErr <- srv.ListenAndServeTLS(tlsCertFile, tlsKeyFile)
+		} else {
+			log.Printf("listening on %s", srv.Addr)
+			serverErr <- srv.ListenAndServe()
+		}
+	}()
+
+	select {
+	case err := <-serverErr:
+		if !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("server error: %v", err)
+		}
+	case <-ctx.Done():
+		log.Println("shutting down server")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("shutdown: %v", err)
+		}
+	}
+}
+
+func getEnv(key string, fallback string) string {
+	if v, ok := os.LookupEnv(key); ok && v != "" {
+		return v
+	}
+	return fallback
 }

@@ -1,23 +1,19 @@
 package router
 
 import (
-	. "api-aprop/internal/handlers"
 	"net/http"
-	"fmt"
+
+	"api-aprop/internal/handlers/event_handler"
 )
 
-func MakeRouter() (*http.ServeMux){
+// NewRouter registers the endpoints of every handler. Each handler has its own chunk of endpoints.
+func NewRouter(eventHandler *event_handler.EventHandler) *http.ServeMux {
 	mux := http.NewServeMux()
 
-	// Method + literal path.
-	mux.HandleFunc("GET /events", HandleListEvents)
-
-	// Method + wildcard path segment. {id} is captured by name.
-	mux.HandleFunc("GET /events/{id}", HandleGetEvent)
-
-	mux.HandleFunc("POST /events", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "create an event")
-	})
+	// Event handler: events from the Generalitat open data and the ones created by users
+	mux.HandleFunc("GET /events", eventHandler.ListEvents)
+	mux.HandleFunc("GET /events/{id}", eventHandler.GetEvent)
+	mux.HandleFunc("POST /events", eventHandler.CreateEvent)
 
 	return mux
 }
