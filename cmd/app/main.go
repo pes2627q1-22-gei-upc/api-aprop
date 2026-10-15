@@ -18,23 +18,19 @@ import (
 	"api-aprop/internal/services/event_service"
 )
 
-const defaultGencatEventsURL = "https://analisi.transparenciacatalunya.cat/api/v3/views/rhpv-yr4f/query.json"
-
 func main() {
 	// Configuration
 	if err := godotenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
 		log.Fatalf("load .env: %v", err)
 	}
 
-	port := getEnv("PORT", "8080")
-	appToken := os.Getenv("APP_TOKEN")
-	gencatEventsURL := getEnv("GENCAT_EVENTS_URL", defaultGencatEventsURL)
-	gencatPageSize, err := strconv.Atoi(getEnv("GENCAT_PAGE_SIZE", "10"))
+	port := getEnv("PORT")
+	appToken := getEnv("APP_TOKEN")
+	gencatEventsURL := getEnv("GENCAT_EVENTS_URL")
+	gencatPageSize, err := strconv.Atoi(getEnv("GENCAT_PAGE_SIZE"))
 	if err != nil {
 		log.Fatalf("invalid GENCAT_PAGE_SIZE: %v", err)
 	}
-	tlsCertFile := os.Getenv("TLS_CERT_FILE")
-	tlsKeyFile := os.Getenv("TLS_KEY_FILE")
 
 	// Clients
 	httpClient := &http.Client{Timeout: 15 * time.Second}
@@ -54,10 +50,9 @@ func main() {
 		log.Printf("could not load official events: %v", err)
 	}
 
-	// Server: HTTP/1.1, HTTP/2 over TLS and HTTP/2 without TLS (h2c)
+	// Server: HTTP/1.1 and HTTP/2 without TLS (h2c)
 	protocols := new(http.Protocols)
 	protocols.SetHTTP1(true)
-	protocols.SetHTTP2(true)
 	protocols.SetUnencryptedHTTP2(true)
 
 	srv := &http.Server{
@@ -70,21 +65,17 @@ func main() {
 		IdleTimeout:       60 * time.Second,
 	}
 
-	if tlsCertFile != "" && tlsKeyFile != "" {
-		log.Printf("listening on %s (TLS)", srv.Addr)
-		err = srv.ListenAndServeTLS(tlsCertFile, tlsKeyFile)
-	} else {
-		log.Printf("listening on %s", srv.Addr)
-		err = srv.ListenAndServe()
-	}
-	if err != nil {
+	log.Printf("listening on %s", srv.Addr)
+	if err := srv.ListenAndServe(); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
 }
 
-func getEnv(key string, fallback string) string {
-	if v, ok := os.LookupEnv(key); ok && v != "" {
-		return v
+// getEnv returns the value of a required environment variable and exits if it is not set.
+func getEnv(key string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		log.Fatalf("missing environment variable %s", key)
 	}
-	return fallback
+	return value
 }
