@@ -6,9 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/signal"
 	"strconv"
-	"syscall"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -38,9 +36,6 @@ func main() {
 	tlsCertFile := os.Getenv("TLS_CERT_FILE")
 	tlsKeyFile := os.Getenv("TLS_KEY_FILE")
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
 	// Clients
 	httpClient := &http.Client{Timeout: 15 * time.Second}
 	gencatClient := gencat_client.NewGencatClient(httpClient, gencatEventsURL, appToken)
@@ -55,7 +50,7 @@ func main() {
 	eventHandler := event_handler.NewEventHandler(eventService)
 
 	// Initial data
-	if err := eventService.LoadOfficialEvents(ctx, gencatPageSize); err != nil {
+	if err := eventService.LoadOfficialEvents(context.Background(), gencatPageSize); err != nil {
 		log.Printf("could not load official events: %v", err)
 	}
 
@@ -75,29 +70,15 @@ func main() {
 		IdleTimeout:       60 * time.Second,
 	}
 
-	serverErr := make(chan error, 1)
-	go func() {
-		if tlsCertFile != "" && tlsKeyFile != "" {
-			log.Printf("listening on %s (TLS)", srv.Addr)
-			serverErr <- srv.ListenAndServeTLS(tlsCertFile, tlsKeyFile)
-		} else {
-			log.Printf("listening on %s", srv.Addr)
-			serverErr <- srv.ListenAndServe()
-		}
-	}()
-
-	select {
-	case err := <-serverErr:
-		if !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("server error: %v", err)
-		}
-	case <-ctx.Done():
-		log.Println("shutting down server")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := srv.Shutdown(shutdownCtx); err != nil {
-			log.Printf("shutdown: %v", err)
-		}
+	if tlsCertFile != "" && tlsKeyFile != "" {
+		log.Printf("listening on %s (TLS)", srv.Addr)
+		err = srv.ListenAndServeTLS(tlsCertFile, tlsKeyFile)
+	} else {
+		log.Printf("listening on %s", srv.Addr)
+		err = srv.ListenAndServe()
+	}
+	if err != nil {
+		log.Fatalf("server error: %v", err)
 	}
 }
 
