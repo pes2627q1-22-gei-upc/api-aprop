@@ -9,7 +9,7 @@ import (
 // Service contains the business logic for events.
 type Service interface {
 	GetEvent(id int) (event_model.Event, error)
-	ListEvents() []event_model.Event
+	ListEvents() ([]event_model.Event, error)
 	CreateEvent(e event_model.Event) (event_model.Event, error)
 	LoadOfficialEvents(ctx context.Context, pageSize int) error
 }

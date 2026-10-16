@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"api-aprop/internal/models/event_model"
@@ -97,35 +96,29 @@ func mapEvent(val map[string]any) event_model.Event {
 	e.Free, _ = val["gratuita"].(bool)
 	e.Permanent, _ = val["permanent"].(bool)
 
-	tmp, _ = val["enlla_os"].(string)
-	e.RelatedURLs = strings.Split(tmp, ",")
+	e.RelatedURLs, _ = val["enlla_os"].(string)
 
-	for _, key := range []string{
-		"enllac1_nom", "enllac2_nom", "enllac3_nom",
-	} {
-		if v, ok := val[key].(string); ok && v != "" {
-			e.URLnames = append(e.URLnames, v)
-		}
+	tmp, _ = val["enllac1_nom"].(string)
+	tmp2, _ := val["enllac2_nom"].(string)
+	tmp3, _ := val["enllac3_nom"].(string)
+
+	if tmp!=""{
+		e.URLnames = tmp
+	}
+	if tmp2!=""{
+		e.URLnames = fmt.Sprintf("%s,%s", e.URLnames, tmp2)
+	}
+	if tmp3!=""{
+		e.URLnames = fmt.Sprintf("%s,%s", e.URLnames, tmp3)
 	}
 
 	tmp, _ = val["modalitat"].(string)
 	e.Online = tmp == "Virtual"
 
-	tmp, _ = val["imatges"].(string)
-	e.Images = strings.Split(tmp, ",")
+	e.Images, _ = val["imatges"].(string)
 
 	e.Videos, _ = val["v_deos"].(string)
-	e.Address, _ = val["adre_a"].(string)
-	e.PostalCode, _ = val["codi_postal"].(string)
 	e.Email, _ = val["email"].(string)
-	e.Place, _ = val["espai"].(string)
-
-	if v, ok := val["latitud"].(float64); ok {
-		e.Latitude = float32(v)
-	}
-	if v, ok := val["longitud"].(float64); ok {
-		e.Longitude = float32(v)
-	}
 
 	e.Phone, _ = val["tel_fon"].(string)
 	e.ActivityURL, _ = val["urlactivitat"].(string)
