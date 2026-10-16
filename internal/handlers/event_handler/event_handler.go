@@ -22,7 +22,13 @@ func NewEventHandler(eventService event_service.Service) *EventHandler {
 
 // ListEvents handles GET /events
 func (h *EventHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
-	response.WriteJSON(w, http.StatusOK, h.eventService.ListEvents())
+	list, err := h.eventService.ListEvents()
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, list)
 }
 
 // GetEvent handles GET /events/{id}

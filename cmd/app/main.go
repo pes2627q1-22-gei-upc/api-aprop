@@ -13,14 +13,15 @@ import (
 
 	"api-aprop/internal/clients/gencat_client"
 	"api-aprop/internal/handlers/event_handler"
-	"api-aprop/internal/repositories/memory_event_repository"
+	"api-aprop/internal/repositories/database_event_repository"
+	"api-aprop/internal/repositories"
 	"api-aprop/internal/router"
 	"api-aprop/internal/services/event_service"
 )
 
 func main() {
 	// Configuration
-	if err := godotenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := godotenv.Load(".env.example"); err != nil && !errors.Is(err, os.ErrNotExist) {
 		log.Fatalf("load .env: %v", err)
 	}
 
@@ -32,12 +33,19 @@ func main() {
 		log.Fatalf("invalid GENCAT_PAGE_SIZE: %v", err)
 	}
 
+	// Database
+	databaseURL := getEnv("DB_URL")
+	databaseConnection, err := repositories.ConnectToDB(databaseURL)
+	if err != nil {
+		log.Fatalf("error connecting to database: %v", err)
+	}
+
 	// Clients
 	httpClient := &http.Client{Timeout: 15 * time.Second}
 	gencatClient := gencat_client.NewGencatClient(httpClient, gencatEventsURL, appToken)
 
 	// Repositories
-	eventRepository := memory_event_repository.NewMemoryEventRepository()
+	eventRepository := database_event_repository.NewDatabaseEventRepository(databaseConnection)
 
 	// Services
 	eventService := event_service.NewEventService(eventRepository, gencatClient)

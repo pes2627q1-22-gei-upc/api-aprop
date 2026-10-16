@@ -35,7 +35,7 @@ func (s *EventService) GetEvent(id int) (event_model.Event, error) {
 	return e, nil
 }
 
-func (s *EventService) ListEvents() []event_model.Event {
+func (s *EventService) ListEvents() ([]event_model.Event, error) {
 	return s.eventRepository.List()
 }
 
