@@ -1,0 +1,12 @@
+name: Go
+
+on: 
+  push:
+    tags:
+      - '*'
+    branches:
+      - '**'
+
+permissions:
+  packages: write
+  contents: read
