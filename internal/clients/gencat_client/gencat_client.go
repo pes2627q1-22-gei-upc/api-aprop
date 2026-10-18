@@ -86,6 +86,15 @@ func mapEvent(val map[string]any) event_model.Event {
 		e.Code, _ = strconv.ParseInt(v, 10, 64)
 	}
 
+	if v, ok := val["longitud"].(string); ok {
+		f, _ := strconv.ParseFloat(v, 32)
+		e.Longitude = float32(f)
+	}
+	if v, ok := val["latitud"].(string); ok {
+		f, _ := strconv.ParseFloat(v, 32)
+		e.Latitude = float32(f)
+	}
+
 	e.Title, _ = val["denominaci"].(string)
 	e.Subtitle, _ = val["subt_tol"].(string)
 	e.Schedule, _ = val["horari"].(string)
@@ -112,8 +121,12 @@ func mapEvent(val map[string]any) event_model.Event {
 		e.URLnames = fmt.Sprintf("%s,%s", e.URLnames, tmp3)
 	}
 
-	tmp, _ = val["modalitat"].(string)
-	e.Online = tmp == "Virtual"
+	e.Modality, _ = val["modalitat"].(string)
+	e.Place, _ = val["espai"].(string)
+	e.PostalCode, _ = val["codi_postal"].(string)
+	e.Address, _ = val["adre_a"].(string)
+	e.Municipality, _ = val["municipi"].(string)
+	e.Region, _ = val["comarca"].(string)
 
 	e.Images, _ = val["imatges"].(string)
 

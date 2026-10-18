@@ -13,36 +13,42 @@ import (
 
 const createEvent = `-- name: CreateEvent :one
 INSERT INTO events (
-    title, subtitle, description, schedule, url, tickets, ticketsurl, free, permanent, online,
-    relatedurls, urlnames, images, videos, email, placeid, phone, activityurl, startdate, enddate
+    title, subtitle, description, schedule, url, tickets, ticketsurl, free, permanent, modality,
+    relatedurls, urlnames, images, videos, email, place, latitude, longitude, postalcode, municipality, region, address, phone, activityurl, startdate, enddate
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-    $11, $12, $13, $14, $15, $16, $17, $18, $19, $20
+    $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26
 )
-RETURNING id, title, subtitle, description, schedule, url, tickets, ticketsurl, free, permanent, online, relatedurls, urlnames, images, videos, email, placeid, phone, activityurl, startdate, enddate
+RETURNING id, title, subtitle, description, schedule, url, tickets, ticketsurl, free, permanent, modality, relatedurls, urlnames, images, videos, email, place, latitude, longitude, postalcode, municipality, region, address, phone, activityurl, startdate, enddate
 `
 
 type CreateEventParams struct {
-	Title       string
-	Subtitle    pgtype.Text
-	Description string
-	Schedule    pgtype.Text
-	Url         pgtype.Text
-	Tickets     pgtype.Text
-	Ticketsurl  pgtype.Text
-	Free        bool
-	Permanent   bool
-	Online      bool
-	Relatedurls pgtype.Text
-	Urlnames    pgtype.Text
-	Images      pgtype.Text
-	Videos      pgtype.Text
-	Email       pgtype.Text
-	Placeid     pgtype.Int4
-	Phone       pgtype.Text
-	Activityurl pgtype.Text
-	Startdate   pgtype.Date
-	Enddate     pgtype.Date
+	Title       	string
+	Subtitle    	pgtype.Text
+	Description 	pgtype.Text
+	Schedule    	pgtype.Text
+	Url         	pgtype.Text
+	Tickets     	pgtype.Text
+	Ticketsurl  	pgtype.Text
+	Free        	pgtype.Bool
+	Permanent   	pgtype.Bool
+	Modality    	pgtype.Text
+	Relatedurls 	pgtype.Text
+	Urlnames    	pgtype.Text
+	Images      	pgtype.Text
+	Videos      	pgtype.Text
+	Email       	pgtype.Text
+	Place			pgtype.Text
+	Latitude		pgtype.Float4
+	Longitude		pgtype.Float4
+	PostalCode		pgtype.Text
+	Municipality	pgtype.Text
+	Region			pgtype.Text
+	Address			pgtype.Text
+	Phone       	pgtype.Text
+	Activityurl		pgtype.Text
+	Startdate   	pgtype.Date
+	Enddate     	pgtype.Date
 }
 
 func (q *Queries) CreateEvent(ctx context.Context, arg CreateEventParams) (Event, error) {
@@ -56,13 +62,19 @@ func (q *Queries) CreateEvent(ctx context.Context, arg CreateEventParams) (Event
 		arg.Ticketsurl,
 		arg.Free,
 		arg.Permanent,
-		arg.Online,
+		arg.Modality,
 		arg.Relatedurls,
 		arg.Urlnames,
 		arg.Images,
 		arg.Videos,
 		arg.Email,
-		arg.Placeid,
+		arg.Place,
+		arg.Latitude,
+		arg.Longitude,
+		arg.PostalCode,
+		arg.Municipality,
+		arg.Region,
+		arg.Address,
 		arg.Phone,
 		arg.Activityurl,
 		arg.Startdate,
@@ -80,13 +92,19 @@ func (q *Queries) CreateEvent(ctx context.Context, arg CreateEventParams) (Event
 		&i.Ticketsurl,
 		&i.Free,
 		&i.Permanent,
-		&i.Online,
+		&i.Modality,
 		&i.Relatedurls,
 		&i.Urlnames,
 		&i.Images,
 		&i.Videos,
 		&i.Email,
-		&i.Placeid,
+		&i.Place,
+		&i.Latitude,
+		&i.Longitude,
+		&i.PostalCode,
+		&i.Municipality,
+		&i.Region,
+		&i.Address,
 		&i.Phone,
 		&i.Activityurl,
 		&i.Startdate,
@@ -107,7 +125,7 @@ func (q *Queries) EventExists(ctx context.Context, id int32) (bool, error) {
 }
 
 const getEvent = `-- name: GetEvent :one
-SELECT id, title, subtitle, description, schedule, url, tickets, ticketsurl, free, permanent, online, relatedurls, urlnames, images, videos, email, placeid, phone, activityurl, startdate, enddate FROM events
+SELECT id, title, subtitle, description, schedule, url, tickets, ticketsurl, free, permanent, modality, relatedurls, urlnames, images, videos, email, place, latitude, longitude, postalcode, municipality, region, address, phone, activityurl, startdate, enddate FROM events
 WHERE id = $1
 `
 
@@ -125,13 +143,19 @@ func (q *Queries) GetEvent(ctx context.Context, id int32) (Event, error) {
 		&i.Ticketsurl,
 		&i.Free,
 		&i.Permanent,
-		&i.Online,
+		&i.Modality,
 		&i.Relatedurls,
 		&i.Urlnames,
 		&i.Images,
 		&i.Videos,
 		&i.Email,
-		&i.Placeid,
+		&i.Place,
+		&i.Latitude,
+		&i.Longitude,
+		&i.PostalCode,
+		&i.Municipality,
+		&i.Region,
+		&i.Address,
 		&i.Phone,
 		&i.Activityurl,
 		&i.Startdate,
@@ -141,7 +165,7 @@ func (q *Queries) GetEvent(ctx context.Context, id int32) (Event, error) {
 }
 
 const listEvents = `-- name: ListEvents :many
-SELECT id, title, subtitle, description, schedule, url, tickets, ticketsurl, free, permanent, online, relatedurls, urlnames, images, videos, email, placeid, phone, activityurl, startdate, enddate FROM events
+SELECT id, title, subtitle, description, schedule, url, tickets, ticketsurl, free, permanent, modality, relatedurls, urlnames, images, videos, email, place, latitude, longitude, postalcode, municipality, region, address, phone, activityurl, startdate, enddate FROM events
 ORDER BY id
 LIMIT 10
 `
@@ -167,13 +191,19 @@ func (q *Queries) ListEvents(ctx context.Context) ([]Event, error) {
 			&i.Ticketsurl,
 			&i.Free,
 			&i.Permanent,
-			&i.Online,
+			&i.Modality,
 			&i.Relatedurls,
 			&i.Urlnames,
 			&i.Images,
 			&i.Videos,
 			&i.Email,
-			&i.Placeid,
+			&i.Place,
+			&i.Latitude,
+			&i.Longitude,
+			&i.PostalCode,
+			&i.Municipality,
+			&i.Region,
+			&i.Address,
 			&i.Phone,
 			&i.Activityurl,
 			&i.Startdate,
@@ -192,35 +222,41 @@ func (q *Queries) ListEvents(ctx context.Context) ([]Event, error) {
 const updateEvent = `-- name: UpdateEvent :one
 UPDATE events SET
     title = $2, subtitle = $3, description = $4, schedule = $5, url = $6, tickets = $7,
-    ticketsurl = $8, free = $9, permanent = $10, online = $11, relatedurls = $12, urlnames = $13,
-    images = $14, videos = $15, email = $16, placeid = $17, phone = $18, activityurl = $19,
-    startdate = $20, enddate = $21
+    ticketsurl = $8, free = $9, permanent = $10, modality = $11, relatedurls = $12, urlnames = $13,
+    images = $14, videos = $15, email = $16, placeid = $17, longitude = $18, latitude = $19, postalcode = $20,
+	municipality = $21, region = $22, address = $23, phone = $24, activityurl = $25, startdate = $26, enddate = $27
 WHERE id = $1
-RETURNING id, title, subtitle, description, schedule, url, tickets, ticketsurl, free, permanent, online, relatedurls, urlnames, images, videos, email, placeid, phone, activityurl, startdate, enddate
+RETURNING id, title, subtitle, description, schedule, url, tickets, ticketsurl, free, permanent, modality, relatedurls, urlnames, images, videos, email, place, latitude, longitude, postalcode, municipality, region, address, phone, activityurl, startdate, enddate
 `
 
 type UpdateEventParams struct {
-	ID          int32
-	Title       string
-	Subtitle    pgtype.Text
-	Description string
-	Schedule    pgtype.Text
-	Url         pgtype.Text
-	Tickets     pgtype.Text
-	Ticketsurl  pgtype.Text
-	Free        bool
-	Permanent   bool
-	Online      bool
-	Relatedurls pgtype.Text
-	Urlnames    pgtype.Text
-	Images      pgtype.Text
-	Videos      pgtype.Text
-	Email       pgtype.Text
-	Placeid     pgtype.Int4
-	Phone       pgtype.Text
-	Activityurl pgtype.Text
-	Startdate   pgtype.Date
-	Enddate     pgtype.Date
+	ID          	int32
+	Title       	string
+	Subtitle    	pgtype.Text
+	Description 	pgtype.Text
+	Schedule    	pgtype.Text
+	Url         	pgtype.Text
+	Tickets     	pgtype.Text
+	Ticketsurl  	pgtype.Text
+	Free        	pgtype.Bool
+	Permanent   	pgtype.Bool
+	Modality    	pgtype.Text
+	Relatedurls 	pgtype.Text
+	Urlnames    	pgtype.Text
+	Images      	pgtype.Text
+	Videos      	pgtype.Text
+	Email       	pgtype.Text
+	Place			pgtype.Text
+	Latitude		pgtype.Float4
+	Longitude		pgtype.Float4
+	PostalCode		pgtype.Text
+	Municipality	pgtype.Text
+	Region			pgtype.Text
+	Address			pgtype.Text
+	Phone       	pgtype.Text
+	Activityurl		pgtype.Text
+	Startdate   	pgtype.Date
+	Enddate     	pgtype.Date
 }
 
 func (q *Queries) UpdateEvent(ctx context.Context, arg UpdateEventParams) (Event, error) {
@@ -235,13 +271,19 @@ func (q *Queries) UpdateEvent(ctx context.Context, arg UpdateEventParams) (Event
 		arg.Ticketsurl,
 		arg.Free,
 		arg.Permanent,
-		arg.Online,
+		arg.Modality,
 		arg.Relatedurls,
 		arg.Urlnames,
 		arg.Images,
 		arg.Videos,
 		arg.Email,
-		arg.Placeid,
+		arg.Place,
+		arg.Latitude,
+		arg.Longitude,
+		arg.PostalCode,
+		arg.Municipality,
+		arg.Region,
+		arg.Address,
 		arg.Phone,
 		arg.Activityurl,
 		arg.Startdate,
@@ -259,13 +301,19 @@ func (q *Queries) UpdateEvent(ctx context.Context, arg UpdateEventParams) (Event
 		&i.Ticketsurl,
 		&i.Free,
 		&i.Permanent,
-		&i.Online,
+		&i.Modality,
 		&i.Relatedurls,
 		&i.Urlnames,
 		&i.Images,
 		&i.Videos,
 		&i.Email,
-		&i.Placeid,
+		&i.Place,
+		&i.Latitude,
+		&i.Longitude,
+		&i.PostalCode,
+		&i.Municipality,
+		&i.Region,
+		&i.Address,
 		&i.Phone,
 		&i.Activityurl,
 		&i.Startdate,
