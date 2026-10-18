@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -12,11 +14,26 @@ import (
 	"github.com/joho/godotenv"
 
 	"api-aprop/internal/clients/gencat_client"
+	"api-aprop/internal/drivers/postgres_driver"
 	"api-aprop/internal/handlers/event_handler"
-	"api-aprop/internal/repositories/database_event_repository"
-	"api-aprop/internal/repositories"
+	postgres_repository "api-aprop/internal/repositories/postgres"
 	"api-aprop/internal/router"
 	"api-aprop/internal/services/event_service"
+	"api-aprop/migrations"
+)
+
+const (
+	appName = "api-aprop"
+
+	// Database environment variables
+	dbEnvHost      = "DB_HOST"
+	dbEnvPort      = "DB_PORT"
+	dbEnvUsername  = "DB_USERNAME"
+	dbEnvPassword  = "DB_PASSWORD"
+	dbEnvDatabase  = "DB_DATABASE"
+	dbEnvSslMode   = "DB_SSLMODE"   // optional, defaults to defaultSslMode
+	dbEnvPoolSize  = "DB_POOL_SIZE" // optional, defaults to the pgxpool default
+	defaultSslMode = "disable"
 )
 
 func main() {
@@ -34,18 +51,56 @@ func main() {
 	}
 
 	// Database
-	databaseURL := getEnv("DB_URL")
-	databaseConnection, err := repositories.ConnectToDB(databaseURL)
-	if err != nil {
-		log.Fatalf("error connecting to database: %v", err)
+	dbHost := getEnv(dbEnvHost)
+	dbPort := getEnv(dbEnvPort)
+	dbUsername := getEnv(dbEnvUsername)
+	dbPassword := getEnv(dbEnvPassword)
+	dbDatabase := getEnv(dbEnvDatabase)
+	dbSslMode := os.Getenv(dbEnvSslMode)
+	if dbSslMode == "" {
+		dbSslMode = defaultSslMode
 	}
+
+	dbOptions := map[string]string{
+		"application_name": appName,
+		"sslmode":          dbSslMode,
+	}
+	dbPoolSize := os.Getenv(dbEnvPoolSize)
+	if dbPoolSize != "" {
+		poolSize, err := strconv.Atoi(dbPoolSize)
+		if err != nil || poolSize <= 0 {
+			slog.Error(fmt.Sprintf("Please set the %s environment variable to a positive integer", dbEnvPoolSize))
+			os.Exit(1)
+		}
+		dbOptions["pool_max_conns"] = dbPoolSize
+	}
+
+	dbConfig := postgres_driver.NewConfig(
+		dbHost, dbPort, dbUsername, dbPassword, dbDatabase,
+		dbOptions,
+	)
+
+	postgresDriver := postgres_driver.New()
+	if err := postgresDriver.Connect(dbConfig.GetConnectionString(), context.Background()); err != nil {
+		slog.Error("Error connecting to database", "error", err)
+		os.Exit(1)
+	}
+	slog.Info("Successfully connected to database")
+	defer postgresDriver.Close()
+
+	// Migrate database
+	if err := postgresDriver.MigrateFS(migrations.EmbedFS, dbConfig.GetConnectionString()); err != nil {
+		slog.Error("Error migrating database", "error", err)
+		os.Exit(1)
+	}
+	slog.Info("Database schema is up to date.")
 
 	// Clients
 	httpClient := &http.Client{Timeout: 15 * time.Second}
 	gencatClient := gencat_client.NewGencatClient(httpClient, gencatEventsURL, appToken)
 
 	// Repositories
-	eventRepository := database_event_repository.NewDatabaseEventRepository(databaseConnection)
+	eventRepository := postgres_repository.NewEventRepository(postgresDriver.Pool())
 
 	// Services
 	eventService := event_service.NewEventService(eventRepository, gencatClient)
