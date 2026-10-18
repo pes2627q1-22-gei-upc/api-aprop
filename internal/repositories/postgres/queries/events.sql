@@ -29,4 +29,4 @@ WHERE id = $1;
 -- TODO: add paging and filters
 SELECT * FROM events
 ORDER BY id
-LIMIT 10;
+LIMIT $1 OFFSET $2;

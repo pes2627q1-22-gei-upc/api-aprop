@@ -10,5 +10,5 @@ type Repository interface {
 	CreateOrReplace(event_model.Event) (event_model.Event, error)
 	Update(int, event_model.Event) (event_model.Event, error)
 	Get(id int) (event_model.Event, error)
-	List() ([]event_model.Event, error)
+	List(params map[string]any) ([]event_model.Event, error)
 }

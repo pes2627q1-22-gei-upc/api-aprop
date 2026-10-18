@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
-
 	"api-aprop/internal/handlers/response"
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/services/event_service"
@@ -22,7 +21,11 @@ func NewEventHandler(eventService event_service.Service) *EventHandler {
 
 // ListEvents handles GET /events
 func (h *EventHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
-	list, err := h.eventService.ListEvents()
+	params := make(map[string]any)
+	params["pageSize"], _ = strconv.Atoi(r.URL.Query().Get("pageSize"))
+	params["pageNum"], _ = strconv.Atoi(r.URL.Query().Get("pageNum"))
+	
+	list, err := h.eventService.ListEvents(params)
 	if err != nil {
 		writeServiceError(w, err)
 		return

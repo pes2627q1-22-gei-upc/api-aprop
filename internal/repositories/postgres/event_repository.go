@@ -123,8 +123,8 @@ func (r *EventRepository) Get(id int) (event_model.Event, error) {
 	return toModel(row, 0), nil
 }
 
-func (r *EventRepository) List() ([]event_model.Event, error) {
-	rows, err := r.queries.ListEvents(context.Background())
+func (r *EventRepository) List(params map[string]any) ([]event_model.Event, error) {
+	rows, err := r.queries.ListEvents(context.Background(), params)
 	if err != nil {
 		return nil, fmt.Errorf("list events: %w", err)
 	}

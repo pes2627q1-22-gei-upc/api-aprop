@@ -167,12 +167,15 @@ func (q *Queries) GetEvent(ctx context.Context, id int32) (Event, error) {
 const listEvents = `-- name: ListEvents :many
 SELECT id, title, subtitle, description, schedule, url, tickets, ticketsurl, free, permanent, modality, relatedurls, urlnames, images, videos, email, place, latitude, longitude, postalcode, municipality, region, address, phone, activityurl, startdate, enddate FROM events
 ORDER BY id
-LIMIT 10
+LIMIT $1 OFFSET $2
 `
 
 // TODO: add paging and filters
-func (q *Queries) ListEvents(ctx context.Context) ([]Event, error) {
-	rows, err := q.db.Query(ctx, listEvents)
+func (q *Queries) ListEvents(ctx context.Context, params map[string]any) ([]Event, error) {
+	pageSize, _ := params["pageSize"].(int)
+	pageNum, _ := params["pageNum"].(int)
+	
+	rows, err := q.db.Query(ctx, listEvents, pageSize, pageSize*pageNum)
 	if err != nil {
 		return nil, err
 	}
