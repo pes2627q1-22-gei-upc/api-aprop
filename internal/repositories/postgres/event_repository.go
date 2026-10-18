@@ -102,14 +102,41 @@ func (r *EventRepository) Update(id int, e event_model.Event) (event_model.Event
 
 // CreateOrReplace updates the event if its ID already exists, otherwise creates it.
 func (r *EventRepository) CreateOrReplace(e event_model.Event) (event_model.Event, error) {
-	exists, err := r.queries.EventExists(context.Background(), int32(e.ID))
+	id, err := r.queries.EqualEventExists(context.Background(), sqlc.EqualEventExistsParams{
+		Title:       	e.Title,
+		Subtitle:    	toText(e.Subtitle),
+		Description: 	toText(e.Description),
+		Schedule:    	toText(e.Schedule),
+		Url:         	toText(e.URL),
+		Tickets:     	toText(e.Tickets),
+		Ticketsurl:  	toText(e.TicketsURL),
+		Free:        	toPGXBool(e.Free),
+		Permanent:   	toPGXBool(e.Permanent),
+		Modality:    	toText(e.Modality),
+		Relatedurls: 	toText(e.RelatedURLs),
+		Urlnames:    	toText(e.URLnames),
+		Images:      	toText(e.Images),
+		Videos:      	toText(e.Videos),
+		Email:       	toText(e.Email),
+		Place:     	 	toText(e.Place),
+		Latitude:     	toPGXFloat(e.Latitude),
+		Longitude:     	toPGXFloat(e.Longitude),
+		PostalCode:     toText(e.PostalCode),
+		Municipality:   toText(e.Municipality),
+		Region:     	toText(e.Region),
+		Address:     	toText(e.Address),
+		Phone:       	toText(e.Phone),
+		Activityurl: 	toText(e.ActivityURL),
+		Startdate:   	toDate(e.StartDate),
+		Enddate:     	toDate(e.EndDate),
+	})
+	if errors.Is(err, pgx.ErrNoRows){
+		return r.Create(e)
+	}
 	if err != nil {
 		return event_model.Event{}, fmt.Errorf("check event %d: %w", e.ID, err)
 	}
-	if exists {
-		return r.Update(e.ID, e)
-	}
-	return r.Create(e)
+	return r.Update(id, e)
 }
 
 func (r *EventRepository) Get(id int) (event_model.Event, error) {

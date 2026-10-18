@@ -55,7 +55,7 @@ func (s *EventService) LoadOfficialEvents(ctx context.Context, pageSize int) err
 		return fmt.Errorf("load official events: %w", err)
 	}
 	for _, e := range events {
-		if _, err := s.eventRepository.Create(e); err != nil {
+		if _, err := s.eventRepository.CreateOrReplace(e); err != nil {
 			log.Printf("store official event %d: %v", e.Code, err)
 		}
 	}
