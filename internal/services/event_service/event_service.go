@@ -35,8 +35,8 @@ func (s *EventService) GetEvent(id int) (event_model.Event, error) {
 	return e, nil
 }
 
-func (s *EventService) ListEvents() ([]event_model.Event, error) {
-	return s.eventRepository.List()
+func (s *EventService) ListEvents(params map[string]any) ([]event_model.Event, error) {
+	return s.eventRepository.List(params)
 }
 
 func (s *EventService) CreateEvent(e event_model.Event) (event_model.Event, error) {
@@ -55,7 +55,7 @@ func (s *EventService) LoadOfficialEvents(ctx context.Context, pageSize int) err
 		return fmt.Errorf("load official events: %w", err)
 	}
 	for _, e := range events {
-		if _, err := s.eventRepository.Create(e); err != nil {
+		if _, err := s.eventRepository.CreateOrReplace(e); err != nil {
 			log.Printf("store official event %d: %v", e.Code, err)
 		}
 	}

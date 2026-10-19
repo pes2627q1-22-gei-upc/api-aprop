@@ -70,27 +70,33 @@ type Category struct {
 }
 
 type Event struct {
-	ID          int32
-	Title       string
-	Subtitle    pgtype.Text
-	Description string
-	Schedule    pgtype.Text
-	Url         pgtype.Text
-	Tickets     pgtype.Text
-	Ticketsurl  pgtype.Text
-	Free        bool
-	Permanent   bool
-	Online      bool
-	Relatedurls pgtype.Text
-	Urlnames    pgtype.Text
-	Images      pgtype.Text
-	Videos      pgtype.Text
-	Email       pgtype.Text
-	Placeid     pgtype.Int4
-	Phone       pgtype.Text
-	Activityurl pgtype.Text
-	Startdate   pgtype.Date
-	Enddate     pgtype.Date
+	ID          	int32
+	Title       	string
+	Subtitle    	pgtype.Text
+	Description 	pgtype.Text
+	Schedule    	pgtype.Text
+	Url         	pgtype.Text
+	Tickets     	pgtype.Text
+	Ticketsurl  	pgtype.Text
+	Free        	pgtype.Bool
+	Permanent   	pgtype.Bool
+	Modality    	pgtype.Text
+	Relatedurls 	pgtype.Text
+	Urlnames    	pgtype.Text
+	Images      	pgtype.Text
+	Videos      	pgtype.Text
+	Email       	pgtype.Text
+	Place			pgtype.Text
+	Latitude		pgtype.Float4
+	Longitude		pgtype.Float4
+	PostalCode		pgtype.Text
+	Municipality	pgtype.Text
+	Region			pgtype.Text
+	Address			pgtype.Text
+	Phone       	pgtype.Text
+	Activityurl		pgtype.Text
+	Startdate   	pgtype.Date
+	Enddate     	pgtype.Date
 }
 
 type Eventcategory struct {
@@ -148,17 +154,6 @@ type Notificationtype struct {
 type Officialevent struct {
 	ID   int32
 	Code pgtype.Int8
-}
-
-type Place struct {
-	ID           int32
-	Name         string
-	Address      string
-	Municipality pgtype.Text
-	Region       pgtype.Text
-	Latitude     pgtype.Float4
-	Longitude    pgtype.Float4
-	Postalcode   pgtype.Text
 }
 
 type Preferencetest struct {

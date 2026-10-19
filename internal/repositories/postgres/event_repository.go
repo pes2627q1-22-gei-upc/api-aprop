@@ -28,26 +28,32 @@ func NewEventRepository(pool *pgxpool.Pool) *EventRepository {
 
 func (r *EventRepository) Create(e event_model.Event) (event_model.Event, error) {
 	row, err := r.queries.CreateEvent(context.Background(), sqlc.CreateEventParams{
-		Title:       e.Title,
-		Subtitle:    toText(e.Subtitle),
-		Description: e.Description,
-		Schedule:    toText(e.Schedule),
-		Url:         toText(e.URL),
-		Tickets:     toText(e.Tickets),
-		Ticketsurl:  toText(e.TicketsURL),
-		Free:        e.Free,
-		Permanent:   e.Permanent,
-		Online:      e.Online,
-		Relatedurls: toText(e.RelatedURLs),
-		Urlnames:    toText(e.URLnames),
-		Images:      toText(e.Images),
-		Videos:      toText(e.Videos),
-		Email:       toText(e.Email),
-		Placeid:     e.PlaceID,
-		Phone:       toText(e.Phone),
-		Activityurl: toText(e.ActivityURL),
-		Startdate:   toDate(e.StartDate),
-		Enddate:     toDate(e.EndDate),
+		Title:       	e.Title,
+		Subtitle:    	toText(e.Subtitle),
+		Description: 	toText(e.Description),
+		Schedule:    	toText(e.Schedule),
+		Url:         	toText(e.URL),
+		Tickets:     	toText(e.Tickets),
+		Ticketsurl:  	toText(e.TicketsURL),
+		Free:        	toPGXBool(e.Free),
+		Permanent:   	toPGXBool(e.Permanent),
+		Modality:    	toText(e.Modality),
+		Relatedurls: 	toText(e.RelatedURLs),
+		Urlnames:    	toText(e.URLnames),
+		Images:      	toText(e.Images),
+		Videos:      	toText(e.Videos),
+		Email:       	toText(e.Email),
+		Place:     	 	toText(e.Place),
+		Latitude:     	toPGXFloat(e.Latitude),
+		Longitude:     	toPGXFloat(e.Longitude),
+		PostalCode:     toText(e.PostalCode),
+		Municipality:   toText(e.Municipality),
+		Region:     	toText(e.Region),
+		Address:     	toText(e.Address),
+		Phone:       	toText(e.Phone),
+		Activityurl: 	toText(e.ActivityURL),
+		Startdate:   	toDate(e.StartDate),
+		Enddate:     	toDate(e.EndDate),
 	})
 	if err != nil {
 		return event_model.Event{}, fmt.Errorf("create event: %w", err)
@@ -57,27 +63,33 @@ func (r *EventRepository) Create(e event_model.Event) (event_model.Event, error)
 
 func (r *EventRepository) Update(id int, e event_model.Event) (event_model.Event, error) {
 	row, err := r.queries.UpdateEvent(context.Background(), sqlc.UpdateEventParams{
-		ID:          int32(id),
-		Title:       e.Title,
-		Subtitle:    toText(e.Subtitle),
-		Description: e.Description,
-		Schedule:    toText(e.Schedule),
-		Url:         toText(e.URL),
-		Tickets:     toText(e.Tickets),
-		Ticketsurl:  toText(e.TicketsURL),
-		Free:        e.Free,
-		Permanent:   e.Permanent,
-		Online:      e.Online,
-		Relatedurls: toText(e.RelatedURLs),
-		Urlnames:    toText(e.URLnames),
-		Images:      toText(e.Images),
-		Videos:      toText(e.Videos),
-		Email:       toText(e.Email),
-		Placeid:     e.PlaceID,
-		Phone:       toText(e.Phone),
-		Activityurl: toText(e.ActivityURL),
-		Startdate:   toDate(e.StartDate),
-		Enddate:     toDate(e.EndDate),
+		ID:          	int32(id),
+		Title:       	e.Title,
+		Subtitle:    	toText(e.Subtitle),
+		Description: 	toText(e.Description),
+		Schedule:    	toText(e.Schedule),
+		Url:         	toText(e.URL),
+		Tickets:     	toText(e.Tickets),
+		Ticketsurl:  	toText(e.TicketsURL),
+		Free:        	toPGXBool(e.Free),
+		Permanent:   	toPGXBool(e.Permanent),
+		Modality:    	toText(e.Modality),
+		Relatedurls: 	toText(e.RelatedURLs),
+		Urlnames:    	toText(e.URLnames),
+		Images:      	toText(e.Images),
+		Videos:      	toText(e.Videos),
+		Email:       	toText(e.Email),
+		Place:     	 	toText(e.Place),
+		Latitude:     	toPGXFloat(e.Latitude),
+		Longitude:     	toPGXFloat(e.Longitude),
+		PostalCode:     toText(e.PostalCode),
+		Municipality:   toText(e.Municipality),
+		Region:     	toText(e.Region),
+		Address:     	toText(e.Address),
+		Phone:       	toText(e.Phone),
+		Activityurl: 	toText(e.ActivityURL),
+		Startdate:   	toDate(e.StartDate),
+		Enddate:     	toDate(e.EndDate),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return event_model.Event{}, fmt.Errorf("update event %d: %w", id, event_repository.ErrEventNotFound)
@@ -90,14 +102,41 @@ func (r *EventRepository) Update(id int, e event_model.Event) (event_model.Event
 
 // CreateOrReplace updates the event if its ID already exists, otherwise creates it.
 func (r *EventRepository) CreateOrReplace(e event_model.Event) (event_model.Event, error) {
-	exists, err := r.queries.EventExists(context.Background(), int32(e.ID))
+	id, err := r.queries.EqualEventExists(context.Background(), sqlc.EqualEventExistsParams{
+		Title:       	e.Title,
+		Subtitle:    	toText(e.Subtitle),
+		Description: 	toText(e.Description),
+		Schedule:    	toText(e.Schedule),
+		Url:         	toText(e.URL),
+		Tickets:     	toText(e.Tickets),
+		Ticketsurl:  	toText(e.TicketsURL),
+		Free:        	toPGXBool(e.Free),
+		Permanent:   	toPGXBool(e.Permanent),
+		Modality:    	toText(e.Modality),
+		Relatedurls: 	toText(e.RelatedURLs),
+		Urlnames:    	toText(e.URLnames),
+		Images:      	toText(e.Images),
+		Videos:      	toText(e.Videos),
+		Email:       	toText(e.Email),
+		Place:     	 	toText(e.Place),
+		Latitude:     	toPGXFloat(e.Latitude),
+		Longitude:     	toPGXFloat(e.Longitude),
+		PostalCode:     toText(e.PostalCode),
+		Municipality:   toText(e.Municipality),
+		Region:     	toText(e.Region),
+		Address:     	toText(e.Address),
+		Phone:       	toText(e.Phone),
+		Activityurl: 	toText(e.ActivityURL),
+		Startdate:   	toDate(e.StartDate),
+		Enddate:     	toDate(e.EndDate),
+	})
+	if errors.Is(err, pgx.ErrNoRows){
+		return r.Create(e)
+	}
 	if err != nil {
 		return event_model.Event{}, fmt.Errorf("check event %d: %w", e.ID, err)
 	}
-	if exists {
-		return r.Update(e.ID, e)
-	}
-	return r.Create(e)
+	return r.Update(id, e)
 }
 
 func (r *EventRepository) Get(id int) (event_model.Event, error) {
@@ -111,8 +150,8 @@ func (r *EventRepository) Get(id int) (event_model.Event, error) {
 	return toModel(row, 0), nil
 }
 
-func (r *EventRepository) List() ([]event_model.Event, error) {
-	rows, err := r.queries.ListEvents(context.Background())
+func (r *EventRepository) List(params map[string]any) ([]event_model.Event, error) {
+	rows, err := r.queries.ListEvents(context.Background(), params)
 	if err != nil {
 		return nil, fmt.Errorf("list events: %w", err)
 	}
@@ -127,28 +166,34 @@ func (r *EventRepository) List() ([]event_model.Event, error) {
 // The code is not stored in the events table, so it is passed separately.
 func toModel(row sqlc.Event, code int64) event_model.Event {
 	return event_model.Event{
-		ID:          int(row.ID),
-		Code:        code,
-		Title:       row.Title,
-		Subtitle:    row.Subtitle.String,
-		Schedule:    row.Schedule.String,
-		Tickets:     row.Tickets.String,
-		URL:         row.Url.String,
-		TicketsURL:  row.Ticketsurl.String,
-		Description: row.Description,
-		Free:        row.Free,
-		Permanent:   row.Permanent,
-		RelatedURLs: row.Relatedurls.String,
-		URLnames:    row.Urlnames.String,
-		Online:      row.Online,
-		Images:      row.Images.String,
-		Videos:      row.Videos.String,
-		Email:       row.Email.String,
-		PlaceID:     row.Placeid,
-		Phone:       row.Phone.String,
-		ActivityURL: row.Activityurl.String,
-		StartDate:   row.Startdate.Time,
-		EndDate:     row.Enddate.Time,
+		ID:          	int(row.ID),
+		Code:        	code,
+		Title:       	row.Title,
+		Subtitle:    	row.Subtitle.String,
+		Schedule:    	row.Schedule.String,
+		Tickets:     	row.Tickets.String,
+		URL:         	row.Url.String,
+		TicketsURL:  	row.Ticketsurl.String,
+		Description: 	row.Description.String,
+		Free:        	row.Free.Bool,
+		Permanent:   	row.Permanent.Bool,
+		RelatedURLs: 	row.Relatedurls.String,
+		URLnames:    	row.Urlnames.String,
+		Modality:    	row.Modality.String,
+		Images:      	row.Images.String,
+		Videos:      	row.Videos.String,
+		Email:       	row.Email.String,
+		Place:	     	row.Place.String,
+		Latitude:		row.Latitude.Float32,
+		Longitude:		row.Longitude.Float32,
+		PostalCode:		row.PostalCode.String,
+		Municipality:	row.Municipality.String,
+		Region:			row.Region.String,
+		Address:		row.Address.String,
+		Phone:       	row.Phone.String,
+		ActivityURL: 	row.Activityurl.String,
+		StartDate:   	row.Startdate.Time,
+		EndDate:     	row.Enddate.Time,
 	}
 }
 
@@ -160,4 +205,12 @@ func toText(s string) pgtype.Text {
 // toDate stores the zero time as NULL.
 func toDate(t time.Time) pgtype.Date {
 	return pgtype.Date{Time: t, Valid: !t.IsZero()}
+}
+
+func toPGXFloat(f float32) (pgtype.Float4) {
+	return pgtype.Float4{Float32: f, Valid: true}
+}
+
+func toPGXBool(b bool) pgtype.Bool{
+	return pgtype.Bool{Bool: b, Valid: true}
 }

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+	"io"
 
 	"api-aprop/internal/models/event_model"
 )
@@ -36,13 +37,16 @@ type queryPage struct {
 
 type queryRequest struct {
 	Query string    `json:"query"`
-	Page  queryPage `json:"page"`
+	Page queryPage	`json:"page"`
 }
 
 func (c *GencatClient) FetchEvents(ctx context.Context, pageNumber int, pageSize int) ([]event_model.Event, error) {
 	jsonBody, err := json.Marshal(queryRequest{
-		Query: "SELECT *",
-		Page:  queryPage{PageNumber: pageNumber, PageSize: pageSize},
+		Query: "SELECT * WHERE data_fi IS NULL OR data_fi > '2026-10-18T00:00:00' ORDER BY CASE WHEN data_fi IS NULL THEN 1 ELSE 0 END ASC, data_fi ASC",
+		Page: queryPage{
+			PageNumber: pageNumber,
+			PageSize: pageSize,
+		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("encode gencat query: %w", err)
@@ -62,6 +66,15 @@ func (c *GencatClient) FetchEvents(ctx context.Context, pageNumber int, pageSize
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			body, _ := io.ReadAll(resp.Body)
+			fmt.Printf(
+				"fetch events: %w: status=%d, body=%s",
+				ErrUnexpectedStatus,
+				resp.StatusCode,
+				string(body),
+			)
+		}
 		return nil, fmt.Errorf("fetch events: %w: %d", ErrUnexpectedStatus, resp.StatusCode)
 	}
 
@@ -84,6 +97,15 @@ func mapEvent(val map[string]any) event_model.Event {
 
 	if v, ok := val["codi"].(string); ok {
 		e.Code, _ = strconv.ParseInt(v, 10, 64)
+	}
+
+	if v, ok := val["longitud"].(string); ok {
+		f, _ := strconv.ParseFloat(v, 32)
+		e.Longitude = float32(f)
+	}
+	if v, ok := val["latitud"].(string); ok {
+		f, _ := strconv.ParseFloat(v, 32)
+		e.Latitude = float32(f)
 	}
 
 	e.Title, _ = val["denominaci"].(string)
@@ -112,8 +134,19 @@ func mapEvent(val map[string]any) event_model.Event {
 		e.URLnames = fmt.Sprintf("%s,%s", e.URLnames, tmp3)
 	}
 
-	tmp, _ = val["modalitat"].(string)
-	e.Online = tmp == "Virtual"
+	e.Modality, _ = val["modalitat"].(string)
+	if e.Modality == "Presencial"{
+		e.Modality = "Face-to-Face"
+	} else if e.Modality == "Virtual"{
+		e.Modality = "Online"
+	} else if e.Modality == "Presencial o Virtual"{
+		e.Modality = "Online and Face-to-Face"
+	}
+	e.Place, _ = val["espai"].(string)
+	e.PostalCode, _ = val["codi_postal"].(string)
+	e.Address, _ = val["adre_a"].(string)
+	e.Municipality, _ = val["municipi"].(string)
+	e.Region, _ = val["comarca"].(string)
 
 	e.Images, _ = val["imatges"].(string)
 
