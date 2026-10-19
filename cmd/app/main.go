@@ -46,7 +46,7 @@ const (
 
 func main() {
 	// Configuration
-	if err := godotenv.Load(".env.example"); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := godotenv.Load(".env", ".env.example"); err != nil && !errors.Is(err, os.ErrNotExist) {
 		log.Fatalf("load .env: %v", err)
 	}
 
