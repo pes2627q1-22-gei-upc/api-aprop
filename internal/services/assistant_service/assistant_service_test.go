@@ -67,15 +67,26 @@ func (fakeCatalogue) ListByIDs(_ context.Context, ids []int) ([]event_model.Even
 }
 
 // fakeGemini returns the scripted interactions in order and records the requests.
+// Topic classification requests are answered with topic (on_topic by default) and recorded apart.
 type fakeGemini struct {
-	interactions []gemini_client.Interaction
-	err          error
-	block        bool
-	requests     []gemini_client.InteractionRequest
+	interactions  []gemini_client.Interaction
+	topic         string
+	err           error
+	block         bool
+	requests      []gemini_client.InteractionRequest
+	topicRequests []gemini_client.InteractionRequest
 }
 
 func (f *fakeGemini) CreateInteraction(ctx context.Context, req gemini_client.InteractionRequest) (gemini_client.Interaction, error) {
 	req.Input = append([]json.RawMessage(nil), req.Input...)
+	if req.SystemInstruction == topicInstruction && f.err == nil && !f.block {
+		f.topicRequests = append(f.topicRequests, req)
+		topic := f.topic
+		if topic == "" {
+			topic = labelOnTopic
+		}
+		return textReply(topic), nil
+	}
 	f.requests = append(f.requests, req)
 	if f.block {
 		<-ctx.Done()
@@ -272,6 +283,52 @@ func TestSendMessage_ContinuesConversation(t *testing.T) {
 	}
 }
 
+func TestSendMessage_OffTopicGetsFixedReply(t *testing.T) {
+	repo := &fakeChatbotRepository{}
+	gemini := &fakeGemini{topic: " Off_Topic\n"}
+	mcp := &fakeMCP{}
+
+	exchange, err := newService(repo, gemini, mcp).SendMessage(context.Background(), validUserID, "Quin model ets?", false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	reply := exchange.AssistantMessage
+	if reply.Text != offTopicReply || reply.Interpretation != nil || len(reply.RecommendedEvents) != 0 {
+		t.Errorf("reply = %+v", reply)
+	}
+	if len(gemini.requests) != 0 || len(mcp.calls) != 0 {
+		t.Errorf("off topic messages must not reach the agent nor the tools")
+	}
+	if len(repo.saved) != 2 {
+		t.Errorf("the off topic exchange is stored like any other: %+v", repo.saved)
+	}
+	if tools := gemini.topicRequests[0].Tools; len(tools) != 0 {
+		t.Errorf("the classifier must not get tools: %+v", tools)
+	}
+}
+
+func TestSendMessage_TopicUsesRecentHistory(t *testing.T) {
+	startedAt := fixedNow.Add(-time.Hour).Truncate(time.Microsecond)
+	repo := &fakeChatbotRepository{startedAt: startedAt, history: []chatbot_model.Message{
+		{Sender: chatbot_model.SenderUser, Text: "hola"},
+		{Sender: chatbot_model.SenderAssistant, Text: "Hola! Què busques?"},
+		{Sender: chatbot_model.SenderUser, Text: "teatre a Girona"},
+		{Sender: chatbot_model.SenderAssistant, Text: "Aquí tens teatre a Girona."},
+	}}
+	gemini := &fakeGemini{interactions: []gemini_client.Interaction{textReply("Demà també n'hi ha.")}}
+
+	if _, err := newService(repo, gemini, &fakeMCP{}).SendMessage(context.Background(), validUserID, "i demà?", false); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	input := gemini.topicRequests[0].Input
+	if got := strings.Join(stepTypes(input), ","); got != "user_input,model_output,user_input" {
+		t.Fatalf("classifier input = %s", got)
+	}
+	if !strings.Contains(string(input[0]), "teatre a Girona") || !strings.Contains(string(input[2]), "i demà?") {
+		t.Errorf("classifier input = %s", input)
+	}
+}
+
 func TestSendMessage_UnknownToolIsReportedToTheModel(t *testing.T) {
 	gemini := &fakeGemini{interactions: []gemini_client.Interaction{
 		functionCall("c", "delete_everything", `{}`),
@@ -338,7 +395,7 @@ func TestSendMessage_InvalidInput(t *testing.T) {
 			if !errors.Is(err, tt.want) {
 				t.Fatalf("error = %v, want %v", err, tt.want)
 			}
-			if len(gemini.requests) != 0 {
+			if len(gemini.requests) != 0 || len(gemini.topicRequests) != 0 {
 				t.Errorf("gemini must not be called")
 			}
 		})

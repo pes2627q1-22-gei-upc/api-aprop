@@ -24,6 +24,8 @@ const (
 	MaxMessageRunes = 1000
 	maxToolRounds   = 4
 	historyMessages = 10
+	// topicHistory is enough to understand follow ups like "i demà?".
+	topicHistory = 2
 )
 
 type AssistantService struct {
@@ -139,7 +141,16 @@ type lastSearch struct {
 }
 
 // reply runs the agent loop: Gemini decides which MCP tools to call until it answers with text.
+// Messages that are not about the app get a fixed reply and never reach the tools.
 func (s *AssistantService) reply(ctx context.Context, now time.Time, history []chatbot_model.Message, text string) (chatbot_model.Message, error) {
+	onTopic, err := s.isOnTopic(ctx, history, text)
+	if err != nil {
+		return chatbot_model.Message{}, err
+	}
+	if !onTopic {
+		return chatbot_model.Message{Sender: chatbot_model.SenderAssistant, Text: offTopicReply}, nil
+	}
+
 	session, err := s.mcp.Connect(ctx)
 	if err != nil {
 		return chatbot_model.Message{}, err
@@ -200,6 +211,22 @@ func (s *AssistantService) reply(ctx context.Context, now time.Time, history []c
 		}
 	}
 	return chatbot_model.Message{}, fmt.Errorf("no reply after %d tool rounds", maxToolRounds)
+}
+
+// isOnTopic asks the model, without tools, whether the message is about the app.
+// An unexpected answer counts as on topic: the main prompt also refuses unrelated questions.
+func (s *AssistantService) isOnTopic(ctx context.Context, history []chatbot_model.Message, text string) (bool, error) {
+	if len(history) > topicHistory {
+		history = history[len(history)-topicHistory:]
+	}
+	interaction, err := s.gemini.CreateInteraction(ctx, gemini_client.InteractionRequest{
+		SystemInstruction: topicInstruction,
+		Input:             append(historySteps(history), gemini_client.UserInputStep(text)),
+	})
+	if err != nil {
+		return false, fmt.Errorf("classify topic: %w", err)
+	}
+	return !strings.Contains(strings.ToLower(interaction.OutputText()), labelOffTopic), nil
 }
 
 // assistantMessage builds the reply. The interpretation is what the model searched for and the
