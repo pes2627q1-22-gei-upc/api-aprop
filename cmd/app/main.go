@@ -20,10 +20,12 @@ import (
 	"api-aprop/internal/drivers/postgres_driver"
 	"api-aprop/internal/handlers/assistant_handler"
 	"api-aprop/internal/handlers/event_handler"
+	"api-aprop/internal/handlers/signup_handler"
 	postgres_repository "api-aprop/internal/repositories/postgres"
 	"api-aprop/internal/router"
 	"api-aprop/internal/services/assistant_service"
 	"api-aprop/internal/services/event_service"
+	"api-aprop/internal/services/signup_service"
 	"api-aprop/migrations"
 )
 
@@ -121,6 +123,7 @@ func main() {
 	eventRepository := postgres_repository.NewEventRepository(postgresDriver.Pool())
 	chatbotRepository := postgres_repository.NewChatbotRepository(postgresDriver.Pool())
 	catalogueRepository := postgres_repository.NewCatalogueRepository(postgresDriver.Pool())
+  signUpRepository := postgres_repository.NewSignUpRepository(postgresDriver.Pool())
 
 	// Services
 	eventService := event_service.NewEventService(eventRepository, gencatClient)
@@ -128,10 +131,12 @@ func main() {
 		chatbotRepository, catalogueRepository, geminiClient, mcpClient,
 		func() time.Time { return time.Now().In(location) }, assistant_service.ReplyTimeout,
 	)
-
+  signUpService := signup_service.NewSignUpService(signUpRepository)
+  
 	// Handlers
 	eventHandler := event_handler.NewEventHandler(eventService)
 	assistantHandler := assistant_handler.NewAssistantHandler(assistantService)
+  signUpHandler := signup_handler.NewSignUpHandler(signUpService)
 
 	// Initial data
 	if err := eventService.LoadOfficialEvents(context.Background(), gencatPageSize); err != nil {
@@ -145,7 +150,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           router.NewRouter(eventHandler, assistantHandler),
+    Handler:           router.NewRouter(eventHandler, assistantHandler, signUpHandler),
 		Protocols:         protocols,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
