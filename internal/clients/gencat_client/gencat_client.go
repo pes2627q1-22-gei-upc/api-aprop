@@ -69,7 +69,7 @@ func (c *GencatClient) FetchEvents(ctx context.Context, pageNumber int, pageSize
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			body, _ := io.ReadAll(resp.Body)
 			fmt.Printf(
-				"fetch events: %w: status=%d, body=%s",
+				"fetch events: %v: status=%d, body=%s",
 				ErrUnexpectedStatus,
 				resp.StatusCode,
 				string(body),
