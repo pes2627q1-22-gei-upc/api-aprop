@@ -14,41 +14,42 @@ import (
 const createEvent = `-- name: CreateEvent :one
 INSERT INTO events (
     title, subtitle, description, schedule, url, tickets, ticketsurl, free, permanent, modality,
-    relatedurls, urlnames, images, videos, email, place, latitude, longitude, postalcode, municipality, region, address, phone, activityurl, startdate, enddate
+    relatedurls, urlnames, images, videos, email, place, latitude, longitude, postalcode, municipality,
+    region, address, phone, activityurl, startdate, enddate
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
     $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26
 )
-RETURNING id, title, subtitle, description, schedule, url, tickets, ticketsurl, free, permanent, modality, relatedurls, urlnames, images, videos, email, place, latitude, longitude, postalcode, municipality, region, address, phone, activityurl, startdate, enddate
+RETURNING id, title, subtitle, description, schedule, url, tickets, ticketsurl, free, permanent, relatedurls, urlnames, images, videos, email, phone, activityurl, startdate, enddate, modality, place, latitude, longitude, postalcode, municipality, region, address
 `
 
 type CreateEventParams struct {
-	Title       	string
-	Subtitle    	pgtype.Text
-	Description 	pgtype.Text
-	Schedule    	pgtype.Text
-	Url         	pgtype.Text
-	Tickets     	pgtype.Text
-	Ticketsurl  	pgtype.Text
-	Free        	pgtype.Bool
-	Permanent   	pgtype.Bool
-	Modality    	pgtype.Text
-	Relatedurls 	pgtype.Text
-	Urlnames    	pgtype.Text
-	Images      	pgtype.Text
-	Videos      	pgtype.Text
-	Email       	pgtype.Text
-	Place			pgtype.Text
-	Latitude		pgtype.Float4
-	Longitude		pgtype.Float4
-	PostalCode		pgtype.Text
-	Municipality	pgtype.Text
-	Region			pgtype.Text
-	Address			pgtype.Text
-	Phone       	pgtype.Text
-	Activityurl		pgtype.Text
-	Startdate   	pgtype.Date
-	Enddate     	pgtype.Date
+	Title        string
+	Subtitle     pgtype.Text
+	Description  pgtype.Text
+	Schedule     pgtype.Text
+	Url          pgtype.Text
+	Tickets      pgtype.Text
+	Ticketsurl   pgtype.Text
+	Free         pgtype.Bool
+	Permanent    pgtype.Bool
+	Modality     pgtype.Text
+	Relatedurls  pgtype.Text
+	Urlnames     pgtype.Text
+	Images       pgtype.Text
+	Videos       pgtype.Text
+	Email        pgtype.Text
+	Place        pgtype.Text
+	Latitude     pgtype.Float4
+	Longitude    pgtype.Float4
+	PostalCode   pgtype.Text
+	Municipality pgtype.Text
+	Region       pgtype.Text
+	Address      pgtype.Text
+	Phone        pgtype.Text
+	Activityurl  pgtype.Text
+	Startdate    pgtype.Date
+	Enddate      pgtype.Date
 }
 
 func (q *Queries) CreateEvent(ctx context.Context, arg CreateEventParams) (Event, error) {
@@ -92,12 +93,16 @@ func (q *Queries) CreateEvent(ctx context.Context, arg CreateEventParams) (Event
 		&i.Ticketsurl,
 		&i.Free,
 		&i.Permanent,
-		&i.Modality,
 		&i.Relatedurls,
 		&i.Urlnames,
 		&i.Images,
 		&i.Videos,
 		&i.Email,
+		&i.Phone,
+		&i.Activityurl,
+		&i.Startdate,
+		&i.Enddate,
+		&i.Modality,
 		&i.Place,
 		&i.Latitude,
 		&i.Longitude,
@@ -105,12 +110,116 @@ func (q *Queries) CreateEvent(ctx context.Context, arg CreateEventParams) (Event
 		&i.Municipality,
 		&i.Region,
 		&i.Address,
-		&i.Phone,
-		&i.Activityurl,
-		&i.Startdate,
-		&i.Enddate,
 	)
 	return i, err
+}
+
+const createOfficialEvent = `-- name: CreateOfficialEvent :one
+INSERT INTO OfficialEvents(id, code) VALUES ($1, $2) RETURNING ID
+`
+
+type CreateOfficialEventParams struct {
+	ID   int32
+	Code pgtype.Int8
+}
+
+func (q *Queries) CreateOfficialEvent(ctx context.Context, arg CreateOfficialEventParams) (int32, error) {
+	row := q.db.QueryRow(ctx, createOfficialEvent, arg.ID, arg.Code)
+	var id int32
+	err := row.Scan(&id)
+	return id, err
+}
+
+const equalEventExists = `-- name: EqualEventExists :one
+SELECT id FROM events WHERE title IS NOT DISTINCT FROM $1 
+and subtitle IS NOT DISTINCT FROM $2
+and description IS NOT DISTINCT FROM $3
+and schedule IS NOT DISTINCT FROM $4
+and url IS NOT DISTINCT FROM $5
+and tickets IS NOT DISTINCT FROM $6
+and ticketsurl IS NOT DISTINCT FROM $7
+and free IS NOT DISTINCT FROM $8
+and permanent IS NOT DISTINCT FROM $9
+and modality IS NOT DISTINCT FROM $10
+and relatedurls IS NOT DISTINCT FROM $11
+and urlnames IS NOT DISTINCT FROM $12
+and images IS NOT DISTINCT FROM $13
+and videos IS NOT DISTINCT FROM $14
+and email IS NOT DISTINCT FROM $15
+and place IS NOT DISTINCT FROM $16
+and latitude IS NOT DISTINCT FROM $17
+and longitude IS NOT DISTINCT FROM $18
+and postalcode IS NOT DISTINCT FROM $19
+and municipality IS NOT DISTINCT FROM $20
+and region IS NOT DISTINCT FROM $21
+and address IS NOT DISTINCT FROM $22
+and phone IS NOT DISTINCT FROM $23
+and activityurl IS NOT DISTINCT FROM $24
+and startdate IS NOT DISTINCT FROM $25
+and enddate IS NOT DISTINCT FROM $26 LIMIT 1
+`
+
+type EqualEventExistsParams struct {
+	Title        string
+	Subtitle     pgtype.Text
+	Description  pgtype.Text
+	Schedule     pgtype.Text
+	Url          pgtype.Text
+	Tickets      pgtype.Text
+	Ticketsurl   pgtype.Text
+	Free         pgtype.Bool
+	Permanent    pgtype.Bool
+	Modality     pgtype.Text
+	Relatedurls  pgtype.Text
+	Urlnames     pgtype.Text
+	Images       pgtype.Text
+	Videos       pgtype.Text
+	Email        pgtype.Text
+	Place        pgtype.Text
+	Latitude     pgtype.Float4
+	Longitude    pgtype.Float4
+	PostalCode   pgtype.Text
+	Municipality pgtype.Text
+	Region       pgtype.Text
+	Address      pgtype.Text
+	Phone        pgtype.Text
+	Activityurl  pgtype.Text
+	Startdate    pgtype.Date
+	Enddate      pgtype.Date
+}
+
+func (q *Queries) EqualEventExists(ctx context.Context, arg EqualEventExistsParams) (int32, error) {
+	row := q.db.QueryRow(ctx, equalEventExists,
+		arg.Title,
+		arg.Subtitle,
+		arg.Description,
+		arg.Schedule,
+		arg.Url,
+		arg.Tickets,
+		arg.Ticketsurl,
+		arg.Free,
+		arg.Permanent,
+		arg.Modality,
+		arg.Relatedurls,
+		arg.Urlnames,
+		arg.Images,
+		arg.Videos,
+		arg.Email,
+		arg.Place,
+		arg.Latitude,
+		arg.Longitude,
+		arg.PostalCode,
+		arg.Municipality,
+		arg.Region,
+		arg.Address,
+		arg.Phone,
+		arg.Activityurl,
+		arg.Startdate,
+		arg.Enddate,
+	)
+	var id int32
+	err := row.Scan(&id)
+	return id, err
 }
 
 const eventExists = `-- name: EventExists :one
@@ -125,7 +234,7 @@ func (q *Queries) EventExists(ctx context.Context, id int32) (bool, error) {
 }
 
 const getEvent = `-- name: GetEvent :one
-SELECT id, title, subtitle, description, schedule, url, tickets, ticketsurl, free, permanent, modality, relatedurls, urlnames, images, videos, email, place, latitude, longitude, postalcode, municipality, region, address, phone, activityurl, startdate, enddate FROM events
+SELECT id, title, subtitle, description, schedule, url, tickets, ticketsurl, free, permanent, relatedurls, urlnames, images, videos, email, phone, activityurl, startdate, enddate, modality, place, latitude, longitude, postalcode, municipality, region, address FROM events
 WHERE id = $1
 `
 
@@ -143,12 +252,16 @@ func (q *Queries) GetEvent(ctx context.Context, id int32) (Event, error) {
 		&i.Ticketsurl,
 		&i.Free,
 		&i.Permanent,
-		&i.Modality,
 		&i.Relatedurls,
 		&i.Urlnames,
 		&i.Images,
 		&i.Videos,
 		&i.Email,
+		&i.Phone,
+		&i.Activityurl,
+		&i.Startdate,
+		&i.Enddate,
+		&i.Modality,
 		&i.Place,
 		&i.Latitude,
 		&i.Longitude,
@@ -156,26 +269,24 @@ func (q *Queries) GetEvent(ctx context.Context, id int32) (Event, error) {
 		&i.Municipality,
 		&i.Region,
 		&i.Address,
-		&i.Phone,
-		&i.Activityurl,
-		&i.Startdate,
-		&i.Enddate,
 	)
 	return i, err
 }
 
 const listEvents = `-- name: ListEvents :many
-SELECT id, title, subtitle, description, schedule, url, tickets, ticketsurl, free, permanent, modality, relatedurls, urlnames, images, videos, email, place, latitude, longitude, postalcode, municipality, region, address, phone, activityurl, startdate, enddate FROM events
+SELECT id, title, subtitle, description, schedule, url, tickets, ticketsurl, free, permanent, relatedurls, urlnames, images, videos, email, phone, activityurl, startdate, enddate, modality, place, latitude, longitude, postalcode, municipality, region, address FROM events
 ORDER BY id
 LIMIT $1 OFFSET $2
 `
 
+type ListEventsParams struct {
+	Limit  int32
+	Offset int32
+}
+
 // TODO: add paging and filters
-func (q *Queries) ListEvents(ctx context.Context, params map[string]any) ([]Event, error) {
-	pageSize, _ := params["pageSize"].(int)
-	pageNum, _ := params["pageNum"].(int)
-	
-	rows, err := q.db.Query(ctx, listEvents, pageSize, pageSize*pageNum)
+func (q *Queries) ListEvents(ctx context.Context, arg ListEventsParams) ([]Event, error) {
+	rows, err := q.db.Query(ctx, listEvents, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -194,12 +305,16 @@ func (q *Queries) ListEvents(ctx context.Context, params map[string]any) ([]Even
 			&i.Ticketsurl,
 			&i.Free,
 			&i.Permanent,
-			&i.Modality,
 			&i.Relatedurls,
 			&i.Urlnames,
 			&i.Images,
 			&i.Videos,
 			&i.Email,
+			&i.Phone,
+			&i.Activityurl,
+			&i.Startdate,
+			&i.Enddate,
+			&i.Modality,
 			&i.Place,
 			&i.Latitude,
 			&i.Longitude,
@@ -207,10 +322,6 @@ func (q *Queries) ListEvents(ctx context.Context, params map[string]any) ([]Even
 			&i.Municipality,
 			&i.Region,
 			&i.Address,
-			&i.Phone,
-			&i.Activityurl,
-			&i.Startdate,
-			&i.Enddate,
 		); err != nil {
 			return nil, err
 		}
@@ -227,39 +338,39 @@ UPDATE events SET
     title = $2, subtitle = $3, description = $4, schedule = $5, url = $6, tickets = $7,
     ticketsurl = $8, free = $9, permanent = $10, modality = $11, relatedurls = $12, urlnames = $13,
     images = $14, videos = $15, email = $16, place = $17, latitude = $18, longitude = $19, postalcode = $20,
-	municipality = $21, region = $22, address = $23, phone = $24, activityurl = $25, startdate = $26, enddate = $27
+    municipality = $21, region = $22, address = $23, phone = $24, activityurl = $25, startdate = $26, enddate = $27
 WHERE id = $1
-RETURNING id, title, subtitle, description, schedule, url, tickets, ticketsurl, free, permanent, modality, relatedurls, urlnames, images, videos, email, place, latitude, longitude, postalcode, municipality, region, address, phone, activityurl, startdate, enddate
+RETURNING id, title, subtitle, description, schedule, url, tickets, ticketsurl, free, permanent, relatedurls, urlnames, images, videos, email, phone, activityurl, startdate, enddate, modality, place, latitude, longitude, postalcode, municipality, region, address
 `
 
 type UpdateEventParams struct {
-	ID          	int32
-	Title       	string
-	Subtitle    	pgtype.Text
-	Description 	pgtype.Text
-	Schedule    	pgtype.Text
-	Url         	pgtype.Text
-	Tickets     	pgtype.Text
-	Ticketsurl  	pgtype.Text
-	Free        	pgtype.Bool
-	Permanent   	pgtype.Bool
-	Modality    	pgtype.Text
-	Relatedurls 	pgtype.Text
-	Urlnames    	pgtype.Text
-	Images      	pgtype.Text
-	Videos      	pgtype.Text
-	Email       	pgtype.Text
-	Place			pgtype.Text
-	Latitude		pgtype.Float4
-	Longitude		pgtype.Float4
-	PostalCode		pgtype.Text
-	Municipality	pgtype.Text
-	Region			pgtype.Text
-	Address			pgtype.Text
-	Phone       	pgtype.Text
-	Activityurl		pgtype.Text
-	Startdate   	pgtype.Date
-	Enddate     	pgtype.Date
+	ID           int32
+	Title        string
+	Subtitle     pgtype.Text
+	Description  pgtype.Text
+	Schedule     pgtype.Text
+	Url          pgtype.Text
+	Tickets      pgtype.Text
+	Ticketsurl   pgtype.Text
+	Free         pgtype.Bool
+	Permanent    pgtype.Bool
+	Modality     pgtype.Text
+	Relatedurls  pgtype.Text
+	Urlnames     pgtype.Text
+	Images       pgtype.Text
+	Videos       pgtype.Text
+	Email        pgtype.Text
+	Place        pgtype.Text
+	Latitude     pgtype.Float4
+	Longitude    pgtype.Float4
+	PostalCode   pgtype.Text
+	Municipality pgtype.Text
+	Region       pgtype.Text
+	Address      pgtype.Text
+	Phone        pgtype.Text
+	Activityurl  pgtype.Text
+	Startdate    pgtype.Date
+	Enddate      pgtype.Date
 }
 
 func (q *Queries) UpdateEvent(ctx context.Context, arg UpdateEventParams) (Event, error) {
@@ -304,12 +415,16 @@ func (q *Queries) UpdateEvent(ctx context.Context, arg UpdateEventParams) (Event
 		&i.Ticketsurl,
 		&i.Free,
 		&i.Permanent,
-		&i.Modality,
 		&i.Relatedurls,
 		&i.Urlnames,
 		&i.Images,
 		&i.Videos,
 		&i.Email,
+		&i.Phone,
+		&i.Activityurl,
+		&i.Startdate,
+		&i.Enddate,
+		&i.Modality,
 		&i.Place,
 		&i.Latitude,
 		&i.Longitude,
@@ -317,101 +432,6 @@ func (q *Queries) UpdateEvent(ctx context.Context, arg UpdateEventParams) (Event
 		&i.Municipality,
 		&i.Region,
 		&i.Address,
-		&i.Phone,
-		&i.Activityurl,
-		&i.Startdate,
-		&i.Enddate,
 	)
 	return i, err
-}
-
-type EqualEventExistsParams struct {
-	Title       	string
-	Subtitle    	pgtype.Text
-	Description 	pgtype.Text
-	Schedule    	pgtype.Text
-	Url         	pgtype.Text
-	Tickets     	pgtype.Text
-	Ticketsurl  	pgtype.Text
-	Free        	pgtype.Bool
-	Permanent   	pgtype.Bool
-	Modality    	pgtype.Text
-	Relatedurls 	pgtype.Text
-	Urlnames    	pgtype.Text
-	Images      	pgtype.Text
-	Videos      	pgtype.Text
-	Email       	pgtype.Text
-	Place			pgtype.Text
-	Latitude		pgtype.Float4
-	Longitude		pgtype.Float4
-	PostalCode		pgtype.Text
-	Municipality	pgtype.Text
-	Region			pgtype.Text
-	Address			pgtype.Text
-	Phone       	pgtype.Text
-	Activityurl		pgtype.Text
-	Startdate   	pgtype.Date
-	Enddate     	pgtype.Date
-}
-
-const equalEventExists = `-- name: EqualEventExists :one
-SELECT id FROM events WHERE title IS NOT DISTINCT FROM $1 
-and subtitle IS NOT DISTINCT FROM $2
-and description IS NOT DISTINCT FROM $3
-and schedule IS NOT DISTINCT FROM $4
-and url IS NOT DISTINCT FROM $5
-and tickets IS NOT DISTINCT FROM $6
-and ticketsurl IS NOT DISTINCT FROM $7
-and free IS NOT DISTINCT FROM $8
-and permanent IS NOT DISTINCT FROM $9
-and modality IS NOT DISTINCT FROM $10
-and relatedurls IS NOT DISTINCT FROM $11
-and urlnames IS NOT DISTINCT FROM $12
-and images IS NOT DISTINCT FROM $13
-and videos IS NOT DISTINCT FROM $14
-and email IS NOT DISTINCT FROM $15
-and place IS NOT DISTINCT FROM $16
-and latitude IS NOT DISTINCT FROM $17
-and longitude IS NOT DISTINCT FROM $18
-and postalcode IS NOT DISTINCT FROM $19
-and municipality IS NOT DISTINCT FROM $20
-and region IS NOT DISTINCT FROM $21
-and address IS NOT DISTINCT FROM $22
-and phone IS NOT DISTINCT FROM $23
-and activityurl IS NOT DISTINCT FROM $24
-and startdate IS NOT DISTINCT FROM $25
-and enddate IS NOT DISTINCT FROM $26 LIMIT 1
-`
-
-func (q *Queries) EqualEventExists(ctx context.Context, arg EqualEventExistsParams) (int, error){
-	var id int
-	err := q.db.QueryRow(ctx, equalEventExists,
-		arg.Title,
-		arg.Subtitle,
-		arg.Description,
-		arg.Schedule,
-		arg.Url,
-		arg.Tickets,
-		arg.Ticketsurl,
-		arg.Free,
-		arg.Permanent,
-		arg.Modality,
-		arg.Relatedurls,
-		arg.Urlnames,
-		arg.Images,
-		arg.Videos,
-		arg.Email,
-		arg.Place,
-		arg.Latitude,
-		arg.Longitude,
-		arg.PostalCode,
-		arg.Municipality,
-		arg.Region,
-		arg.Address,
-		arg.Phone,
-		arg.Activityurl,
-		arg.Startdate,
-		arg.Enddate,
-	).Scan(&id)
-	return id, err
 }

@@ -45,7 +45,7 @@ func (s *EventService) CreateEvent(e event_model.Event) (event_model.Event, erro
 	}
 	// The ID is always assigned by the repository
 	e.ID = 0
-	return s.eventRepository.Create(e)
+	return s.eventRepository.Create(e, false)
 }
 
 // LoadOfficialEvents fetches the most recent events from the gencat open data and stores them.
