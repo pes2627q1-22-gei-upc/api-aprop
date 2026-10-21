@@ -42,7 +42,7 @@ type queryRequest struct {
 
 func (c *GencatClient) FetchEvents(ctx context.Context, pageNumber int, pageSize int) ([]event_model.Event, error) {
 	jsonBody, err := json.Marshal(queryRequest{
-		Query: "SELECT * WHERE data_fi IS NULL OR data_fi > '2026-10-18T00:00:00' ORDER BY CASE WHEN data_fi IS NULL THEN 1 ELSE 0 END ASC, data_fi ASC",
+		Query: "SELECT * WHERE data_fi IS NULL OR data_fi > '2026-10-18T00:00:00' ORDER BY data_fi ASC NULLS LAST",
 		Page: queryPage{
 			PageNumber: pageNumber,
 			PageSize: pageSize,
@@ -69,7 +69,7 @@ func (c *GencatClient) FetchEvents(ctx context.Context, pageNumber int, pageSize
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			body, _ := io.ReadAll(resp.Body)
 			fmt.Printf(
-				"fetch events: %w: status=%d, body=%s",
+				"fetch events: %v: status=%d, body=%s",
 				ErrUnexpectedStatus,
 				resp.StatusCode,
 				string(body),

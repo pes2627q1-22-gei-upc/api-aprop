@@ -69,6 +69,33 @@ type Category struct {
 	Name string
 }
 
+type Chatbotconversation struct {
+	Userid    pgtype.UUID
+	Startedat pgtype.Timestamptz
+}
+
+type Chatbotmessage struct {
+	Userid                pgtype.UUID
+	Conversationstartedat pgtype.Timestamptz
+	Sentat                pgtype.Timestamptz
+	Sender                string
+	Text                  string
+	Byvoice               bool
+	Category              pgtype.Text
+	Municipality          pgtype.Text
+	Datefrom              pgtype.Date
+	Dateto                pgtype.Date
+}
+
+type Chatbotrecommendation struct {
+	Userid                pgtype.UUID
+	Conversationstartedat pgtype.Timestamptz
+	Sentat                pgtype.Timestamptz
+	Sender                string
+	Event                 int32
+	Position              int32
+}
+
 type Event struct {
 	ID          	int32
 	Title       	string

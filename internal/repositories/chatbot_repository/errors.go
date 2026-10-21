@@ -1,0 +1,7 @@
+package chatbot_repository
+
+import "errors"
+
+var (
+	ErrConversationNotFound = errors.New("conversation not found")
+)

@@ -10,22 +10,32 @@ import (
 	"os"
 	"strconv"
 	"time"
+	_ "time/tzdata" // the runtime image has no time zone database
 
 	"github.com/joho/godotenv"
 
 	"api-aprop/internal/clients/firebase_client"
+	"api-aprop/internal/clients/gemini_client"
 	"api-aprop/internal/clients/gencat_client"
+	"api-aprop/internal/clients/mcp_client"
 	"api-aprop/internal/drivers/postgres_driver"
+	"api-aprop/internal/handlers/assistant_handler"
 	"api-aprop/internal/handlers/event_handler"
+	"api-aprop/internal/handlers/signup_handler"
 	"api-aprop/internal/middleware/auth_middleware"
 	postgres_repository "api-aprop/internal/repositories/postgres"
 	"api-aprop/internal/router"
+	"api-aprop/internal/services/assistant_service"
 	"api-aprop/internal/services/event_service"
+	"api-aprop/internal/services/signup_service"
 	"api-aprop/migrations"
 )
 
 const (
 	appName = "api-aprop"
+
+	// Relative dates in the chatbot queries ("demà", "aquest cap de setmana") are resolved in this time zone
+	timeZone = "Europe/Madrid"
 
 	// Database environment variables
 	dbEnvHost      = "DB_HOST"
@@ -40,7 +50,7 @@ const (
 
 func main() {
 	// Configuration
-	if err := godotenv.Load(".env"); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := godotenv.Load(".env", ".env.example"); err != nil && !errors.Is(err, os.ErrNotExist) {
 		log.Fatalf("load .env: %v", err)
 	}
 
@@ -52,6 +62,14 @@ func main() {
 	gencatPageSize, err := strconv.Atoi(getEnv("GENCAT_PAGE_SIZE"))
 	if err != nil {
 		log.Fatalf("invalid GENCAT_PAGE_SIZE: %v", err)
+	}
+	geminiAPIKey := getEnv("GEMINI_API_KEY")
+	geminiModel := getEnv("GEMINI_MODEL")
+	mcpURL := getEnv("MCP_URL")
+	mcpToken := getEnv("MCP_TOKEN")
+	location, err := time.LoadLocation(timeZone)
+	if err != nil {
+		log.Fatalf("load time zone %s: %v", timeZone, err)
 	}
 
 	// Database
@@ -102,6 +120,8 @@ func main() {
 	// Clients
 	httpClient := &http.Client{Timeout: 15 * time.Second}
 	gencatClient := gencat_client.NewGencatClient(httpClient, gencatEventsURL, appToken)
+	geminiClient := gemini_client.NewGeminiClient(httpClient, gemini_client.DefaultBaseURL, geminiAPIKey, geminiModel)
+	mcpClient := mcp_client.NewMCPClient(httpClient, mcpURL, mcpToken)
 	firebaseClient, err := firebase_client.NewFirebaseClient(context.Background(), firebaseCredentialsFile)
 	if err != nil {
 		slog.Error("Error initializing Firebase", "error", err)
@@ -110,12 +130,22 @@ func main() {
 
 	// Repositories
 	eventRepository := postgres_repository.NewEventRepository(postgresDriver.Pool())
+	chatbotRepository := postgres_repository.NewChatbotRepository(postgresDriver.Pool())
+	catalogueRepository := postgres_repository.NewCatalogueRepository(postgresDriver.Pool())
+	signUpRepository := postgres_repository.NewSignUpRepository(postgresDriver.Pool())
 
 	// Services
 	eventService := event_service.NewEventService(eventRepository, gencatClient)
+	assistantService := assistant_service.NewAssistantService(
+		chatbotRepository, catalogueRepository, geminiClient, mcpClient,
+		func() time.Time { return time.Now().In(location) }, assistant_service.ReplyTimeout,
+	)
+	signUpService := signup_service.NewSignUpService(signUpRepository)
 
 	// Handlers
 	eventHandler := event_handler.NewEventHandler(eventService)
+	assistantHandler := assistant_handler.NewAssistantHandler(assistantService)
+	signUpHandler := signup_handler.NewSignUpHandler(signUpService)
 
 	// Middlewares
 	authMiddleware := auth_middleware.NewAuthMiddleware(firebaseClient)
@@ -132,7 +162,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           router.NewRouter(eventHandler, authMiddleware),
+		Handler:           router.NewRouter(eventHandler, assistantHandler, signUpHandler, authMiddleware),
 		Protocols:         protocols,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,

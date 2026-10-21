@@ -8,3 +8,11 @@ sql:
         package: "sqlc"
         out: "internal/repositories/postgres/sqlc"
         sql_package: "pgx/v5"
+        # Keep the generated Event compatible with the hand-edited models.go
+        rename:
+          postalcode: "PostalCode"
+        overrides:
+          - column: "events.modality"
+            go_type:
+              import: "github.com/jackc/pgx/v5/pgtype"
+              type: "Text"
