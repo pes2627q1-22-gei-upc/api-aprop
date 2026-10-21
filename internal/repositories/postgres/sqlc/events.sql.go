@@ -11,6 +11,31 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const addEventCategory = `-- name: AddEventCategory :exec
+INSERT INTO eventcategories(event, category) VALUES ($1, $2)
+`
+
+type AddEventCategoryParams struct {
+	Event    int32
+	Category int32
+}
+
+func (q *Queries) AddEventCategory(ctx context.Context, arg AddEventCategoryParams) error {
+	_, err := q.db.Exec(ctx, addEventCategory, arg.Event, arg.Category)
+	return err
+}
+
+const categoryExists = `-- name: CategoryExists :one
+SELECT EXISTS (SELECT 1 FROM categories WHERE name=$1)
+`
+
+func (q *Queries) CategoryExists(ctx context.Context, name string) (bool, error) {
+	row := q.db.QueryRow(ctx, categoryExists, name)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const createEvent = `-- name: CreateEvent :one
 INSERT INTO events (
     title, subtitle, description, schedule, url, tickets, ticketsurl, free, permanent, modality,
@@ -233,6 +258,17 @@ func (q *Queries) EventExists(ctx context.Context, id int32) (bool, error) {
 	return exists, err
 }
 
+const getCategoryID = `-- name: GetCategoryID :one
+SELECT id FROM categories WHERE name=$1
+`
+
+func (q *Queries) GetCategoryID(ctx context.Context, name string) (int32, error) {
+	row := q.db.QueryRow(ctx, getCategoryID, name)
+	var id int32
+	err := row.Scan(&id)
+	return id, err
+}
+
 const getEvent = `-- name: GetEvent :one
 SELECT id, title, subtitle, description, schedule, url, tickets, ticketsurl, free, permanent, relatedurls, urlnames, images, videos, email, phone, activityurl, startdate, enddate, modality, place, latitude, longitude, postalcode, municipality, region, address FROM events
 WHERE id = $1
@@ -331,6 +367,26 @@ func (q *Queries) ListEvents(ctx context.Context, arg ListEventsParams) ([]Event
 		return nil, err
 	}
 	return items, nil
+}
+
+const newCategory = `-- name: NewCategory :one
+INSERT INTO categories(name) VALUES ($1) RETURNING id
+`
+
+func (q *Queries) NewCategory(ctx context.Context, name string) (int32, error) {
+	row := q.db.QueryRow(ctx, newCategory, name)
+	var id int32
+	err := row.Scan(&id)
+	return id, err
+}
+
+const removeExistingEventCategories = `-- name: RemoveExistingEventCategories :exec
+DELETE FROM eventcategories WHERE event = $1
+`
+
+func (q *Queries) RemoveExistingEventCategories(ctx context.Context, event int32) error {
+	_, err := q.db.Exec(ctx, removeExistingEventCategories, event)
+	return err
 }
 
 const updateEvent = `-- name: UpdateEvent :one

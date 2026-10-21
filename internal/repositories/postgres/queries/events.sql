@@ -61,3 +61,18 @@ and phone IS NOT DISTINCT FROM $23
 and activityurl IS NOT DISTINCT FROM $24
 and startdate IS NOT DISTINCT FROM $25
 and enddate IS NOT DISTINCT FROM $26 LIMIT 1;
+
+-- name: RemoveExistingEventCategories :exec
+DELETE FROM eventcategories WHERE event = $1;
+
+-- name: CategoryExists :one
+SELECT EXISTS (SELECT 1 FROM categories WHERE name=$1);
+
+-- name: GetCategoryID :one
+SELECT id FROM categories WHERE name=$1;
+
+-- name: NewCategory :one
+INSERT INTO categories(name) VALUES ($1) RETURNING id;
+
+-- name: AddEventCategory :exec
+INSERT INTO eventcategories(event, category) VALUES ($1, $2);

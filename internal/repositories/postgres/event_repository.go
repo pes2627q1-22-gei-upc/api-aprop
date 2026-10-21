@@ -65,10 +65,13 @@ func (r *EventRepository) Create(e event_model.Event, official bool) (event_mode
 			return event_model.Event{}, fmt.Errorf("create event: %w", err)
 		}
 	}
+
+	r.SetCategories(int(row.ID), e.Categories, official)
+
 	return toModel(row, e.Code), nil
 }
 
-func (r *EventRepository) Update(id int, e event_model.Event) (event_model.Event, error) {
+func (r *EventRepository) Update(id int, e event_model.Event, official bool) (event_model.Event, error) {
 	row, err := r.queries.UpdateEvent(context.Background(), sqlc.UpdateEventParams{
 		ID:          	int32(id),
 		Title:       	e.Title,
@@ -104,6 +107,9 @@ func (r *EventRepository) Update(id int, e event_model.Event) (event_model.Event
 	if err != nil {
 		return event_model.Event{}, fmt.Errorf("update event %d: %w", id, err)
 	}
+
+	r.SetCategories(id, e.Categories, official)
+
 	return toModel(row, e.Code), nil
 }
 
@@ -143,7 +149,46 @@ func (r *EventRepository) CreateOrReplace(e event_model.Event) (event_model.Even
 	if err != nil {
 		return event_model.Event{}, fmt.Errorf("check event %d: %w", e.ID, err)
 	}
-	return r.Update(int(id), e)
+	return r.Update(int(id), e, true)
+}
+
+func (r *EventRepository) SetCategories(id int, cats []string, official bool) (error){
+	err := r.queries.RemoveExistingEventCategories(context.Background(), int32(id))
+	if err != nil {
+		return fmt.Errorf("remove categories from event %d: %w", id, err)
+	}
+
+	for _, v := range cats {
+		exists, err := r.queries.CategoryExists(context.Background(), v)
+		if err!=nil {
+			return fmt.Errorf("add categories to event %d: %w", id, err)
+		}
+		if !exists {
+			if official {
+				catid, err := r.queries.NewCategory(context.Background(), v)
+				if err != nil {
+					return fmt.Errorf("add categories to event %d: %w", id, err)
+				}
+				err = r.queries.AddEventCategory(context.Background(), sqlc.AddEventCategoryParams{Event:int32(id), Category:int32(catid)})
+				if err != nil {
+					return fmt.Errorf("add categories to event %d: %w", id, err)
+				}
+			} else{
+				return fmt.Errorf("add categories to event %d: category %s does not exist", id, v)
+			}
+		} else {
+			catid, err := r.queries.GetCategoryID(context.Background(), v)
+			if err != nil {
+				return fmt.Errorf("add categories to event %d: %w", id, err)
+			}
+			err = r.queries.AddEventCategory(context.Background(), sqlc.AddEventCategoryParams{Event:int32(id), Category:int32(catid)})
+			if err != nil {
+				return fmt.Errorf("add categories to event %d: %w", id, err)
+			}
+		}
+	}
+
+	return nil
 }
 
 func (r *EventRepository) Get(id int) (event_model.Event, error) {
