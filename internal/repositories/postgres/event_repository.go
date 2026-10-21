@@ -162,6 +162,68 @@ func (r *EventRepository) List(params map[string]any) ([]event_model.Event, erro
 	return events, nil
 }
 
+func (r *EventRepository) ListMapEvents(ctx context.Context, filter event_model.MapFilter) ([]event_model.MapEvent, error) {
+	params := sqlc.ListMapEventsParams{
+		MinLat: filter.MinLat,
+		MaxLat: filter.MaxLat,
+		MinLng: filter.MinLng,
+		MaxLng: filter.MaxLng,
+	}
+	if filter.UserID != "" {
+		uid, err := toUUID(filter.UserID)
+		if err != nil {
+			return nil, err
+		}
+		params.UserID = uid
+	}
+	rows, err := r.queries.ListMapEvents(ctx, params)
+	if err != nil {
+		return nil, fmt.Errorf("list map events: %w", err)
+	}
+	events := make([]event_model.MapEvent, 0, len(rows))
+	for _, row := range rows {
+		events = append(events, mapEventRowToModel(row))
+	}
+	return events, nil
+}
+
+func mapEventRowToModel(row sqlc.ListMapEventsRow) event_model.MapEvent {
+	return event_model.MapEvent{
+		Event: toModel(sqlc.Event{
+			ID:           row.ID,
+			Title:        row.Title,
+			Subtitle:     row.Subtitle,
+			Description:  row.Description,
+			Schedule:     row.Schedule,
+			Url:          row.Url,
+			Tickets:      row.Tickets,
+			Ticketsurl:   row.Ticketsurl,
+			Free:         row.Free,
+			Permanent:    row.Permanent,
+			Modality:     toText(row.Modality),
+			Relatedurls:  row.Relatedurls,
+			Urlnames:     row.Urlnames,
+			Images:       row.Images,
+			Videos:       row.Videos,
+			Email:        row.Email,
+			Place:        row.Place,
+			Latitude:     row.Latitude,
+			Longitude:    row.Longitude,
+			PostalCode:   row.PostalCode,
+			Municipality: row.Municipality,
+			Region:       row.Region,
+			Address:      row.Address,
+			Phone:        row.Phone,
+			Activityurl:  row.Activityurl,
+			Startdate:    row.Startdate,
+			Enddate:      row.Enddate,
+		}, 0),
+		IsOfficial: row.IsOfficial,
+		HasFriends: row.HasFriends,
+	}
+}
+
+
 // toModel converts a database row to the domain model.
 // The code is not stored in the events table, so it is passed separately.
 func toModel(row sqlc.Event, code int64) event_model.Event {

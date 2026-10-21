@@ -14,13 +14,15 @@ func NewRouter(eventHandler *event_handler.EventHandler, assistantHandler *assis
 
 	// Event handler: events from the Generalitat open data and the ones created by users
 	mux.HandleFunc("GET /events", eventHandler.ListEvents)
+	mux.HandleFunc("GET /event/map", eventHandler.ListMapEvents)
+	mux.HandleFunc("GET /events/map", eventHandler.ListMapEvents)
 	mux.HandleFunc("GET /events/{id}", eventHandler.GetEvent)
 	mux.HandleFunc("POST /events", eventHandler.CreateEvent)
 
 	// Assistant handler: chatbot that recommends events of the catalogue (Gemini + MCP)
 	mux.HandleFunc("POST /assistant/messages", assistantHandler.SendMessage)
 	mux.HandleFunc("GET /assistant/conversation", assistantHandler.GetConversation)
-  
+
 	// Sign up handler: users signed up to events (calendar)
 	mux.HandleFunc("POST /events/{id}/signup", signUpHandler.SignUp)
 	mux.HandleFunc("GET /users/{userId}/events", signUpHandler.ListUserEvents)

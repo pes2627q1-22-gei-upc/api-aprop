@@ -35,3 +35,20 @@ type Event struct {
 	StartDate 		time.Time 	`json:"start-date"`
 	EndDate 		time.Time 	`json:"end-date"` 
 }
+
+// MapFilter defines the visible map bounding box and optional user ID for friend indicators.
+type MapFilter struct {
+	MinLat float32
+	MaxLat float32
+	MinLng float32
+	MaxLng float32
+	UserID string
+}
+
+// MapEvent is an Event enriched with map marker metadata (official status and friends indicator).
+type MapEvent struct {
+	Event
+	IsOfficial bool `json:"is-official"`
+	HasFriends bool `json:"has-friends"`
+}
+

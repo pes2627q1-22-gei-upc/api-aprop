@@ -2,14 +2,20 @@ package event_handler
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
 	"strconv"
+
 	"api-aprop/internal/handlers/response"
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/services/event_service"
 )
 
 const maxBodyBytes = 1 << 20
+
+// UserIDHeader carries the user identity until authentication exists.
+const UserIDHeader = "X-User-ID"
+
 
 type EventHandler struct {
 	eventService event_service.Service
@@ -65,3 +71,87 @@ func (h *EventHandler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	response.WriteJSON(w, http.StatusCreated, created)
 }
+
+// ListMapEvents handles GET /event/map?minLat=...&maxLat=...&minLng=...&maxLng=...
+func (h *EventHandler) ListMapEvents(w http.ResponseWriter, r *http.Request) {
+	filter, ok := parseMapFilter(w, r)
+	if !ok {
+		return
+	}
+
+	events, err := h.eventService.ListMapEvents(r.Context(), filter)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	response.WriteJSON(w, http.StatusOK, events)
+}
+
+func parseMapFilter(w http.ResponseWriter, r *http.Request) (event_model.MapFilter, bool) {
+	q := r.URL.Query()
+	minLatStr := q.Get("minLat")
+	maxLatStr := q.Get("maxLat")
+	minLngStr := q.Get("minLng")
+	if minLngStr == "" {
+		minLngStr = q.Get("minLon")
+	}
+	maxLngStr := q.Get("maxLng")
+	if maxLngStr == "" {
+		maxLngStr = q.Get("maxLon")
+	}
+
+	userID := r.Header.Get(UserIDHeader)
+	if userID == "" {
+		userID = q.Get("userId")
+	}
+
+	if minLatStr == "" && maxLatStr == "" && minLngStr == "" && maxLngStr == "" {
+		return event_model.MapFilter{
+			MinLat: -90,
+			MaxLat: 90,
+			MinLng: -180,
+			MaxLng: 180,
+			UserID: userID,
+		}, true
+	}
+
+	if minLatStr == "" || maxLatStr == "" || minLngStr == "" || maxLngStr == "" {
+		response.WriteError(w, http.StatusBadRequest, "missing bounding box parameters, expected minLat, maxLat, minLng, maxLng")
+		return event_model.MapFilter{}, false
+	}
+
+	minLat, ok := parseCoordParam(w, "minLat", minLatStr)
+	if !ok {
+		return event_model.MapFilter{}, false
+	}
+	maxLat, ok := parseCoordParam(w, "maxLat", maxLatStr)
+	if !ok {
+		return event_model.MapFilter{}, false
+	}
+	minLng, ok := parseCoordParam(w, "minLng", minLngStr)
+	if !ok {
+		return event_model.MapFilter{}, false
+	}
+	maxLng, ok := parseCoordParam(w, "maxLng", maxLngStr)
+	if !ok {
+		return event_model.MapFilter{}, false
+	}
+
+	return event_model.MapFilter{
+		MinLat: minLat,
+		MaxLat: maxLat,
+		MinLng: minLng,
+		MaxLng: maxLng,
+		UserID: userID,
+	}, true
+}
+
+func parseCoordParam(w http.ResponseWriter, name, value string) (float32, bool) {
+	f, err := strconv.ParseFloat(value, 32)
+	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
+		response.WriteError(w, http.StatusBadRequest, "invalid "+name+" coordinate")
+		return 0, false
+	}
+	return float32(f), true
+}
+
