@@ -30,3 +30,34 @@ WHERE id = $1;
 SELECT * FROM events
 ORDER BY id
 LIMIT $1 OFFSET $2;
+
+-- name: CreateOfficialEvent :one
+INSERT INTO OfficialEvents(id, code) VALUES ($1, $2) RETURNING ID;
+
+-- name: EqualEventExists :one
+SELECT id FROM events WHERE title IS NOT DISTINCT FROM $1 
+and subtitle IS NOT DISTINCT FROM $2
+and description IS NOT DISTINCT FROM $3
+and schedule IS NOT DISTINCT FROM $4
+and url IS NOT DISTINCT FROM $5
+and tickets IS NOT DISTINCT FROM $6
+and ticketsurl IS NOT DISTINCT FROM $7
+and free IS NOT DISTINCT FROM $8
+and permanent IS NOT DISTINCT FROM $9
+and modality IS NOT DISTINCT FROM $10
+and relatedurls IS NOT DISTINCT FROM $11
+and urlnames IS NOT DISTINCT FROM $12
+and images IS NOT DISTINCT FROM $13
+and videos IS NOT DISTINCT FROM $14
+and email IS NOT DISTINCT FROM $15
+and place IS NOT DISTINCT FROM $16
+and latitude IS NOT DISTINCT FROM $17
+and longitude IS NOT DISTINCT FROM $18
+and postalcode IS NOT DISTINCT FROM $19
+and municipality IS NOT DISTINCT FROM $20
+and region IS NOT DISTINCT FROM $21
+and address IS NOT DISTINCT FROM $22
+and phone IS NOT DISTINCT FROM $23
+and activityurl IS NOT DISTINCT FROM $24
+and startdate IS NOT DISTINCT FROM $25
+and enddate IS NOT DISTINCT FROM $26 LIMIT 1;

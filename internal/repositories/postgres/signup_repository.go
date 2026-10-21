@@ -99,7 +99,7 @@ func signedUpEventToModel(row sqlc.ListUserSignedUpEventsRow) event_model.Event 
 		Place:        row.Place,
 		Latitude:     row.Latitude,
 		Longitude:    row.Longitude,
-		PostalCode:   row.Postalcode,
+		PostalCode:   row.PostalCode,
 		Municipality: row.Municipality,
 		Region:       row.Region,
 		Address:      row.Address,

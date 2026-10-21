@@ -54,6 +54,49 @@ func (ns NullFriendrequeststate) Value() (driver.Value, error) {
 	return string(ns.Friendrequeststate), nil
 }
 
+type Modalitytype string
+
+const (
+	ModalitytypeOnline              Modalitytype = "Online"
+	ModalitytypeFaceToFace          Modalitytype = "Face-to-Face"
+	ModalitytypeOnlineandFaceToFace Modalitytype = "Online and Face-to-Face"
+)
+
+func (e *Modalitytype) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = Modalitytype(s)
+	case string:
+		*e = Modalitytype(s)
+	default:
+		return fmt.Errorf("unsupported scan type for Modalitytype: %T", src)
+	}
+	return nil
+}
+
+type NullModalitytype struct {
+	Modalitytype Modalitytype
+	Valid        bool // Valid is true if Modalitytype is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullModalitytype) Scan(value interface{}) error {
+	if value == nil {
+		ns.Modalitytype, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.Modalitytype.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullModalitytype) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.Modalitytype), nil
+}
+
 type Accountstate struct {
 	ID   int32
 	Name string
@@ -97,33 +140,33 @@ type Chatbotrecommendation struct {
 }
 
 type Event struct {
-	ID          	int32
-	Title       	string
-	Subtitle    	pgtype.Text
-	Description 	pgtype.Text
-	Schedule    	pgtype.Text
-	Url         	pgtype.Text
-	Tickets     	pgtype.Text
-	Ticketsurl  	pgtype.Text
-	Free        	pgtype.Bool
-	Permanent   	pgtype.Bool
-	Modality    	pgtype.Text
-	Relatedurls 	pgtype.Text
-	Urlnames    	pgtype.Text
-	Images      	pgtype.Text
-	Videos      	pgtype.Text
-	Email       	pgtype.Text
-	Place			pgtype.Text
-	Latitude		pgtype.Float4
-	Longitude		pgtype.Float4
-	PostalCode		pgtype.Text
-	Municipality	pgtype.Text
-	Region			pgtype.Text
-	Address			pgtype.Text
-	Phone       	pgtype.Text
-	Activityurl		pgtype.Text
-	Startdate   	pgtype.Date
-	Enddate     	pgtype.Date
+	ID           int32
+	Title        string
+	Subtitle     pgtype.Text
+	Description  pgtype.Text
+	Schedule     pgtype.Text
+	Url          pgtype.Text
+	Tickets      pgtype.Text
+	Ticketsurl   pgtype.Text
+	Free         pgtype.Bool
+	Permanent    pgtype.Bool
+	Relatedurls  pgtype.Text
+	Urlnames     pgtype.Text
+	Images       pgtype.Text
+	Videos       pgtype.Text
+	Email        pgtype.Text
+	Phone        pgtype.Text
+	Activityurl  pgtype.Text
+	Startdate    pgtype.Date
+	Enddate      pgtype.Date
+	Modality     pgtype.Text
+	Place        pgtype.Text
+	Latitude     pgtype.Float4
+	Longitude    pgtype.Float4
+	PostalCode   pgtype.Text
+	Municipality pgtype.Text
+	Region       pgtype.Text
+	Address      pgtype.Text
 }
 
 type Eventcategory struct {
