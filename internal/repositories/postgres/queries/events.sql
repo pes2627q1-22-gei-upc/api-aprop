@@ -21,15 +21,24 @@ RETURNING *;
 -- name: EventExists :one
 SELECT EXISTS (SELECT 1 FROM events WHERE id = $1);
 
--- name: GetEvent :one
-SELECT * FROM events
-WHERE id = $1;
+-- name: GetEvent :many
+SELECT e.id, e.title, e.subtitle, e.description, e.schedule, e.tickets, e.url, e.ticketsurl,
+e.free, e.permanent, e.modality, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone,
+e.activityurl, e.startdate, e.enddate, e.place, e.latitude, e.longitude, e.postalcode, e.municipality,
+e.region, e.address, oe.code, ue.creator, ue.datecreated, c.name as category FROM events e left join officialevents oe on e.id=oe.id left join unofficialevents ue on e.id=ue.id
+left join eventcategories ec on e.id = ec.event left join categories c on ec.category = c.id
+WHERE e.id = $1;
 
 -- name: ListEvents :many
 -- TODO: add paging and filters
-SELECT * FROM events
-ORDER BY id
-LIMIT $1 OFFSET $2;
+SELECT evlst.*, c.name as category FROM (
+    SELECT e.id, e.title, e.subtitle, e.description, e.schedule, e.tickets, e.url, e.ticketsurl,
+    e.free, e.permanent, e.modality, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone,
+    e.activityurl, e.startdate, e.enddate, e.place, e.latitude, e.longitude, e.postalcode, e.municipality,
+    e.region, e.address, oe.code, ue.creator, ue.datecreated FROM events e left join officialevents oe on e.id=oe.id left join unofficialevents ue on e.id=ue.id
+    ORDER BY e.enddate ASC NULLS LAST
+    LIMIT $1 OFFSET $2
+) evlst left join eventcategories ec on evlst.id = ec.event left join categories c on ec.category = c.id;
 
 -- name: CreateOfficialEvent :one
 INSERT INTO OfficialEvents(id, code) VALUES ($1, $2) RETURNING ID;
