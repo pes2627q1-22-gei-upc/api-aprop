@@ -45,19 +45,31 @@ func (s *EventService) CreateEvent(e event_model.Event) (event_model.Event, erro
 	}
 	// The ID is always assigned by the repository
 	e.ID = 0
-	return s.eventRepository.Create(e)
+	return s.eventRepository.Create(e, false)
 }
 
 // LoadOfficialEvents fetches the most recent events from the gencat open data and stores them.
 func (s *EventService) LoadOfficialEvents(ctx context.Context, pageSize int) error {
-	events, err := s.gencatClient.FetchEvents(ctx, 1, pageSize)
-	if err != nil {
-		return fmt.Errorf("load official events: %w", err)
-	}
-	for _, e := range events {
-		if _, err := s.eventRepository.CreateOrReplace(e); err != nil {
-			log.Printf("store official event %d: %v", e.Code, err)
+	i := 1
+	total := 0
+	end := false
+	for !end {
+		events, err := s.gencatClient.FetchEvents(ctx, i, pageSize)
+		if err != nil {
+			return fmt.Errorf("load official events: %w", err)
 		}
+		if len(events)<pageSize{
+			end = true
+		}
+		for _, e := range events {
+			if _, err := s.eventRepository.CreateOrReplace(e); err != nil {
+				log.Printf("store official event %d: %v", e.Code, err)
+			}
+		}
+
+		total += len(events)
+		log.Printf("events loaded: %d", total)
+		i+=1
 	}
 	return nil
 }

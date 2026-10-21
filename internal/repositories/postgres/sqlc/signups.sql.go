@@ -77,7 +77,7 @@ type ListUserSignedUpEventsRow struct {
 	Place        pgtype.Text
 	Latitude     pgtype.Float4
 	Longitude    pgtype.Float4
-	Postalcode   pgtype.Text
+	PostalCode   pgtype.Text
 	Municipality pgtype.Text
 	Region       pgtype.Text
 	Address      pgtype.Text
@@ -119,7 +119,7 @@ func (q *Queries) ListUserSignedUpEvents(ctx context.Context, arg ListUserSigned
 			&i.Place,
 			&i.Latitude,
 			&i.Longitude,
-			&i.Postalcode,
+			&i.PostalCode,
 			&i.Municipality,
 			&i.Region,
 			&i.Address,

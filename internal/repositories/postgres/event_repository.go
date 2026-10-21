@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"strconv"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -26,7 +27,7 @@ func NewEventRepository(pool *pgxpool.Pool) *EventRepository {
 	return &EventRepository{queries: sqlc.New(pool)}
 }
 
-func (r *EventRepository) Create(e event_model.Event) (event_model.Event, error) {
+func (r *EventRepository) Create(e event_model.Event, official bool) (event_model.Event, error) {
 	row, err := r.queries.CreateEvent(context.Background(), sqlc.CreateEventParams{
 		Title:       	e.Title,
 		Subtitle:    	toText(e.Subtitle),
@@ -57,6 +58,12 @@ func (r *EventRepository) Create(e event_model.Event) (event_model.Event, error)
 	})
 	if err != nil {
 		return event_model.Event{}, fmt.Errorf("create event: %w", err)
+	}
+	if official{
+		_, err := r.queries.CreateOfficialEvent(context.Background(), sqlc.CreateOfficialEventParams{ID: int32(row.ID), Code: pgtype.Int8{Int64: e.Code, Valid:true}})
+		if err!=nil{
+			return event_model.Event{}, fmt.Errorf("create event: %w", err)
+		}
 	}
 	return toModel(row, e.Code), nil
 }
@@ -131,12 +138,12 @@ func (r *EventRepository) CreateOrReplace(e event_model.Event) (event_model.Even
 		Enddate:     	toDate(e.EndDate),
 	})
 	if errors.Is(err, pgx.ErrNoRows){
-		return r.Create(e)
+		return r.Create(e, true)
 	}
 	if err != nil {
 		return event_model.Event{}, fmt.Errorf("check event %d: %w", e.ID, err)
 	}
-	return r.Update(id, e)
+	return r.Update(int(id), e)
 }
 
 func (r *EventRepository) Get(id int) (event_model.Event, error) {
@@ -151,7 +158,15 @@ func (r *EventRepository) Get(id int) (event_model.Event, error) {
 }
 
 func (r *EventRepository) List(params map[string]any) ([]event_model.Event, error) {
-	rows, err := r.queries.ListEvents(context.Background(), params)
+	pageSize, err := strconv.Atoi(params["pageSize"].(string))
+	if err != nil {
+		return nil, fmt.Errorf("list events: %w", err)
+	}
+	pageNum, err := strconv.Atoi(params["pageNum"].(string))
+	if err != nil {
+		return nil, fmt.Errorf("list events: %w", err)
+	}
+	rows, err := r.queries.ListEvents(context.Background(), sqlc.ListEventsParams{Limit: int32(pageSize), Offset: int32(pageNum * pageSize)})
 	if err != nil {
 		return nil, fmt.Errorf("list events: %w", err)
 	}

@@ -48,6 +48,31 @@ const (
 	defaultSslMode = "disable"
 )
 
+func runDaily(task func()) {
+    go func() {
+        for {
+            now := time.Now()
+
+            next := time.Date(
+                now.Year(), now.Month(), now.Day(),
+                0, 0, 0, 0,
+                now.Location(),
+            )
+
+            // If today's time has passed, schedule tomorrow.
+            if !next.After(now) {
+                next = next.AddDate(0, 0, 1)
+            }
+			
+			log.Printf("next load: %s", next.String())
+            timer := time.NewTimer(time.Until(next))
+            <-timer.C
+			log.Printf("loading official events")
+            task()
+        }
+    }()
+}
+
 func main() {
 	// Configuration
 	if err := godotenv.Load(".env", ".env.example"); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -140,12 +165,12 @@ func main() {
 		chatbotRepository, catalogueRepository, geminiClient, mcpClient,
 		func() time.Time { return time.Now().In(location) }, assistant_service.ReplyTimeout,
 	)
-	signUpService := signup_service.NewSignUpService(signUpRepository)
+		signUpService := signup_service.NewSignUpService(signUpRepository)
 
 	// Handlers
 	eventHandler := event_handler.NewEventHandler(eventService)
 	assistantHandler := assistant_handler.NewAssistantHandler(assistantService)
-	signUpHandler := signup_handler.NewSignUpHandler(signUpService)
+  	signUpHandler := signup_handler.NewSignUpHandler(signUpService)
 
 	// Middlewares
 	authMiddleware := auth_middleware.NewAuthMiddleware(firebaseClient)
@@ -154,6 +179,12 @@ func main() {
 	if err := eventService.LoadOfficialEvents(context.Background(), gencatPageSize); err != nil {
 		log.Printf("could not load official events: %v", err)
 	}
+	// Start goroutine
+	runDaily(func(){
+				if err := eventService.LoadOfficialEvents(context.Background(), gencatPageSize); err != nil {
+					log.Printf("could not load official events: %v", err)
+				}
+			})
 
 	// Server: HTTP/1.1 and HTTP/2 without TLS (h2c)
 	protocols := new(http.Protocols)
