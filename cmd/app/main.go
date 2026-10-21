@@ -20,12 +20,14 @@ import (
 	"api-aprop/internal/clients/mcp_client"
 	"api-aprop/internal/drivers/postgres_driver"
 	"api-aprop/internal/handlers/assistant_handler"
+	"api-aprop/internal/handlers/auth_handler"
 	"api-aprop/internal/handlers/event_handler"
 	"api-aprop/internal/handlers/signup_handler"
 	"api-aprop/internal/middleware/auth_middleware"
 	postgres_repository "api-aprop/internal/repositories/postgres"
 	"api-aprop/internal/router"
 	"api-aprop/internal/services/assistant_service"
+	"api-aprop/internal/services/auth_service"
 	"api-aprop/internal/services/event_service"
 	"api-aprop/internal/services/signup_service"
 	"api-aprop/migrations"
@@ -49,28 +51,28 @@ const (
 )
 
 func runDaily(task func()) {
-    go func() {
-        for {
-            now := time.Now()
+	go func() {
+		for {
+			now := time.Now()
 
-            next := time.Date(
-                now.Year(), now.Month(), now.Day(),
-                0, 0, 0, 0,
-                now.Location(),
-            )
+			next := time.Date(
+				now.Year(), now.Month(), now.Day(),
+				0, 0, 0, 0,
+				now.Location(),
+			)
 
-            // If today's time has passed, schedule tomorrow.
-            if !next.After(now) {
-                next = next.AddDate(0, 0, 1)
-            }
-			
+			// If today's time has passed, schedule tomorrow.
+			if !next.After(now) {
+				next = next.AddDate(0, 0, 1)
+			}
+
 			log.Printf("next load: %s", next.String())
-            timer := time.NewTimer(time.Until(next))
-            <-timer.C
+			timer := time.NewTimer(time.Until(next))
+			<-timer.C
 			log.Printf("loading official events")
-            task()
-        }
-    }()
+			task()
+		}
+	}()
 }
 
 func main() {
@@ -158,6 +160,7 @@ func main() {
 	chatbotRepository := postgres_repository.NewChatbotRepository(postgresDriver.Pool())
 	catalogueRepository := postgres_repository.NewCatalogueRepository(postgresDriver.Pool())
 	signUpRepository := postgres_repository.NewSignUpRepository(postgresDriver.Pool())
+	authRepository := postgres_repository.NewAuthRepository(postgresDriver.Pool())
 
 	// Services
 	eventService := event_service.NewEventService(eventRepository, gencatClient)
@@ -165,12 +168,14 @@ func main() {
 		chatbotRepository, catalogueRepository, geminiClient, mcpClient,
 		func() time.Time { return time.Now().In(location) }, assistant_service.ReplyTimeout,
 	)
-		signUpService := signup_service.NewSignUpService(signUpRepository)
+	signUpService := signup_service.NewSignUpService(signUpRepository)
+	authService := auth_service.NewAuthService(authRepository)
 
 	// Handlers
 	eventHandler := event_handler.NewEventHandler(eventService)
 	assistantHandler := assistant_handler.NewAssistantHandler(assistantService)
-  	signUpHandler := signup_handler.NewSignUpHandler(signUpService)
+	signUpHandler := signup_handler.NewSignUpHandler(signUpService)
+	authHandler := auth_handler.NewAuthHandler(authService)
 
 	// Middlewares
 	authMiddleware := auth_middleware.NewAuthMiddleware(firebaseClient)
@@ -180,11 +185,11 @@ func main() {
 		log.Printf("could not load official events: %v", err)
 	}
 	// Start goroutine
-	runDaily(func(){
-				if err := eventService.LoadOfficialEvents(context.Background(), gencatPageSize); err != nil {
-					log.Printf("could not load official events: %v", err)
-				}
-			})
+	runDaily(func() {
+		if err := eventService.LoadOfficialEvents(context.Background(), gencatPageSize); err != nil {
+			log.Printf("could not load official events: %v", err)
+		}
+	})
 
 	// Server: HTTP/1.1 and HTTP/2 without TLS (h2c)
 	protocols := new(http.Protocols)
@@ -193,7 +198,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           router.NewRouter(eventHandler, assistantHandler, signUpHandler, authMiddleware),
+		Handler:           router.NewRouter(authMiddleware, eventHandler, assistantHandler, signUpHandler, authHandler),
 		Protocols:         protocols,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,

@@ -21,6 +21,13 @@ func NewAssistantHandler(assistantService assistant_service.Service) *AssistantH
 	return &AssistantHandler{assistantService: assistantService}
 }
 
+// RegisterRoutes registers the assistant endpoints.
+func (h *AssistantHandler) RegisterRoutes(mux *http.ServeMux) {
+	// Assistant handler: chatbot that recommends events of the catalogue (Gemini + MCP)
+	mux.HandleFunc("POST /assistant/messages", h.SendMessage)
+	mux.HandleFunc("GET /assistant/conversation", h.GetConversation)
+}
+
 // SendMessage handles POST /assistant/messages
 func (h *AssistantHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	userID, ok := userIDFromHeader(w, r)

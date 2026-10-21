@@ -239,7 +239,7 @@ type Preferencetestchoice struct {
 }
 
 type Setting struct {
-	Userid pgtype.UUID
+	ID int32
 }
 
 type Signup struct {
@@ -252,6 +252,21 @@ type Unofficialevent struct {
 	ID          int32
 	Creator     pgtype.UUID
 	Datecreated pgtype.Timestamp
+}
+
+type User struct {
+	ID             int32
+	Firebaseuid    string
+	Username       string
+	Email          pgtype.Text
+	Profilepicture pgtype.Text
+	Biography      pgtype.Text
+	Dateregistered pgtype.Timestamp
+	Accountstate   int32
+	Experience     int32
+	Level          pgtype.Int4
+	Rating         pgtype.Float4
+	Settings       int32
 }
 
 type Userlevel struct {

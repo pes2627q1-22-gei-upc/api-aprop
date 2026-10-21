@@ -37,10 +37,15 @@ func NewAuthMiddleware(firebaseClient firebase_client.Client) func(http.Handler)
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), userContextKey, user)
-			next.ServeHTTP(w, r.WithContext(ctx))
+			next.ServeHTTP(w, r.WithContext(ContextWithUser(r.Context(), user)))
 		})
 	}
+}
+
+// ContextWithUser returns a copy of ctx that carries the authenticated user. Handler tests use it
+// to simulate a request that already went through the middleware.
+func ContextWithUser(ctx context.Context, user firebase_client.User) context.Context {
+	return context.WithValue(ctx, userContextKey, user)
 }
 
 // UserFromContext returns the user authenticated by the middleware.

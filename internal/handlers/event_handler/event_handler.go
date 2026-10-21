@@ -19,6 +19,14 @@ func NewEventHandler(eventService event_service.Service) *EventHandler {
 	return &EventHandler{eventService: eventService}
 }
 
+// RegisterRoutes registers the event endpoints.
+func (h *EventHandler) RegisterRoutes(mux *http.ServeMux) {
+	// Event handler: events from the Generalitat open data and the ones created by users
+	mux.HandleFunc("GET /events", h.ListEvents)
+	mux.HandleFunc("GET /events/{id}", h.GetEvent)
+	mux.HandleFunc("POST /events", h.CreateEvent)
+}
+
 // ListEvents handles GET /events
 func (h *EventHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 	params := make(map[string]any)
