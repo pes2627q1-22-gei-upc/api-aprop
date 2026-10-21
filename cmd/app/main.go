@@ -13,9 +13,11 @@ import (
 
 	"github.com/joho/godotenv"
 
+	"api-aprop/internal/clients/firebase_client"
 	"api-aprop/internal/clients/gencat_client"
 	"api-aprop/internal/drivers/postgres_driver"
 	"api-aprop/internal/handlers/event_handler"
+	"api-aprop/internal/middleware/auth_middleware"
 	postgres_repository "api-aprop/internal/repositories/postgres"
 	"api-aprop/internal/router"
 	"api-aprop/internal/services/event_service"
@@ -38,12 +40,14 @@ const (
 
 func main() {
 	// Configuration
-	if err := godotenv.Load(".env.example"); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := godotenv.Load(".env"); err != nil && !errors.Is(err, os.ErrNotExist) {
 		log.Fatalf("load .env: %v", err)
 	}
 
 	port := getEnv("PORT")
 	appToken := getEnv("APP_TOKEN")
+	// Path to the Firebase service account JSON (Firebase console > Project settings > Service accounts)
+	firebaseCredentialsFile := getEnv("FIREBASE_CREDENTIALS_FILE")
 	gencatEventsURL := getEnv("GENCAT_EVENTS_URL")
 	gencatPageSize, err := strconv.Atoi(getEnv("GENCAT_PAGE_SIZE"))
 	if err != nil {
@@ -98,6 +102,11 @@ func main() {
 	// Clients
 	httpClient := &http.Client{Timeout: 15 * time.Second}
 	gencatClient := gencat_client.NewGencatClient(httpClient, gencatEventsURL, appToken)
+	firebaseClient, err := firebase_client.NewFirebaseClient(context.Background(), firebaseCredentialsFile)
+	if err != nil {
+		slog.Error("Error initializing Firebase", "error", err)
+		os.Exit(1)
+	}
 
 	// Repositories
 	eventRepository := postgres_repository.NewEventRepository(postgresDriver.Pool())
@@ -107,6 +116,9 @@ func main() {
 
 	// Handlers
 	eventHandler := event_handler.NewEventHandler(eventService)
+
+	// Middlewares
+	authMiddleware := auth_middleware.NewAuthMiddleware(firebaseClient)
 
 	// Initial data
 	if err := eventService.LoadOfficialEvents(context.Background(), gencatPageSize); err != nil {
@@ -120,7 +132,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           router.NewRouter(eventHandler),
+		Handler:           router.NewRouter(eventHandler, authMiddleware),
 		Protocols:         protocols,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
