@@ -11,6 +11,31 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const addEventCategory = `-- name: AddEventCategory :exec
+INSERT INTO eventcategories(event, category) VALUES ($1, $2)
+`
+
+type AddEventCategoryParams struct {
+	Event    int32
+	Category int32
+}
+
+func (q *Queries) AddEventCategory(ctx context.Context, arg AddEventCategoryParams) error {
+	_, err := q.db.Exec(ctx, addEventCategory, arg.Event, arg.Category)
+	return err
+}
+
+const categoryExists = `-- name: CategoryExists :one
+SELECT EXISTS (SELECT 1 FROM categories WHERE name=$1)
+`
+
+func (q *Queries) CategoryExists(ctx context.Context, name string) (bool, error) {
+	row := q.db.QueryRow(ctx, categoryExists, name)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const createEvent = `-- name: CreateEvent :one
 INSERT INTO events (
     title, subtitle, description, schedule, url, tickets, ticketsurl, free, permanent, modality,
@@ -233,78 +258,81 @@ func (q *Queries) EventExists(ctx context.Context, id int32) (bool, error) {
 	return exists, err
 }
 
-const getEvent = `-- name: GetEvent :one
-SELECT id, title, subtitle, description, schedule, url, tickets, ticketsurl, free, permanent, relatedurls, urlnames, images, videos, email, phone, activityurl, startdate, enddate, modality, place, latitude, longitude, postalcode, municipality, region, address FROM events
-WHERE id = $1
+const getCategoryID = `-- name: GetCategoryID :one
+SELECT id FROM categories WHERE name=$1
 `
 
-func (q *Queries) GetEvent(ctx context.Context, id int32) (Event, error) {
-	row := q.db.QueryRow(ctx, getEvent, id)
-	var i Event
-	err := row.Scan(
-		&i.ID,
-		&i.Title,
-		&i.Subtitle,
-		&i.Description,
-		&i.Schedule,
-		&i.Url,
-		&i.Tickets,
-		&i.Ticketsurl,
-		&i.Free,
-		&i.Permanent,
-		&i.Relatedurls,
-		&i.Urlnames,
-		&i.Images,
-		&i.Videos,
-		&i.Email,
-		&i.Phone,
-		&i.Activityurl,
-		&i.Startdate,
-		&i.Enddate,
-		&i.Modality,
-		&i.Place,
-		&i.Latitude,
-		&i.Longitude,
-		&i.PostalCode,
-		&i.Municipality,
-		&i.Region,
-		&i.Address,
-	)
-	return i, err
+func (q *Queries) GetCategoryID(ctx context.Context, name string) (int32, error) {
+	row := q.db.QueryRow(ctx, getCategoryID, name)
+	var id int32
+	err := row.Scan(&id)
+	return id, err
 }
 
-const listEvents = `-- name: ListEvents :many
-SELECT id, title, subtitle, description, schedule, url, tickets, ticketsurl, free, permanent, relatedurls, urlnames, images, videos, email, phone, activityurl, startdate, enddate, modality, place, latitude, longitude, postalcode, municipality, region, address FROM events
-ORDER BY id
-LIMIT $1 OFFSET $2
+const getEvent = `-- name: GetEvent :many
+SELECT e.id, e.title, e.subtitle, e.description, e.schedule, e.tickets, e.url, e.ticketsurl,
+e.free, e.permanent, e.modality, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone,
+e.activityurl, e.startdate, e.enddate, e.place, e.latitude, e.longitude, e.postalcode, e.municipality,
+e.region, e.address, oe.code, ue.creator, ue.datecreated, c.name as category FROM events e left join officialevents oe on e.id=oe.id left join unofficialevents ue on e.id=ue.id
+left join eventcategories ec on e.id = ec.event left join categories c on ec.category = c.id
+WHERE e.id = $1
 `
 
-type ListEventsParams struct {
-	Limit  int32
-	Offset int32
+type GetEventRow struct {
+	ID           int32
+	Title        string
+	Subtitle     pgtype.Text
+	Description  pgtype.Text
+	Schedule     pgtype.Text
+	Tickets      pgtype.Text
+	Url          pgtype.Text
+	Ticketsurl   pgtype.Text
+	Free         pgtype.Bool
+	Permanent    pgtype.Bool
+	Modality     pgtype.Text
+	Relatedurls  pgtype.Text
+	Urlnames     pgtype.Text
+	Images       pgtype.Text
+	Videos       pgtype.Text
+	Email        pgtype.Text
+	Phone        pgtype.Text
+	Activityurl  pgtype.Text
+	Startdate    pgtype.Date
+	Enddate      pgtype.Date
+	Place        pgtype.Text
+	Latitude     pgtype.Float4
+	Longitude    pgtype.Float4
+	PostalCode   pgtype.Text
+	Municipality pgtype.Text
+	Region       pgtype.Text
+	Address      pgtype.Text
+	Code         pgtype.Int8
+	Creator      pgtype.UUID
+	Datecreated  pgtype.Timestamp
+	Category     pgtype.Text
 }
 
-// TODO: add paging and filters
-func (q *Queries) ListEvents(ctx context.Context, arg ListEventsParams) ([]Event, error) {
-	rows, err := q.db.Query(ctx, listEvents, arg.Limit, arg.Offset)
+func (q *Queries) GetEvent(ctx context.Context, id int32) ([]GetEventRow, error) {
+	rows, err := q.db.Query(ctx, getEvent, id)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Event
+	var items []GetEventRow
 	for rows.Next() {
-		var i Event
+		var i GetEventRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Title,
 			&i.Subtitle,
 			&i.Description,
 			&i.Schedule,
-			&i.Url,
 			&i.Tickets,
+			&i.Url,
 			&i.Ticketsurl,
 			&i.Free,
 			&i.Permanent,
+			&i.Modality,
 			&i.Relatedurls,
 			&i.Urlnames,
 			&i.Images,
@@ -314,7 +342,6 @@ func (q *Queries) ListEvents(ctx context.Context, arg ListEventsParams) ([]Event
 			&i.Activityurl,
 			&i.Startdate,
 			&i.Enddate,
-			&i.Modality,
 			&i.Place,
 			&i.Latitude,
 			&i.Longitude,
@@ -322,6 +349,10 @@ func (q *Queries) ListEvents(ctx context.Context, arg ListEventsParams) ([]Event
 			&i.Municipality,
 			&i.Region,
 			&i.Address,
+			&i.Code,
+			&i.Creator,
+			&i.Datecreated,
+			&i.Category,
 		); err != nil {
 			return nil, err
 		}
@@ -331,6 +362,129 @@ func (q *Queries) ListEvents(ctx context.Context, arg ListEventsParams) ([]Event
 		return nil, err
 	}
 	return items, nil
+}
+
+const listEvents = `-- name: ListEvents :many
+SELECT evlst.id, evlst.title, evlst.subtitle, evlst.description, evlst.schedule, evlst.tickets, evlst.url, evlst.ticketsurl, evlst.free, evlst.permanent, evlst.modality, evlst.relatedurls, evlst.urlnames, evlst.images, evlst.videos, evlst.email, evlst.phone, evlst.activityurl, evlst.startdate, evlst.enddate, evlst.place, evlst.latitude, evlst.longitude, evlst.postalcode, evlst.municipality, evlst.region, evlst.address, evlst.code, evlst.creator, evlst.datecreated, c.name as category FROM (
+    SELECT e.id, e.title, e.subtitle, e.description, e.schedule, e.tickets, e.url, e.ticketsurl,
+    e.free, e.permanent, e.modality, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone,
+    e.activityurl, e.startdate, e.enddate, e.place, e.latitude, e.longitude, e.postalcode, e.municipality,
+    e.region, e.address, oe.code, ue.creator, ue.datecreated FROM events e left join officialevents oe on e.id=oe.id left join unofficialevents ue on e.id=ue.id
+    ORDER BY e.enddate ASC NULLS LAST
+    LIMIT $1 OFFSET $2
+) evlst left join eventcategories ec on evlst.id = ec.event left join categories c on ec.category = c.id
+`
+
+type ListEventsParams struct {
+	Limit  int32
+	Offset int32
+}
+
+type ListEventsRow struct {
+	ID           int32
+	Title        string
+	Subtitle     pgtype.Text
+	Description  pgtype.Text
+	Schedule     pgtype.Text
+	Tickets      pgtype.Text
+	Url          pgtype.Text
+	Ticketsurl   pgtype.Text
+	Free         pgtype.Bool
+	Permanent    pgtype.Bool
+	Modality     pgtype.Text
+	Relatedurls  pgtype.Text
+	Urlnames     pgtype.Text
+	Images       pgtype.Text
+	Videos       pgtype.Text
+	Email        pgtype.Text
+	Phone        pgtype.Text
+	Activityurl  pgtype.Text
+	Startdate    pgtype.Date
+	Enddate      pgtype.Date
+	Place        pgtype.Text
+	Latitude     pgtype.Float4
+	Longitude    pgtype.Float4
+	PostalCode   pgtype.Text
+	Municipality pgtype.Text
+	Region       pgtype.Text
+	Address      pgtype.Text
+	Code         pgtype.Int8
+	Creator      pgtype.UUID
+	Datecreated  pgtype.Timestamp
+	Category     pgtype.Text
+}
+
+// TODO: add paging and filters
+func (q *Queries) ListEvents(ctx context.Context, arg ListEventsParams) ([]ListEventsRow, error) {
+	rows, err := q.db.Query(ctx, listEvents, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListEventsRow
+	for rows.Next() {
+		var i ListEventsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Subtitle,
+			&i.Description,
+			&i.Schedule,
+			&i.Tickets,
+			&i.Url,
+			&i.Ticketsurl,
+			&i.Free,
+			&i.Permanent,
+			&i.Modality,
+			&i.Relatedurls,
+			&i.Urlnames,
+			&i.Images,
+			&i.Videos,
+			&i.Email,
+			&i.Phone,
+			&i.Activityurl,
+			&i.Startdate,
+			&i.Enddate,
+			&i.Place,
+			&i.Latitude,
+			&i.Longitude,
+			&i.PostalCode,
+			&i.Municipality,
+			&i.Region,
+			&i.Address,
+			&i.Code,
+			&i.Creator,
+			&i.Datecreated,
+			&i.Category,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const newCategory = `-- name: NewCategory :one
+INSERT INTO categories(name) VALUES ($1) RETURNING id
+`
+
+func (q *Queries) NewCategory(ctx context.Context, name string) (int32, error) {
+	row := q.db.QueryRow(ctx, newCategory, name)
+	var id int32
+	err := row.Scan(&id)
+	return id, err
+}
+
+const removeExistingEventCategories = `-- name: RemoveExistingEventCategories :exec
+DELETE FROM eventcategories WHERE event = $1
+`
+
+func (q *Queries) RemoveExistingEventCategories(ctx context.Context, event int32) error {
+	_, err := q.db.Exec(ctx, removeExistingEventCategories, event)
+	return err
 }
 
 const updateEvent = `-- name: UpdateEvent :one
