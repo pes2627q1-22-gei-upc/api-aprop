@@ -411,6 +411,10 @@ SELECT evlst.id, evlst.title, evlst.subtitle, evlst.description, evlst.schedule,
     and ($6::date is null or e.startdate >= $6::date)   -- start-after filter
     and ($7::date is null or e.enddate <= $7::date)   -- end-before filter
     and ($8::date is null or e.enddate >= $8::date)   -- end-after filter
+    and ($9::boolean is null or e.permanent = $9::boolean)  -- permanent filter
+    and ($10::boolean is null or e.free = $10::boolean) -- free filter
+    and ($11::boolean is null or $11::boolean = true and oe.id is not null or $11::boolean = false and oe.id is null)   -- official filter
+    and ($12::modalitytype is null or e.modality = $12::modalitytype)
     ORDER BY e.enddate ASC NULLS LAST
     LIMIT $1 OFFSET $2
 ) evlst left join eventcategories ec on evlst.id = ec.event left join categories c on ec.category = c.id
@@ -425,6 +429,10 @@ type ListEventsParams struct {
 	Startafter  pgtype.Date
 	Endbefore   pgtype.Date
 	Endafter    pgtype.Date
+	Permanent   pgtype.Bool
+	Free        pgtype.Bool
+	Official    pgtype.Bool
+	Modality    NullModalitytype
 }
 
 type ListEventsRow struct {
@@ -471,6 +479,10 @@ func (q *Queries) ListEvents(ctx context.Context, arg ListEventsParams) ([]ListE
 		arg.Startafter,
 		arg.Endbefore,
 		arg.Endafter,
+		arg.Permanent,
+		arg.Free,
+		arg.Official,
+		arg.Modality,
 	)
 	if err != nil {
 		return nil, err

@@ -45,6 +45,10 @@ func (h *EventHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 	params["startAfter"]= r.URL.Query().Get("startAfter")
 	params["endBefore"]= r.URL.Query().Get("endBefore")
 	params["endAfter"]= r.URL.Query().Get("endAfter")
+	params["filterPermanent"]= r.URL.Query().Get("filterPermanent")
+	params["filterFree"]= r.URL.Query().Get("filterFree")
+	params["filterOfficial"]= r.URL.Query().Get("filterOfficial")
+	params["filterModality"]= r.URL.Query().Get("filterModality")
 	
 	list, err := h.eventService.ListEvents(params)
 	if err != nil {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 	"strings"
+	"strconv"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -36,8 +37,8 @@ func (r *EventRepository) Create(e event_model.Event, official bool) (event_mode
 		Url:         	toText(e.URL),
 		Tickets:     	toText(e.Tickets),
 		Ticketsurl:  	toText(e.TicketsURL),
-		Free:        	toPGXBool(e.Free),
-		Permanent:   	toPGXBool(e.Permanent),
+		Free:        	e.Free,
+		Permanent:   	e.Permanent,
 		Modality:    	toText(e.Modality),
 		Relatedurls: 	toText(e.RelatedURLs),
 		Urlnames:    	toText(e.URLnames),
@@ -81,8 +82,8 @@ func (r *EventRepository) Update(id int, e event_model.Event, official bool) (ev
 		Url:         	toText(e.URL),
 		Tickets:     	toText(e.Tickets),
 		Ticketsurl:  	toText(e.TicketsURL),
-		Free:        	toPGXBool(e.Free),
-		Permanent:   	toPGXBool(e.Permanent),
+		Free:        	e.Free,
+		Permanent:   	e.Permanent,
 		Modality:    	toText(e.Modality),
 		Relatedurls: 	toText(e.RelatedURLs),
 		Urlnames:    	toText(e.URLnames),
@@ -123,8 +124,8 @@ func (r *EventRepository) CreateOrReplace(e event_model.Event) (event_model.Even
 		Url:         	toText(e.URL),
 		Tickets:     	toText(e.Tickets),
 		Ticketsurl:  	toText(e.TicketsURL),
-		Free:        	toPGXBool(e.Free),
-		Permanent:   	toPGXBool(e.Permanent),
+		Free:        	e.Free,
+		Permanent:   	e.Permanent,
 		Modality:    	toText(e.Modality),
 		Relatedurls: 	toText(e.RelatedURLs),
 		Urlnames:    	toText(e.URLnames),
@@ -249,6 +250,10 @@ func (r *EventRepository) List(params map[string]any) ([]event_model.Event, erro
 	var startAfter time.Time
 	var endBefore time.Time
 	var endAfter time.Time
+	var filterPermanent pgtype.Bool
+	var filterFree pgtype.Bool
+	var filterOfficial pgtype.Bool
+	var filterModality sqlc.NullModalitytype
 	
 	startBeforeTmp, _ := params["startBefore"].(string)
 	if startBeforeTmp=="" {
@@ -287,6 +292,49 @@ func (r *EventRepository) List(params map[string]any) ([]event_model.Event, erro
 		}
 	}
 
+	filterPermanentTmp, _ := params["filterPermanent"].(string)
+	if filterPermanentTmp == ""{
+		filterPermanent=pgtype.Bool{Valid:false}
+	} else {
+		filterPermanent.Bool, err = strconv.ParseBool(filterPermanentTmp)
+		if err!=nil {
+			return nil, fmt.Errorf("list events: error converting filterPermanent parameter: %w", err)
+		}
+		filterPermanent.Valid=true
+	}
+	filterFreeTmp, _ := params["filterFree"].(string)
+	if filterFreeTmp == ""{
+		filterFree=pgtype.Bool{Valid:false}
+	} else {
+		filterFree.Bool, err = strconv.ParseBool(filterFreeTmp)
+		if err!=nil {
+			return nil, fmt.Errorf("list events: error converting filterFree parameter: %w", err)
+		}
+		filterFree.Valid=true
+	}
+	filterOfficialTmp, _ := params["filterOfficial"].(string)
+	if filterOfficialTmp == ""{
+		filterOfficial=pgtype.Bool{Valid:false}
+	} else {
+		filterOfficial.Bool, err = strconv.ParseBool(filterOfficialTmp)
+		if err!=nil {
+			return nil, fmt.Errorf("list events: error converting filterOfficial parameter: %w", err)
+		}
+		filterOfficial.Valid=true
+	}
+	filterModalityTmp, _ := params["filterModality"].(string)
+	if filterModalityTmp == ""{
+		filterModality = sqlc.NullModalitytype{Valid: false}
+	} else if filterModalityTmp == "Online"{
+		filterModality = sqlc.NullModalitytype{Modalitytype:sqlc.ModalitytypeOnline, Valid: true}
+	} else if filterModalityTmp == "Face-to-Face" {
+		filterModality = sqlc.NullModalitytype{Modalitytype:sqlc.ModalitytypeFaceToFace, Valid: true}
+	} else if filterModalityTmp == "Online and Face-to-Face" {
+		filterModality = sqlc.NullModalitytype{Modalitytype:sqlc.ModalitytypeOnlineandFaceToFace, Valid: true}
+	} else {
+		return nil, fmt.Errorf("list events: error converting filterModality parameter")
+	}
+
 	rows, err := r.queries.ListEvents(context.Background(), sqlc.ListEventsParams{
 		Limit: int32(pageSize),
 		Offset: int32(pageNum * pageSize),
@@ -296,6 +344,10 @@ func (r *EventRepository) List(params map[string]any) ([]event_model.Event, erro
 		Startafter: toDate(startAfter),
 		Endbefore: toDate(endBefore),
 		Endafter: toDate(endAfter),
+		Permanent: filterPermanent,
+		Official: filterOfficial,
+		Free: filterFree,
+		Modality: filterModality,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list events: %w", err)
@@ -360,8 +412,8 @@ func toModel(row sqlc.Event, code int64) event_model.Event {
 		URL:         	row.Url.String,
 		TicketsURL:  	row.Ticketsurl.String,
 		Description: 	row.Description.String,
-		Free:        	row.Free.Bool,
-		Permanent:   	row.Permanent.Bool,
+		Free:        	row.Free,
+		Permanent:   	row.Permanent,
 		RelatedURLs: 	row.Relatedurls.String,
 		URLnames:    	row.Urlnames.String,
 		Modality:    	row.Modality.String,
@@ -393,8 +445,8 @@ func toModelExtended(row sqlc.GetEventRow, cats []string) event_model.Event {
 		URL:         	row.Url.String,
 		TicketsURL:  	row.Ticketsurl.String,
 		Description: 	row.Description.String,
-		Free:        	row.Free.Bool,
-		Permanent:   	row.Permanent.Bool,
+		Free:        	row.Free,
+		Permanent:   	row.Permanent,
 		RelatedURLs: 	row.Relatedurls.String,
 		URLnames:    	row.Urlnames.String,
 		Modality:    	row.Modality.String,

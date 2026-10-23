@@ -12,6 +12,8 @@ import (
 	"io"
 	"strings"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"api-aprop/internal/models/event_model"
 )
 
@@ -126,9 +128,18 @@ func mapEvent(val map[string]any) event_model.Event {
 	e.URL, _ = val["url"].(string)
 	e.TicketsURL, _ = val["linkbotoentrades"].(string)
 	e.Description, _ = val["descripcio"].(string)
-	e.Free, _ = val["gratuita"].(bool)
-	e.Permanent, _ = val["permanent"].(bool)
-
+	tmp, _ = val["gratuita"].(string)
+	if tmp=="Sí"{
+		e.Free=pgtype.Bool{Bool: true, Valid: true}
+	} else if tmp=="No" {
+		e.Free=pgtype.Bool{Bool: false, Valid: true}
+	}
+	tmp, _ = val["permanent"].(string)
+	if tmp=="Sí"{
+		e.Permanent=pgtype.Bool{Bool: true, Valid: true}
+	} else if tmp=="No" {
+		e.Permanent=pgtype.Bool{Bool: false, Valid: true}
+	}
 	e.RelatedURLs, _ = val["enlla_os"].(string)
 
 	tmp, _ = val["enllac1_nom"].(string)

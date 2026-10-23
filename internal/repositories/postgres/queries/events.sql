@@ -41,6 +41,10 @@ SELECT evlst.*, c.name as category FROM (
     and (@startafter::date is null or e.startdate >= @startafter::date)   -- start-after filter
     and (@endbefore::date is null or e.enddate <= @endbefore::date)   -- end-before filter
     and (@endafter::date is null or e.enddate >= @endafter::date)   -- end-after filter
+    and (sqlc.narg('permanent')::boolean is null or e.permanent = sqlc.narg('permanent')::boolean)  -- permanent filter
+    and (sqlc.narg('free')::boolean is null or e.free = sqlc.narg('free')::boolean) -- free filter
+    and (sqlc.narg('official')::boolean is null or sqlc.narg('official')::boolean = true and oe.id is not null or sqlc.narg('official')::boolean = false and oe.id is null)   -- official filter
+    and (sqlc.narg('modality')::modalitytype is null or e.modality = sqlc.narg('modality')::modalitytype)
     ORDER BY e.enddate ASC NULLS LAST
     LIMIT $1 OFFSET $2
 ) evlst left join eventcategories ec on evlst.id = ec.event left join categories c on ec.category = c.id;
