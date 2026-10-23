@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"api-aprop/internal/clients/gemini_client"
+	"api-aprop/internal/clients/groq_client"
 	"api-aprop/internal/clients/mcp_client"
 	"api-aprop/internal/mcp_server"
 	"api-aprop/internal/models/chatbot_model"
@@ -66,20 +66,21 @@ func (fakeCatalogue) ListByIDs(_ context.Context, ids []int) ([]event_model.Even
 	return events, nil
 }
 
-// fakeGemini returns the scripted interactions in order and records the requests.
+// fakeGroq returns the scripted responses in order and records the requests.
 // Topic classification requests are answered with topic (on_topic by default) and recorded apart.
-type fakeGemini struct {
-	interactions  []gemini_client.Interaction
+type fakeGroq struct {
+	responses     []groq_client.ChatCompletionResponse
 	topic         string
 	err           error
 	block         bool
-	requests      []gemini_client.InteractionRequest
-	topicRequests []gemini_client.InteractionRequest
+	requests      []groq_client.ChatCompletionRequest
+	topicRequests []groq_client.ChatCompletionRequest
 }
 
-func (f *fakeGemini) CreateInteraction(ctx context.Context, req gemini_client.InteractionRequest) (gemini_client.Interaction, error) {
-	req.Input = append([]json.RawMessage(nil), req.Input...)
-	if req.SystemInstruction == topicInstruction && f.err == nil && !f.block {
+func (f *fakeGroq) ChatCompletion(ctx context.Context, req groq_client.ChatCompletionRequest) (groq_client.ChatCompletionResponse, error) {
+	req.Messages = append([]groq_client.Message(nil), req.Messages...)
+	isTopic := len(req.Messages) > 0 && req.Messages[0].Content == topicInstruction
+	if isTopic && f.err == nil && !f.block {
 		f.topicRequests = append(f.topicRequests, req)
 		topic := f.topic
 		if topic == "" {
@@ -90,15 +91,15 @@ func (f *fakeGemini) CreateInteraction(ctx context.Context, req gemini_client.In
 	f.requests = append(f.requests, req)
 	if f.block {
 		<-ctx.Done()
-		return gemini_client.Interaction{}, ctx.Err()
+		return groq_client.ChatCompletionResponse{}, ctx.Err()
 	}
 	if f.err != nil {
-		return gemini_client.Interaction{}, f.err
+		return groq_client.ChatCompletionResponse{}, f.err
 	}
-	if len(f.requests) > len(f.interactions) {
-		return gemini_client.Interaction{}, errors.New("unexpected call")
+	if len(f.requests) > len(f.responses) {
+		return groq_client.ChatCompletionResponse{}, errors.New("unexpected call")
 	}
-	return f.interactions[len(f.requests)-1], nil
+	return f.responses[len(f.requests)-1], nil
 }
 
 type fakeMCP struct {
@@ -128,17 +129,45 @@ func (f *fakeMCP) Close() error {
 
 // --- helpers ---
 
-func step(s string) json.RawMessage { return json.RawMessage(s) }
-
-func functionCall(id, name, args string) gemini_client.Interaction {
-	return gemini_client.Interaction{Status: "requires_action", Steps: []json.RawMessage{
-		step(`{"type":"thought","signature":"sig-` + id + `"}`),
-		step(`{"type":"function_call","id":"` + id + `","name":"` + name + `","arguments":` + args + `}`),
-	}}
+func functionCall(id, name, args string) groq_client.ChatCompletionResponse {
+	return groq_client.ChatCompletionResponse{
+		ID: "1",
+		Choices: []groq_client.Choice{
+			{
+				Index: 0,
+				Message: groq_client.Message{
+					Role: "assistant",
+					ToolCalls: []groq_client.ToolCall{
+						{
+							ID:   id,
+							Type: "function",
+							Function: groq_client.FunctionCall{
+								Name:      name,
+								Arguments: args,
+							},
+						},
+					},
+				},
+				FinishReason: "tool_calls",
+			},
+		},
+	}
 }
 
-func textReply(text string) gemini_client.Interaction {
-	return gemini_client.Interaction{Status: "completed", Steps: []json.RawMessage{gemini_client.ModelOutputStep(text)}}
+func textReply(text string) groq_client.ChatCompletionResponse {
+	return groq_client.ChatCompletionResponse{
+		ID: "1",
+		Choices: []groq_client.Choice{
+			{
+				Index: 0,
+				Message: groq_client.Message{
+					Role:    "assistant",
+					Content: text,
+				},
+				FinishReason: "stop",
+			},
+		},
+	}
 }
 
 func searchResult(ids ...int) mcp_client.ToolResult {
@@ -150,33 +179,29 @@ func searchResult(ids ...int) mcp_client.ToolResult {
 	return mcp_client.ToolResult{Text: string(b), Structured: b}
 }
 
-func newService(repo *fakeChatbotRepository, gemini *fakeGemini, mcp *fakeMCP) *AssistantService {
-	return NewAssistantService(repo, fakeCatalogue{}, gemini, mcp, func() time.Time { return fixedNow }, ReplyTimeout)
+func newService(repo *fakeChatbotRepository, ai *fakeGroq, mcp *fakeMCP) *AssistantService {
+	return NewAssistantService(repo, fakeCatalogue{}, ai, mcp, func() time.Time { return fixedNow }, ReplyTimeout)
 }
 
-func stepTypes(steps []json.RawMessage) []string {
-	types := make([]string, len(steps))
-	for i, s := range steps {
-		var h struct {
-			Type string `json:"type"`
-		}
-		json.Unmarshal(s, &h)
-		types[i] = h.Type
+func messageRoles(msgs []groq_client.Message) []string {
+	roles := make([]string, len(msgs))
+	for i, m := range msgs {
+		roles[i] = m.Role
 	}
-	return types
+	return roles
 }
 
 // --- tests ---
 
 func TestSendMessage_SearchesAndRecommends(t *testing.T) {
 	repo := &fakeChatbotRepository{}
-	gemini := &fakeGemini{interactions: []gemini_client.Interaction{
+	ai := &fakeGroq{responses: []groq_client.ChatCompletionResponse{
 		functionCall("call_1", mcp_server.ToolSearchEvents, `{"category":"concert","municipality":"Girona","from":"2026-10-24","to":"2026-10-25"}`),
 		textReply("He entès: concerts a Girona aquest cap de setmana."),
 	}}
 	mcp := &fakeMCP{results: map[string]mcp_client.ToolResult{mcp_server.ToolSearchEvents: searchResult(7, 9)}}
 
-	exchange, err := newService(repo, gemini, mcp).SendMessage(context.Background(), strings.ToUpper(validUserID), "  concerts a Girona aquest cap de setmana ", false)
+	exchange, err := newService(repo, ai, mcp).SendMessage(context.Background(), strings.ToUpper(validUserID), "  concerts a Girona aquest cap de setmana ", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -207,21 +232,21 @@ func TestSendMessage_SearchesAndRecommends(t *testing.T) {
 		t.Errorf("saved = %+v", repo.saved)
 	}
 
-	// The second request replays the model steps as received (thought signature) and the tool result.
-	if len(gemini.requests) != 2 {
-		t.Fatalf("gemini calls = %d", len(gemini.requests))
+	// The second request includes the assistant's tool call and the tool execution result.
+	if len(ai.requests) != 2 {
+		t.Fatalf("ai calls = %d", len(ai.requests))
 	}
-	second := gemini.requests[1].Input
-	if got := strings.Join(stepTypes(second), ","); got != "user_input,thought,function_call,function_result" {
-		t.Errorf("second input = %s", got)
+	second := ai.requests[1].Messages
+	if got := strings.Join(messageRoles(second), ","); got != "system,user,assistant,tool" {
+		t.Errorf("second messages = %s", got)
 	}
-	if string(second[1]) != `{"type":"thought","signature":"sig-call_1"}` || !strings.Contains(string(second[3]), `"call_id":"call_1"`) {
-		t.Errorf("steps = %s / %s", second[1], second[3])
+	if second[2].ToolCalls[0].ID != "call_1" || second[3].ToolCallID != "call_1" {
+		t.Errorf("steps = %+v / %+v", second[2], second[3])
 	}
-	if !strings.Contains(gemini.requests[0].SystemInstruction, "dilluns 2026-10-19") {
+	if !strings.Contains(ai.requests[0].Messages[0].Content, "dilluns 2026-10-19") {
 		t.Errorf("the system instruction must give today's date")
 	}
-	if _, ok := gemini.requests[0].Tools[0].Parameters.(map[string]any)["additionalProperties"]; ok {
+	if _, ok := ai.requests[0].Tools[0].Function.Parameters.(map[string]any)["additionalProperties"]; ok {
 		t.Errorf("tool schemas must be sanitized")
 	}
 	if !mcp.closed {
@@ -231,13 +256,13 @@ func TestSendMessage_SearchesAndRecommends(t *testing.T) {
 
 func TestSendMessage_R12(t *testing.T) {
 	repo := &fakeChatbotRepository{}
-	gemini := &fakeGemini{interactions: []gemini_client.Interaction{
+	ai := &fakeGroq{responses: []groq_client.ChatCompletionResponse{
 		functionCall("c", mcp_server.ToolSearchEvents, `{"municipality":"Reus"}`),
 		textReply("Activitats a Reus."),
 	}}
 	mcp := &fakeMCP{results: map[string]mcp_client.ToolResult{mcp_server.ToolSearchEvents: searchResult(1)}}
 
-	exchange, err := newService(repo, gemini, mcp).SendMessage(context.Background(), validUserID, "què hi ha a Reus", true)
+	exchange, err := newService(repo, ai, mcp).SendMessage(context.Background(), validUserID, "què hi ha a Reus", true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -252,9 +277,9 @@ func TestSendMessage_R12(t *testing.T) {
 
 func TestSendMessage_ReplyWithoutSearch(t *testing.T) {
 	repo := &fakeChatbotRepository{}
-	gemini := &fakeGemini{interactions: []gemini_client.Interaction{textReply("Hola! Quina activitat busques?")}}
+	ai := &fakeGroq{responses: []groq_client.ChatCompletionResponse{textReply("Hola! Quina activitat busques?")}}
 
-	exchange, err := newService(repo, gemini, &fakeMCP{}).SendMessage(context.Background(), validUserID, "hola", false)
+	exchange, err := newService(repo, ai, &fakeMCP{}).SendMessage(context.Background(), validUserID, "hola", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -269,26 +294,26 @@ func TestSendMessage_ContinuesConversation(t *testing.T) {
 		{Sender: chatbot_model.SenderUser, Text: "teatre a Girona"},
 		{Sender: chatbot_model.SenderAssistant, Text: "Aquí tens teatre a Girona."},
 	}}
-	gemini := &fakeGemini{interactions: []gemini_client.Interaction{textReply("I demà també n'hi ha.")}}
+	ai := &fakeGroq{responses: []groq_client.ChatCompletionResponse{textReply("I demà també n'hi ha.")}}
 
-	exchange, err := newService(repo, gemini, &fakeMCP{}).SendMessage(context.Background(), validUserID, "i demà?", false)
+	exchange, err := newService(repo, ai, &fakeMCP{}).SendMessage(context.Background(), validUserID, "i demà?", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !exchange.ConversationStartedAt.Equal(startedAt) || !repo.savedStartedAt.Equal(startedAt) {
 		t.Errorf("the message must go to the latest conversation")
 	}
-	if got := strings.Join(stepTypes(gemini.requests[0].Input), ","); got != "user_input,model_output,user_input" {
+	if got := strings.Join(messageRoles(ai.requests[0].Messages), ","); got != "system,user,assistant,user" {
 		t.Errorf("history = %s", got)
 	}
 }
 
 func TestSendMessage_OffTopicGetsFixedReply(t *testing.T) {
 	repo := &fakeChatbotRepository{}
-	gemini := &fakeGemini{topic: " Off_Topic\n"}
+	ai := &fakeGroq{topic: " Off_Topic\n"}
 	mcp := &fakeMCP{}
 
-	exchange, err := newService(repo, gemini, mcp).SendMessage(context.Background(), validUserID, "Quin model ets?", false)
+	exchange, err := newService(repo, ai, mcp).SendMessage(context.Background(), validUserID, "Quin model ets?", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -296,13 +321,13 @@ func TestSendMessage_OffTopicGetsFixedReply(t *testing.T) {
 	if reply.Text != offTopicReply || reply.Interpretation != nil || len(reply.RecommendedEvents) != 0 {
 		t.Errorf("reply = %+v", reply)
 	}
-	if len(gemini.requests) != 0 || len(mcp.calls) != 0 {
+	if len(ai.requests) != 0 || len(mcp.calls) != 0 {
 		t.Errorf("off topic messages must not reach the agent nor the tools")
 	}
 	if len(repo.saved) != 2 {
 		t.Errorf("the off topic exchange is stored like any other: %+v", repo.saved)
 	}
-	if tools := gemini.topicRequests[0].Tools; len(tools) != 0 {
+	if tools := ai.topicRequests[0].Tools; len(tools) != 0 {
 		t.Errorf("the classifier must not get tools: %+v", tools)
 	}
 }
@@ -315,58 +340,59 @@ func TestSendMessage_TopicUsesRecentHistory(t *testing.T) {
 		{Sender: chatbot_model.SenderUser, Text: "teatre a Girona"},
 		{Sender: chatbot_model.SenderAssistant, Text: "Aquí tens teatre a Girona."},
 	}}
-	gemini := &fakeGemini{interactions: []gemini_client.Interaction{textReply("Demà també n'hi ha.")}}
+	ai := &fakeGroq{responses: []groq_client.ChatCompletionResponse{textReply("Demà també n'hi ha.")}}
 
-	if _, err := newService(repo, gemini, &fakeMCP{}).SendMessage(context.Background(), validUserID, "i demà?", false); err != nil {
+	if _, err := newService(repo, ai, &fakeMCP{}).SendMessage(context.Background(), validUserID, "i demà?", false); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	input := gemini.topicRequests[0].Input
-	if got := strings.Join(stepTypes(input), ","); got != "user_input,model_output,user_input" {
-		t.Fatalf("classifier input = %s", got)
+	msgs := ai.topicRequests[0].Messages
+	if got := strings.Join(messageRoles(msgs), ","); got != "system,user,assistant,user" {
+		t.Fatalf("classifier messages = %s", got)
 	}
-	if !strings.Contains(string(input[0]), "teatre a Girona") || !strings.Contains(string(input[2]), "i demà?") {
-		t.Errorf("classifier input = %s", input)
+	if !strings.Contains(msgs[1].Content, "teatre a Girona") || !strings.Contains(msgs[3].Content, "i demà?") {
+		t.Errorf("classifier messages = %+v", msgs)
 	}
 }
 
 func TestSendMessage_UnknownToolIsReportedToTheModel(t *testing.T) {
-	gemini := &fakeGemini{interactions: []gemini_client.Interaction{
+	ai := &fakeGroq{responses: []groq_client.ChatCompletionResponse{
 		functionCall("c", "delete_everything", `{}`),
 		textReply("No ho puc fer."),
 	}}
 	mcp := &fakeMCP{}
 
-	if _, err := newService(&fakeChatbotRepository{}, gemini, mcp).SendMessage(context.Background(), validUserID, "hola", false); err != nil {
+	if _, err := newService(&fakeChatbotRepository{}, ai, mcp).SendMessage(context.Background(), validUserID, "hola", false); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(mcp.calls) != 0 {
 		t.Errorf("unknown tools must not reach the MCP server: %v", mcp.calls)
 	}
-	last := gemini.requests[1].Input
-	if !strings.Contains(string(last[len(last)-1]), `"is_error":true`) {
-		t.Errorf("the model must get an error result: %s", last[len(last)-1])
+	last := ai.requests[1].Messages
+	lastMsg := last[len(last)-1]
+	if !strings.Contains(lastMsg.Content, `"is_error":true`) {
+		t.Errorf("the model must get an error result: %s", lastMsg.Content)
 	}
 }
 
 func TestSendMessage_Failures(t *testing.T) {
-	loop := make([]gemini_client.Interaction, maxToolRounds)
+	loop := make([]groq_client.ChatCompletionResponse, maxToolRounds)
 	for i := range loop {
 		loop[i] = functionCall("c", mcp_server.ToolSearchEvents, `{}`)
 	}
 	tests := map[string]struct {
-		gemini *fakeGemini
-		want   error
+		ai   *fakeGroq
+		want error
 	}{
-		"gemini error":    {&fakeGemini{err: errors.New("quota")}, ErrAssistantUnavailable},
-		"empty reply":     {&fakeGemini{interactions: []gemini_client.Interaction{{Status: "completed"}}}, ErrAssistantUnavailable},
-		"endless tools":   {&fakeGemini{interactions: loop}, ErrAssistantUnavailable},
-		"gemini too slow": {&fakeGemini{block: true}, ErrAssistantTimeout},
+		"groq error":    {&fakeGroq{err: errors.New("quota")}, ErrAssistantUnavailable},
+		"empty reply":   {&fakeGroq{responses: []groq_client.ChatCompletionResponse{{ID: "1", Choices: []groq_client.Choice{{Index: 0, Message: groq_client.Message{Role: "assistant"}}}}}}, ErrAssistantUnavailable},
+		"endless tools": {&fakeGroq{responses: loop}, ErrAssistantUnavailable},
+		"groq too slow": {&fakeGroq{block: true}, ErrAssistantTimeout},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			repo := &fakeChatbotRepository{}
 			mcp := &fakeMCP{results: map[string]mcp_client.ToolResult{mcp_server.ToolSearchEvents: searchResult()}}
-			s := NewAssistantService(repo, fakeCatalogue{}, tt.gemini, mcp, func() time.Time { return fixedNow }, 50*time.Millisecond)
+			s := NewAssistantService(repo, fakeCatalogue{}, tt.ai, mcp, func() time.Time { return fixedNow }, 50*time.Millisecond)
 
 			_, err := s.SendMessage(context.Background(), validUserID, "hola", false)
 			if !errors.Is(err, tt.want) {
@@ -390,27 +416,27 @@ func TestSendMessage_InvalidInput(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			gemini := &fakeGemini{}
-			_, err := newService(&fakeChatbotRepository{}, gemini, &fakeMCP{}).SendMessage(context.Background(), tt.userID, tt.text, false)
+			ai := &fakeGroq{}
+			_, err := newService(&fakeChatbotRepository{}, ai, &fakeMCP{}).SendMessage(context.Background(), tt.userID, tt.text, false)
 			if !errors.Is(err, tt.want) {
 				t.Fatalf("error = %v, want %v", err, tt.want)
 			}
-			if len(gemini.requests) != 0 || len(gemini.topicRequests) != 0 {
-				t.Errorf("gemini must not be called")
+			if len(ai.requests) != 0 || len(ai.topicRequests) != 0 {
+				t.Errorf("ai must not be called")
 			}
 		})
 	}
 }
 
 func TestGetConversation(t *testing.T) {
-	s := newService(&fakeChatbotRepository{}, &fakeGemini{}, &fakeMCP{})
+	s := newService(&fakeChatbotRepository{}, &fakeGroq{}, &fakeMCP{})
 	if _, err := s.GetConversation(context.Background(), validUserID); !errors.Is(err, ErrConversationNotFound) {
 		t.Fatalf("error = %v, want ErrConversationNotFound", err)
 	}
 
 	startedAt := fixedNow.Truncate(time.Microsecond)
 	history := []chatbot_model.Message{{Sender: chatbot_model.SenderUser, Text: "hola"}}
-	s = newService(&fakeChatbotRepository{startedAt: startedAt, history: history}, &fakeGemini{}, &fakeMCP{})
+	s = newService(&fakeChatbotRepository{startedAt: startedAt, history: history}, &fakeGroq{}, &fakeMCP{})
 	conversation, err := s.GetConversation(context.Background(), validUserID)
 	if err != nil || !conversation.StartedAt.Equal(startedAt) || len(conversation.Messages) != 1 {
 		t.Fatalf("conversation = %+v, err = %v", conversation, err)

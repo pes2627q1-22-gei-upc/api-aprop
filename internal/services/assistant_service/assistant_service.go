@@ -9,7 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"api-aprop/internal/clients/gemini_client"
+	"api-aprop/internal/clients/groq_client"
 	"api-aprop/internal/clients/mcp_client"
 	"api-aprop/internal/mcp_server"
 	"api-aprop/internal/models/chatbot_model"
@@ -31,7 +31,7 @@ const (
 type AssistantService struct {
 	chatbotRepository   chatbot_repository.Repository
 	catalogueRepository catalogue_repository.Repository
-	gemini              gemini_client.Client
+	ai                  groq_client.Client
 	mcp                 mcp_client.Client
 	now                 func() time.Time
 	replyTimeout        time.Duration
@@ -42,7 +42,7 @@ type AssistantService struct {
 func NewAssistantService(
 	chatbotRepository chatbot_repository.Repository,
 	catalogueRepository catalogue_repository.Repository,
-	gemini gemini_client.Client,
+	ai groq_client.Client,
 	mcp mcp_client.Client,
 	now func() time.Time,
 	replyTimeout time.Duration,
@@ -50,7 +50,7 @@ func NewAssistantService(
 	return &AssistantService{
 		chatbotRepository:   chatbotRepository,
 		catalogueRepository: catalogueRepository,
-		gemini:              gemini,
+		ai:                  ai,
 		mcp:                 mcp,
 		now:                 now,
 		replyTimeout:        replyTimeout,
@@ -140,7 +140,7 @@ type lastSearch struct {
 	eventIDs []int
 }
 
-// reply runs the agent loop: Gemini decides which MCP tools to call until it answers with text.
+// reply runs the agent loop: Groq decides which MCP tools to call until it answers with text.
 // Messages that are not about the app get a fixed reply and never reach the tools.
 func (s *AssistantService) reply(ctx context.Context, now time.Time, history []chatbot_model.Message, text string) (chatbot_model.Message, error) {
 	onTopic, err := s.isOnTopic(ctx, history, text)
@@ -161,53 +161,69 @@ func (s *AssistantService) reply(ctx context.Context, now time.Time, history []c
 	if err != nil {
 		return chatbot_model.Message{}, err
 	}
-	request := gemini_client.InteractionRequest{
-		SystemInstruction: systemInstruction(now),
-		Input:             historySteps(history),
-		Tools:             make([]gemini_client.FunctionTool, 0, len(tools)),
-	}
+
+	messages := make([]groq_client.Message, 0, len(history)+2)
+	messages = append(messages, groq_client.SystemMessage(systemInstruction(now)))
+	messages = append(messages, historyToMessages(history)...)
+	messages = append(messages, groq_client.UserMessage(text))
+
+	groqTools := make([]groq_client.Tool, 0, len(tools))
 	known := make(map[string]bool, len(tools))
 	for _, t := range tools {
 		known[t.Name] = true
-		request.Tools = append(request.Tools, gemini_client.FunctionTool{
-			Name:        t.Name,
-			Description: t.Description,
-			Parameters:  gemini_client.SanitizeSchema(t.InputSchema),
+		groqTools = append(groqTools, groq_client.Tool{
+			Type: "function",
+			Function: groq_client.ToolDefinition{
+				Name:        t.Name,
+				Description: t.Description,
+				Parameters:  groq_client.SanitizeSchema(t.InputSchema),
+			},
 		})
 	}
-	request.Input = append(request.Input, gemini_client.UserInputStep(text))
 
 	var search *lastSearch
 	for range maxToolRounds {
-		interaction, err := s.gemini.CreateInteraction(ctx, request)
+		resp, err := s.ai.ChatCompletion(ctx, groq_client.ChatCompletionRequest{
+			Messages: messages,
+			Tools:    groqTools,
+		})
 		if err != nil {
 			return chatbot_model.Message{}, err
 		}
-		request.Input = append(request.Input, interaction.Steps...)
+		if len(resp.Choices) == 0 {
+			return chatbot_model.Message{}, errors.New("empty choices from groq")
+		}
 
-		calls := interaction.FunctionCalls()
-		if len(calls) == 0 {
-			replyText := interaction.OutputText()
+		assistantMsg := resp.Choices[0].Message
+		messages = append(messages, assistantMsg)
+
+		if len(assistantMsg.ToolCalls) == 0 {
+			replyText := stripThinking(assistantMsg.Content)
 			if replyText == "" {
-				return chatbot_model.Message{}, errors.New("empty reply from gemini")
+				return chatbot_model.Message{}, errors.New("empty reply from groq")
 			}
 			return s.assistantMessage(ctx, replyText, search)
 		}
-		for _, call := range calls {
-			if !known[call.Name] {
-				request.Input = append(request.Input, gemini_client.FunctionResultStep(call, "unknown tool "+call.Name, true))
+
+		for _, call := range assistantMsg.ToolCalls {
+			if !known[call.Function.Name] {
+				messages = append(messages, groq_client.ToolResultMessage(call.ID, `{"error":"unknown tool `+call.Function.Name+`","is_error":true}`))
 				continue
 			}
-			result, err := session.CallTool(ctx, call.Name, call.Arguments)
+			result, err := session.CallTool(ctx, call.Function.Name, json.RawMessage(call.Function.Arguments))
 			if err != nil {
 				return chatbot_model.Message{}, err
 			}
-			if call.Name == mcp_server.ToolSearchEvents && !result.IsError {
-				if found, ok := parseSearch(call.Arguments, result.Structured); ok {
+			if call.Function.Name == mcp_server.ToolSearchEvents && !result.IsError {
+				if found, ok := parseSearch(json.RawMessage(call.Function.Arguments), result.Structured); ok {
 					search = found
 				}
 			}
-			request.Input = append(request.Input, gemini_client.FunctionResultStep(call, result.Text, result.IsError))
+			resultText := result.Text
+			if result.IsError && !strings.Contains(resultText, `"is_error":true`) {
+				resultText = fmt.Sprintf(`{"error":%q,"is_error":true}`, result.Text)
+			}
+			messages = append(messages, groq_client.ToolResultMessage(call.ID, resultText))
 		}
 	}
 	return chatbot_model.Message{}, fmt.Errorf("no reply after %d tool rounds", maxToolRounds)
@@ -219,14 +235,21 @@ func (s *AssistantService) isOnTopic(ctx context.Context, history []chatbot_mode
 	if len(history) > topicHistory {
 		history = history[len(history)-topicHistory:]
 	}
-	interaction, err := s.gemini.CreateInteraction(ctx, gemini_client.InteractionRequest{
-		SystemInstruction: topicInstruction,
-		Input:             append(historySteps(history), gemini_client.UserInputStep(text)),
+	messages := make([]groq_client.Message, 0, len(history)+2)
+	messages = append(messages, groq_client.SystemMessage(topicInstruction))
+	messages = append(messages, historyToMessages(history)...)
+	messages = append(messages, groq_client.UserMessage(text))
+
+	resp, err := s.ai.ChatCompletion(ctx, groq_client.ChatCompletionRequest{
+		Messages: messages,
 	})
 	if err != nil {
 		return false, fmt.Errorf("classify topic: %w", err)
 	}
-	return !strings.Contains(strings.ToLower(interaction.OutputText()), labelOffTopic), nil
+	if len(resp.Choices) == 0 {
+		return true, nil
+	}
+	return !strings.Contains(strings.ToLower(resp.Choices[0].Message.Content), labelOffTopic), nil
 }
 
 // assistantMessage builds the reply. The interpretation is what the model searched for and the
@@ -278,20 +301,36 @@ func parseDate(s string) *time.Time {
 	return &t
 }
 
-// historySteps replays the latest messages so the model understands follow up questions.
-func historySteps(history []chatbot_model.Message) []json.RawMessage {
+// historyToMessages replays the latest messages so the model understands follow up questions.
+func historyToMessages(history []chatbot_model.Message) []groq_client.Message {
 	if len(history) > historyMessages {
 		history = history[len(history)-historyMessages:]
 	}
-	steps := make([]json.RawMessage, 0, len(history)+1)
+	msgs := make([]groq_client.Message, 0, len(history))
 	for _, m := range history {
 		if m.Sender == chatbot_model.SenderUser {
-			steps = append(steps, gemini_client.UserInputStep(m.Text))
+			msgs = append(msgs, groq_client.UserMessage(m.Text))
 		} else {
-			steps = append(steps, gemini_client.ModelOutputStep(m.Text))
+			msgs = append(msgs, groq_client.AssistantMessage(m.Text))
 		}
 	}
-	return steps
+	return msgs
+}
+
+func stripThinking(text string) string {
+	for {
+		start := strings.Index(text, "<think>")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(text, "</think>")
+		if end == -1 {
+			text = text[:start]
+			break
+		}
+		text = text[:start] + text[end+len("</think>"):]
+	}
+	return strings.TrimSpace(text)
 }
 
 // timestamp drops what Postgres cannot store, so the stored and returned times are equal.
