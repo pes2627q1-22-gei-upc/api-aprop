@@ -1,0 +1,38 @@
+{
+  "version": "0.1",
+  "project": {
+    "name": "api-aprop",
+    "baseUrl": "http://localhost:8080"
+  },
+  "default": {
+    "workspace": "main",
+    "collection": "api-aprop",
+    "environment": "local"
+  },
+  "workspaces": {
+    "main": {
+      "id": "38a71bb8-cb6c-450b-847c-499edf034856",
+      "name": "Wenqiang He's Workspace",
+      "type": "team"
+    }
+  },
+  "collections": {
+    "api-aprop": {
+      "id": "76530dae-e08f-4181-95dc-93ef23d3087c",
+      "name": "api-aprop API",
+      "workspace": "main"
+    }
+  },
+  "environments": {
+    "local": {
+      "id": "ba5ffcca-c0c0-4bc3-b356-26bf644f7823",
+      "name": "api-aprop - Local",
+      "workspace": "main"
+    },
+    "cloud": {
+      "id": "4d5c935e-6d0c-4626-9d17-416efb102448",
+      "name": "api-aprop - Cloud / Production",
+      "workspace": "main"
+    }
+  }
+}
