@@ -23,6 +23,13 @@ func NewSignUpHandler(signUpService signup_service.Service) *SignUpHandler {
 	return &SignUpHandler{signUpService: signUpService}
 }
 
+// RegisterRoutes registers the sign up endpoints.
+func (h *SignUpHandler) RegisterRoutes(mux *http.ServeMux) {
+	// Sign up handler: users signed up to events (calendar)
+	mux.HandleFunc("POST /events/{id}/signup", h.SignUp)
+	mux.HandleFunc("GET /users/{userId}/events", h.ListUserEvents)
+}
+
 // SignUp handles POST /events/{id}/signup
 func (h *SignUpHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 	eventID, err := strconv.Atoi(r.PathValue("id"))
