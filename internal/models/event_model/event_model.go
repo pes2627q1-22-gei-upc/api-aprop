@@ -39,3 +39,8 @@ type Event struct {
 	Creator			pgtype.UUID	`json:"creator"`
 	DateCreated		time.Time	`json:"date-created"`
 }
+
+type Category struct {
+	ID int `json:"id"`
+	Name string `json:"name"`
+}

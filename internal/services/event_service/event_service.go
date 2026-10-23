@@ -73,3 +73,11 @@ func (s *EventService) LoadOfficialEvents(ctx context.Context, pageSize int) err
 	}
 	return nil
 }
+
+func (s *EventService) GetCategories() ([]event_model.Category, error){
+	return s.eventRepository.GetCategories()
+}
+
+func (s *EventService) GetCategory(id int) (event_model.Category, error){
+	return s.eventRepository.GetCategory(id)
+}

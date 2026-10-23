@@ -152,6 +152,10 @@ func (r *EventRepository) CreateOrReplace(e event_model.Event) (event_model.Even
 }
 
 func (r *EventRepository) SetCategories(id int, cats []string, official bool) (error){
+	if len(cats)==0 {
+		return nil
+	}
+	
 	err := r.queries.RemoveExistingEventCategories(context.Background(), int32(id))
 	if err != nil {
 		return fmt.Errorf("remove categories from event %d: %w", id, err)
@@ -234,6 +238,33 @@ func (r *EventRepository) List(params map[string]any) ([]event_model.Event, erro
 	}
 	events = append(events, toModelExtended(sqlc.GetEventRow(currentevent), cats))
 	return events, nil
+}
+
+func (r *EventRepository) GetCategories() ([]event_model.Category, error){
+	rows, err := r.queries.GetCategories(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("list events: %w", err)
+	}
+	
+	cats := []event_model.Category{}
+	for _, row := range rows {
+		cat := toCategory(row)
+		cats=append(cats, cat)
+	}
+	return cats, nil
+}
+
+func (r *EventRepository) GetCategory(id int) (event_model.Category, error){
+	row, err := r.queries.GetCategory(context.Background(), int32(id))
+	if err != nil {
+		return event_model.Category{}, fmt.Errorf("get category %d: %w", id, err)
+	}
+	
+	return toCategory(row), nil
+}
+
+func toCategory(cat sqlc.Category) event_model.Category {
+	return event_model.Category{ID: int(cat.ID), Name: cat.Name}
 }
 
 // toModel converts a database row to the domain model.

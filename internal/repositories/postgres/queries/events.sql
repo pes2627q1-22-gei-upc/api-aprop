@@ -85,3 +85,9 @@ INSERT INTO categories(name) VALUES ($1) RETURNING id;
 
 -- name: AddEventCategory :exec
 INSERT INTO eventcategories(event, category) VALUES ($1, $2);
+
+-- name: GetCategories :many
+SELECT * from categories;
+
+-- name: GetCategory :one
+SELECT * from categories where id = $1;

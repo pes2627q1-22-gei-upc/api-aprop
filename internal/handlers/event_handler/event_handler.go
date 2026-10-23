@@ -25,6 +25,8 @@ func (h *EventHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /events", h.ListEvents)
 	mux.HandleFunc("GET /events/{id}", h.GetEvent)
 	mux.HandleFunc("POST /events", h.CreateEvent)
+	mux.HandleFunc("GET /categories", h.GetCategories)
+	mux.HandleFunc("GET /categories/{id}", h.GetCategory)
 }
 
 // ListEvents handles GET /events
@@ -72,4 +74,32 @@ func (h *EventHandler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.WriteJSON(w, http.StatusCreated, created)
+}
+
+// GetCategories handles GET /categories
+func (h *EventHandler) GetCategories(w http.ResponseWriter, r *http.Request){
+	list, err := h.eventService.GetCategories()
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, list)
+}
+
+// GetCategories handles GET /categories/{id}
+func (h *EventHandler) GetCategory(w http.ResponseWriter, r *http.Request){
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil {
+		response.WriteError(w, http.StatusBadRequest, "invalid category id")
+		return
+	}
+	
+	cat, err := h.eventService.GetCategory(id)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, cat)
 }

@@ -12,4 +12,6 @@ type Service interface {
 	ListEvents(params map[string]any) ([]event_model.Event, error)
 	CreateEvent(e event_model.Event) (event_model.Event, error)
 	LoadOfficialEvents(ctx context.Context, pageSize int) error
+	GetCategories() ([]event_model.Category, error)
+	GetCategory(id int) (event_model.Category, error)
 }

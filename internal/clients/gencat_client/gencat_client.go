@@ -110,7 +110,14 @@ func mapEvent(val map[string]any) event_model.Event {
 	}
 
 	tmp, _ = val["tags_categor_es"].(string)
-	e.Categories = strings.Split(tmp, ",")
+	if tmp!=""{
+		e.Categories = strings.Split(tmp, ",")
+	}
+	tmp, _ = val["tags_mbits"].(string)
+	if tmp!=""{
+		tmp2 := strings.Split(tmp, ",")
+		e.Categories = append(e.Categories, tmp2...)
+	}
 
 	e.Title, _ = val["denominaci"].(string)
 	e.Subtitle, _ = val["subt_tol"].(string)
@@ -143,7 +150,7 @@ func mapEvent(val map[string]any) event_model.Event {
 		e.Modality = "Face-to-Face"
 	} else if e.Modality == "Virtual"{
 		e.Modality = "Online"
-	} else if e.Modality == "Presencial o Virtual"{
+	} else if e.Modality == "Presencial i virtual"{
 		e.Modality = "Online and Face-to-Face"
 	}
 	e.Place, _ = val["espai"].(string)
