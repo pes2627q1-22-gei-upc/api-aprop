@@ -16,8 +16,8 @@ type Event struct {
 	URL 			string 		`json:"url"`			// URL of the event post
 	TicketsURL 		string 		`json:"tickets-url"`	// URL for tickets
 	Description 	string 		`json:"description"`
-	Free 			bool 		`json:"free"`
-	Permanent 		bool 		`json:"permanent"`
+	Free 			pgtype.Bool 		`json:"free"`
+	Permanent 		pgtype.Bool 		`json:"permanent"`
 	RelatedURLs 	string 		`json:"related-urls"`// Related URLs for extra info
 	URLnames 		string 		`json:"url-names"`	// Name to be used for each related URL
 	Modality 		string 		`json:"modality"`
@@ -38,4 +38,9 @@ type Event struct {
 	Categories		[]string	`json:"categories"`
 	Creator			pgtype.UUID	`json:"creator"`
 	DateCreated		time.Time	`json:"date-created"`
+}
+
+type Category struct {
+	ID int `json:"id"`
+	Name string `json:"name"`
 }

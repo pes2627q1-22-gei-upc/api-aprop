@@ -258,6 +258,41 @@ func (q *Queries) EventExists(ctx context.Context, id int32) (bool, error) {
 	return exists, err
 }
 
+const getCategories = `-- name: GetCategories :many
+SELECT id, name from categories
+`
+
+func (q *Queries) GetCategories(ctx context.Context) ([]Category, error) {
+	rows, err := q.db.Query(ctx, getCategories)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Category
+	for rows.Next() {
+		var i Category
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getCategory = `-- name: GetCategory :one
+SELECT id, name from categories where id = $1
+`
+
+func (q *Queries) GetCategory(ctx context.Context, id int32) (Category, error) {
+	row := q.db.QueryRow(ctx, getCategory, id)
+	var i Category
+	err := row.Scan(&i.ID, &i.Name)
+	return i, err
+}
+
 const getCategoryID = `-- name: GetCategoryID :one
 SELECT id FROM categories WHERE name=$1
 `
@@ -370,14 +405,34 @@ SELECT evlst.id, evlst.title, evlst.subtitle, evlst.description, evlst.schedule,
     e.free, e.permanent, e.modality, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone,
     e.activityurl, e.startdate, e.enddate, e.place, e.latitude, e.longitude, e.postalcode, e.municipality,
     e.region, e.address, oe.code, ue.creator, ue.datecreated FROM events e left join officialevents oe on e.id=oe.id left join unofficialevents ue on e.id=ue.id
+    WHERE ($3::int = 0 or exists (select 1 from eventcategories ec where ec.event=e.id and ec.category = $3::int))   -- category filter
+    and ($4::text = '' or e.region = $4::text)    -- region filter
+    and ($5::date is null or e.startdate <= $5::date)   -- start-before filter
+    and ($6::date is null or e.startdate >= $6::date)   -- start-after filter
+    and ($7::date is null or e.enddate <= $7::date)   -- end-before filter
+    and ($8::date is null or e.enddate >= $8::date)   -- end-after filter
+    and ($9::boolean is null or e.permanent = $9::boolean)  -- permanent filter
+    and ($10::boolean is null or e.free = $10::boolean) -- free filter
+    and ($11::boolean is null or $11::boolean = true and oe.id is not null or $11::boolean = false and oe.id is null)   -- official filter
+    and ($12::modalitytype is null or e.modality = $12::modalitytype)
     ORDER BY e.enddate ASC NULLS LAST
     LIMIT $1 OFFSET $2
 ) evlst left join eventcategories ec on evlst.id = ec.event left join categories c on ec.category = c.id
 `
 
 type ListEventsParams struct {
-	Limit  int32
-	Offset int32
+	Limit       int32
+	Offset      int32
+	Category    int32
+	Region      string
+	Startbefore pgtype.Date
+	Startafter  pgtype.Date
+	Endbefore   pgtype.Date
+	Endafter    pgtype.Date
+	Permanent   pgtype.Bool
+	Free        pgtype.Bool
+	Official    pgtype.Bool
+	Modality    NullModalitytype
 }
 
 type ListEventsRow struct {
@@ -414,9 +469,21 @@ type ListEventsRow struct {
 	Category     pgtype.Text
 }
 
-// TODO: add paging and filters
 func (q *Queries) ListEvents(ctx context.Context, arg ListEventsParams) ([]ListEventsRow, error) {
-	rows, err := q.db.Query(ctx, listEvents, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, listEvents,
+		arg.Limit,
+		arg.Offset,
+		arg.Category,
+		arg.Region,
+		arg.Startbefore,
+		arg.Startafter,
+		arg.Endbefore,
+		arg.Endafter,
+		arg.Permanent,
+		arg.Free,
+		arg.Official,
+		arg.Modality,
+	)
 	if err != nil {
 		return nil, err
 	}
