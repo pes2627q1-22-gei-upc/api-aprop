@@ -5,6 +5,9 @@ CREATE TABLE "public"."officialevents" (
   CONSTRAINT "officialevents_pkey" PRIMARY KEY (id)
 );
 
+ALTER TABLE "public"."officialevents"
+  ENABLE ROW LEVEL SECURITY;
+
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."officialevents" TO "anon", "authenticated";
 
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."officialevents" TO "service_role";

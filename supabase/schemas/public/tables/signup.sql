@@ -6,6 +6,9 @@ CREATE TABLE "public"."signup" (
   CONSTRAINT "signup_pkey" PRIMARY KEY (userid, EVENT, signupdate)
 );
 
+ALTER TABLE "public"."signup"
+  ENABLE ROW LEVEL SECURITY;
+
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."signup" TO "anon", "authenticated";
 
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."signup" TO "service_role";

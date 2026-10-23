@@ -5,6 +5,9 @@ CREATE TABLE "public"."accountstates" (
   CONSTRAINT "accountstates_pkey" PRIMARY KEY (id)
 );
 
+ALTER TABLE "public"."accountstates"
+  ENABLE ROW LEVEL SECURITY;
+
 REVOKE ALL ON SEQUENCE "public"."accountstates_id_seq" FROM "anon";
 
 GRANT SELECT, UPDATE, USAGE ON SEQUENCE "public"."accountstates_id_seq" TO "anon";

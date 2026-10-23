@@ -19,6 +19,9 @@ CREATE TABLE "public"."chatbotmessages" (
   CONSTRAINT "chatbotmessages_userid_conversationstartedat_sentat_sender_key" UNIQUE (userid, conversationstartedat, sentat, sender)
 );
 
+ALTER TABLE "public"."chatbotmessages"
+  ENABLE ROW LEVEL SECURITY;
+
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."chatbotmessages" TO "anon", "authenticated";
 
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."chatbotmessages" TO "service_role";

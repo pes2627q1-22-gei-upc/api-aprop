@@ -20,6 +20,9 @@ CREATE TABLE "public"."users" (
   CONSTRAINT "users_username_key" UNIQUE (username)
 );
 
+ALTER TABLE "public"."users"
+  ENABLE ROW LEVEL SECURITY;
+
 REVOKE ALL ON SEQUENCE "public"."users_id_seq" FROM "anon";
 
 GRANT SELECT, UPDATE, USAGE ON SEQUENCE "public"."users_id_seq" TO "anon";

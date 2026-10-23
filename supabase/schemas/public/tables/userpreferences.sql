@@ -6,6 +6,9 @@ CREATE TABLE "public"."userpreferences" (
   CONSTRAINT "userpreferences_pkey" PRIMARY KEY (userid, category)
 );
 
+ALTER TABLE "public"."userpreferences"
+  ENABLE ROW LEVEL SECURITY;
+
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."userpreferences" TO "anon", "authenticated";
 
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."userpreferences" TO "service_role";

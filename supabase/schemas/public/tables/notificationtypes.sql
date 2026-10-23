@@ -5,6 +5,9 @@ CREATE TABLE "public"."notificationtypes" (
   CONSTRAINT "notificationtypes_pkey" PRIMARY KEY (id)
 );
 
+ALTER TABLE "public"."notificationtypes"
+  ENABLE ROW LEVEL SECURITY;
+
 REVOKE ALL ON SEQUENCE "public"."notificationtypes_id_seq" FROM "anon";
 
 GRANT SELECT, UPDATE, USAGE ON SEQUENCE "public"."notificationtypes_id_seq" TO "anon";

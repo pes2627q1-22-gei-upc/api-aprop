@@ -8,6 +8,9 @@ CREATE TABLE "public"."preferencetestchoices" (
   CONSTRAINT "preferencetestchoices_testuser_datetaken_fkey" FOREIGN KEY (testuser, datetaken) REFERENCES public.preferencetests(userid, datetaken)
 );
 
+ALTER TABLE "public"."preferencetestchoices"
+  ENABLE ROW LEVEL SECURITY;
+
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."preferencetestchoices" TO "anon", "authenticated";
 
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."preferencetestchoices" TO "service_role";

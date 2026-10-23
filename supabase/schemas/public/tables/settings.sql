@@ -3,6 +3,9 @@ CREATE TABLE "public"."settings" (
   CONSTRAINT "settings_pkey" PRIMARY KEY (id)
 );
 
+ALTER TABLE "public"."settings"
+  ENABLE ROW LEVEL SECURITY;
+
 REVOKE ALL ON SEQUENCE "public"."settings_id_seq" FROM "anon";
 
 GRANT SELECT, UPDATE, USAGE ON SEQUENCE "public"."settings_id_seq" TO "anon";

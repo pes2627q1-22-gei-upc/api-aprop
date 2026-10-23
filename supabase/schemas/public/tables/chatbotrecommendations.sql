@@ -12,6 +12,9 @@ CREATE TABLE "public"."chatbotrecommendations" (
   CONSTRAINT "chatbotrecommendations_event_fkey" FOREIGN KEY (EVENT) REFERENCES public.events(id)
 );
 
+ALTER TABLE "public"."chatbotrecommendations"
+  ENABLE ROW LEVEL SECURITY;
+
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."chatbotrecommendations" TO "anon", "authenticated";
 
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."chatbotrecommendations" TO "service_role";

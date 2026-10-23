@@ -7,6 +7,9 @@ CREATE TABLE "public"."messages" (
   CONSTRAINT "messages_pkey" PRIMARY KEY (userid, EVENT, datesent)
 );
 
+ALTER TABLE "public"."messages"
+  ENABLE ROW LEVEL SECURITY;
+
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."messages" TO "anon", "authenticated";
 
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."messages" TO "service_role";

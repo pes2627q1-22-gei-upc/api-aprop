@@ -5,6 +5,9 @@ CREATE TABLE "public"."userstate" (
   CONSTRAINT "userstate_state_fkey" FOREIGN KEY (state) REFERENCES public.accountstates(id)
 );
 
+ALTER TABLE "public"."userstate"
+  ENABLE ROW LEVEL SECURITY;
+
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."userstate" TO "anon", "authenticated";
 
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."userstate" TO "service_role";

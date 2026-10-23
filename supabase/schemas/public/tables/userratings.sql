@@ -8,6 +8,9 @@ CREATE TABLE "public"."userratings" (
   CONSTRAINT "userratings_pkey" PRIMARY KEY (rater, rated, EVENT)
 );
 
+ALTER TABLE "public"."userratings"
+  ENABLE ROW LEVEL SECURITY;
+
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."userratings" TO "anon", "authenticated";
 
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."userratings" TO "service_role";

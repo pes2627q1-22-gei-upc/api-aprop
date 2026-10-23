@@ -5,6 +5,9 @@ CREATE TABLE "public"."userlevels" (
   CONSTRAINT "userlevels_pkey" PRIMARY KEY (userid)
 );
 
+ALTER TABLE "public"."userlevels"
+  ENABLE ROW LEVEL SECURITY;
+
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."userlevels" TO "anon", "authenticated";
 
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."userlevels" TO "service_role";

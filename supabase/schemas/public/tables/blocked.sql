@@ -5,6 +5,9 @@ CREATE TABLE "public"."blocked" (
   CONSTRAINT "blocked_pkey" PRIMARY KEY (blockinguser, blockeduser)
 );
 
+ALTER TABLE "public"."blocked"
+  ENABLE ROW LEVEL SECURITY;
+
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."blocked" TO "anon", "authenticated";
 
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."blocked" TO "service_role";

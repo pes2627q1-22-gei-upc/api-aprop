@@ -5,6 +5,9 @@ CREATE TABLE "public"."categories" (
   CONSTRAINT "categories_pkey" PRIMARY KEY (id)
 );
 
+ALTER TABLE "public"."categories"
+  ENABLE ROW LEVEL SECURITY;
+
 REVOKE ALL ON SEQUENCE "public"."categories_id_seq" FROM "anon";
 
 GRANT SELECT, UPDATE, USAGE ON SEQUENCE "public"."categories_id_seq" TO "anon";

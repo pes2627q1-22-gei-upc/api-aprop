@@ -6,6 +6,9 @@ CREATE TABLE "public"."unofficialevents" (
   CONSTRAINT "unofficialevents_pkey" PRIMARY KEY (id)
 );
 
+ALTER TABLE "public"."unofficialevents"
+  ENABLE ROW LEVEL SECURITY;
+
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."unofficialevents" TO "anon", "authenticated";
 
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."unofficialevents" TO "service_role";

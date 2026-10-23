@@ -6,6 +6,9 @@ CREATE TABLE "public"."eventcategories" (
   CONSTRAINT "eventcategories_event_fkey" FOREIGN KEY (EVENT) REFERENCES public.events(id)
 );
 
+ALTER TABLE "public"."eventcategories"
+  ENABLE ROW LEVEL SECURITY;
+
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."eventcategories" TO "anon", "authenticated";
 
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."eventcategories" TO "service_role";

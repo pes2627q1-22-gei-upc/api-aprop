@@ -7,6 +7,9 @@ CREATE TABLE "public"."friendrequests" (
 );
 
 ALTER TABLE "public"."friendrequests"
+  ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE "public"."friendrequests"
   ADD COLUMN "state" public.friendrequeststate NOT NULL DEFAULT 'Pending'::public.friendrequeststate;
 
 ALTER TABLE "public"."friendrequests"

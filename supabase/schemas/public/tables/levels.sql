@@ -7,6 +7,9 @@ CREATE TABLE "public"."levels" (
   CONSTRAINT "levels_pkey" PRIMARY KEY (id)
 );
 
+ALTER TABLE "public"."levels"
+  ENABLE ROW LEVEL SECURITY;
+
 REVOKE ALL ON SEQUENCE "public"."levels_id_seq" FROM "anon";
 
 GRANT SELECT, UPDATE, USAGE ON SEQUENCE "public"."levels_id_seq" TO "anon";

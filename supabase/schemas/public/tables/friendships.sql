@@ -5,6 +5,9 @@ CREATE TABLE "public"."friendships" (
   CONSTRAINT "friendships_pkey" PRIMARY KEY (user1, user2)
 );
 
+ALTER TABLE "public"."friendships"
+  ENABLE ROW LEVEL SECURITY;
+
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."friendships" TO "anon", "authenticated";
 
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."friendships" TO "service_role";

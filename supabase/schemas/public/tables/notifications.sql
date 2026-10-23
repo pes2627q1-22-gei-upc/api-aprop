@@ -12,6 +12,9 @@ CREATE TABLE "public"."notifications" (
   CONSTRAINT "notifications_type_fkey" FOREIGN KEY (TYPE) REFERENCES public.notificationtypes(id)
 );
 
+ALTER TABLE "public"."notifications"
+  ENABLE ROW LEVEL SECURITY;
+
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."notifications" TO "anon", "authenticated";
 
 GRANT DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER, TRUNCATE, UPDATE ON TABLE "public"."notifications" TO "service_role";

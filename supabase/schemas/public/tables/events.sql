@@ -23,6 +23,9 @@ CREATE TABLE "public"."events" (
 );
 
 ALTER TABLE "public"."events"
+  ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE "public"."events"
   ADD COLUMN "modality" public.modalitytype;
 
 ALTER TABLE "public"."events"
