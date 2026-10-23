@@ -34,6 +34,17 @@ func (h *EventHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 	params := make(map[string]any)
 	params["pageSize"], _ = strconv.Atoi(r.URL.Query().Get("pageSize"))
 	params["pageNum"], _ = strconv.Atoi(r.URL.Query().Get("pageNum"))
+	tmp := r.URL.Query().Get("filterCategory")
+	if tmp!=""{
+		params["filterCategory"], _ = strconv.Atoi(tmp)
+	} else {
+		params["filterCategory"] = 0
+	}
+	params["filterRegion"]= r.URL.Query().Get("filterRegion")
+	params["startBefore"]= r.URL.Query().Get("startBefore")
+	params["startAfter"]= r.URL.Query().Get("startAfter")
+	params["endBefore"]= r.URL.Query().Get("endBefore")
+	params["endAfter"]= r.URL.Query().Get("endAfter")
 	
 	list, err := h.eventService.ListEvents(params)
 	if err != nil {

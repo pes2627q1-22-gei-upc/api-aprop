@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -211,7 +212,17 @@ func (r *EventRepository) Get(id int) (event_model.Event, error) {
 	return toModelExtended(rows[0], cats), nil
 }
 
+func regionFilterToDBEntry(s string) (string, error){
+	tmp := strings.Split(s, "_")
+	if len(tmp)!=2{
+		return "", fmt.Errorf("list events: error converting filterRegion parameter")
+	}
+	return fmt.Sprintf("agenda:ubicacions/%s/%s", tmp[0], tmp[1]), nil
+}
+
 func (r *EventRepository) List(params map[string]any) ([]event_model.Event, error) {
+	var err error
+	
 	pageSize, ok := params["pageSize"].(int)
 	if !ok {
 		return nil, fmt.Errorf("list events: error converting pageSize parameter")
@@ -220,11 +231,80 @@ func (r *EventRepository) List(params map[string]any) ([]event_model.Event, erro
 	if !ok {
 		return nil, fmt.Errorf("list events: error converting pageNum parameter")
 	}
-	rows, err := r.queries.ListEvents(context.Background(), sqlc.ListEventsParams{Limit: int32(pageSize), Offset: int32(pageNum * pageSize)})
+
+	filterCategory, ok := params["filterCategory"].(int)
+	if !ok {
+		return nil, fmt.Errorf("list events: error converting filterCategory parameter")
+	}
+
+	filterRegion, _ := params["filterRegion"].(string)
+	if filterRegion != ""{
+		filterRegion, err = regionFilterToDBEntry(string(filterRegion))
+		if err!=nil{
+			return nil, err
+		}
+	}
+
+	var startBefore time.Time
+	var startAfter time.Time
+	var endBefore time.Time
+	var endAfter time.Time
+	
+	startBeforeTmp, _ := params["startBefore"].(string)
+	if startBeforeTmp=="" {
+		startBefore = time.Time{}
+	} else {
+		startBefore, err = time.Parse("2006-01-02T15:04:05.000", startBeforeTmp)
+		if err!=nil {
+			return nil, fmt.Errorf("list events: error converting startBefore parameter: %w", err)
+		}
+	}
+	startAfterTmp, _ := params["startAfter"].(string)
+	if startAfterTmp=="" {
+		startAfter = time.Time{}
+	} else {
+		startAfter, err = time.Parse("2006-01-02T15:04:05.000", startAfterTmp)
+		if err!=nil {
+			return nil, fmt.Errorf("list events: error converting startAfter parameter: %w", err)
+		}
+	}
+	endBeforeTmp, _ := params["endBefore"].(string)
+	if endBeforeTmp=="" {
+		endBefore = time.Time{}
+	} else {
+		endBefore, err = time.Parse("2006-01-02T15:04:05.000", endBeforeTmp)
+		if err!=nil {
+			return nil, fmt.Errorf("list events: error converting endBefore parameter: %w", err)
+		}
+	}
+	endAfterTmp, _ := params["endAfter"].(string)
+	if endAfterTmp=="" {
+		endAfter = time.Time{}
+	} else {
+		endAfter, err = time.Parse("2006-01-02T15:04:05.000", endAfterTmp)
+		if err!=nil {
+			return nil, fmt.Errorf("list events: error converting endAfter parameter: %w", err)
+		}
+	}
+
+	rows, err := r.queries.ListEvents(context.Background(), sqlc.ListEventsParams{
+		Limit: int32(pageSize),
+		Offset: int32(pageNum * pageSize),
+		Category: int32(filterCategory),
+		Region: filterRegion,
+		Startbefore: toDate(startBefore),
+		Startafter: toDate(startAfter),
+		Endbefore: toDate(endBefore),
+		Endafter: toDate(endAfter),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list events: %w", err)
 	}
 	
+	if len(rows) == 0 {
+		return []event_model.Event{}, nil
+	}
+
 	events := []event_model.Event{}
 	currentevent := rows[0]
 	cats := []string{}
