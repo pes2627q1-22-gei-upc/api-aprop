@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 	"io"
+	"strings"
 
 	"api-aprop/internal/models/event_model"
 )
@@ -107,6 +108,9 @@ func mapEvent(val map[string]any) event_model.Event {
 		f, _ := strconv.ParseFloat(v, 32)
 		e.Latitude = float32(f)
 	}
+
+	tmp, _ = val["tags_categor_es"].(string)
+	e.Categories = strings.Split(tmp, ",")
 
 	e.Title, _ = val["denominaci"].(string)
 	e.Subtitle, _ = val["subt_tol"].(string)

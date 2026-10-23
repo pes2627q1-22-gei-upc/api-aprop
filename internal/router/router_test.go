@@ -48,11 +48,14 @@ func (s *stubEventService) LoadOfficialEvents(_ context.Context, _ int) error {
 	return nil
 }
 
+var noopAuth = func(next http.Handler) http.Handler { return next }
+
 func TestRouter_MapRoutesAndEventDetailRoute(t *testing.T) {
 	for _, path := range []string{"/event/map", "/events/map"} {
 		t.Run("GET "+path, func(t *testing.T) {
 			svc := &stubEventService{}
 			mux := NewRouter(
+				noopAuth,
 				event_handler.NewEventHandler(svc),
 				assistant_handler.NewAssistantHandler(nil),
 				signup_handler.NewSignUpHandler(nil),
@@ -81,6 +84,7 @@ func TestRouter_MapRoutesAndEventDetailRoute(t *testing.T) {
 	t.Run("GET /events/{id} still routes to GetEvent", func(t *testing.T) {
 		svc := &stubEventService{}
 		mux := NewRouter(
+			noopAuth,
 			event_handler.NewEventHandler(svc),
 			assistant_handler.NewAssistantHandler(nil),
 			signup_handler.NewSignUpHandler(nil),

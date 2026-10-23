@@ -26,7 +26,7 @@ func NewEventRepository(pool *pgxpool.Pool) *EventRepository {
 	return &EventRepository{queries: sqlc.New(pool)}
 }
 
-func (r *EventRepository) Create(e event_model.Event) (event_model.Event, error) {
+func (r *EventRepository) Create(e event_model.Event, official bool) (event_model.Event, error) {
 	row, err := r.queries.CreateEvent(context.Background(), sqlc.CreateEventParams{
 		Title:       	e.Title,
 		Subtitle:    	toText(e.Subtitle),
@@ -58,10 +58,19 @@ func (r *EventRepository) Create(e event_model.Event) (event_model.Event, error)
 	if err != nil {
 		return event_model.Event{}, fmt.Errorf("create event: %w", err)
 	}
+	if official{
+		_, err := r.queries.CreateOfficialEvent(context.Background(), sqlc.CreateOfficialEventParams{ID: int32(row.ID), Code: pgtype.Int8{Int64: e.Code, Valid:true}})
+		if err!=nil{
+			return event_model.Event{}, fmt.Errorf("create event: %w", err)
+		}
+	}
+
+	r.SetCategories(int(row.ID), e.Categories, official)
+
 	return toModel(row, e.Code), nil
 }
 
-func (r *EventRepository) Update(id int, e event_model.Event) (event_model.Event, error) {
+func (r *EventRepository) Update(id int, e event_model.Event, official bool) (event_model.Event, error) {
 	row, err := r.queries.UpdateEvent(context.Background(), sqlc.UpdateEventParams{
 		ID:          	int32(id),
 		Title:       	e.Title,
@@ -97,6 +106,9 @@ func (r *EventRepository) Update(id int, e event_model.Event) (event_model.Event
 	if err != nil {
 		return event_model.Event{}, fmt.Errorf("update event %d: %w", id, err)
 	}
+
+	r.SetCategories(id, e.Categories, official)
+
 	return toModel(row, e.Code), nil
 }
 
@@ -131,34 +143,96 @@ func (r *EventRepository) CreateOrReplace(e event_model.Event) (event_model.Even
 		Enddate:     	toDate(e.EndDate),
 	})
 	if errors.Is(err, pgx.ErrNoRows){
-		return r.Create(e)
+		return r.Create(e, true)
 	}
 	if err != nil {
 		return event_model.Event{}, fmt.Errorf("check event %d: %w", e.ID, err)
 	}
-	return r.Update(id, e)
+	return r.Update(int(id), e, true)
+}
+
+func (r *EventRepository) SetCategories(id int, cats []string, official bool) (error){
+	err := r.queries.RemoveExistingEventCategories(context.Background(), int32(id))
+	if err != nil {
+		return fmt.Errorf("remove categories from event %d: %w", id, err)
+	}
+
+	for _, v := range cats {
+		exists, err := r.queries.CategoryExists(context.Background(), v)
+		if err!=nil {
+			return fmt.Errorf("add categories to event %d: %w", id, err)
+		}
+		if !exists {
+			if official {
+				catid, err := r.queries.NewCategory(context.Background(), v)
+				if err != nil {
+					return fmt.Errorf("add categories to event %d: %w", id, err)
+				}
+				err = r.queries.AddEventCategory(context.Background(), sqlc.AddEventCategoryParams{Event:int32(id), Category:int32(catid)})
+				if err != nil {
+					return fmt.Errorf("add categories to event %d: %w", id, err)
+				}
+			} else{
+				return fmt.Errorf("add categories to event %d: category %s does not exist", id, v)
+			}
+		} else {
+			catid, err := r.queries.GetCategoryID(context.Background(), v)
+			if err != nil {
+				return fmt.Errorf("add categories to event %d: %w", id, err)
+			}
+			err = r.queries.AddEventCategory(context.Background(), sqlc.AddEventCategoryParams{Event:int32(id), Category:int32(catid)})
+			if err != nil {
+				return fmt.Errorf("add categories to event %d: %w", id, err)
+			}
+		}
+	}
+
+	return nil
 }
 
 func (r *EventRepository) Get(id int) (event_model.Event, error) {
-	row, err := r.queries.GetEvent(context.Background(), int32(id))
+	rows, err := r.queries.GetEvent(context.Background(), int32(id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return event_model.Event{}, fmt.Errorf("get event %d: %w", id, event_repository.ErrEventNotFound)
 	}
 	if err != nil {
 		return event_model.Event{}, fmt.Errorf("get event %d: %w", id, err)
 	}
-	return toModel(row, 0), nil
+	
+	cats := []string{}
+	for _, r := range(rows){
+		cats=append(cats, r.Category.String)
+	}
+
+	return toModelExtended(rows[0], cats), nil
 }
 
 func (r *EventRepository) List(params map[string]any) ([]event_model.Event, error) {
-	rows, err := r.queries.ListEvents(context.Background(), params)
+	pageSize, ok := params["pageSize"].(int)
+	if !ok {
+		return nil, fmt.Errorf("list events: error converting pageSize parameter")
+	}
+	pageNum, ok := params["pageNum"].(int)
+	if !ok {
+		return nil, fmt.Errorf("list events: error converting pageNum parameter")
+	}
+	rows, err := r.queries.ListEvents(context.Background(), sqlc.ListEventsParams{Limit: int32(pageSize), Offset: int32(pageNum * pageSize)})
 	if err != nil {
 		return nil, fmt.Errorf("list events: %w", err)
 	}
-	events := make([]event_model.Event, 0, len(rows))
+	
+	events := []event_model.Event{}
+	currentevent := rows[0]
+	cats := []string{}
 	for _, row := range rows {
-		events = append(events, toModel(row, 0))
+		if row.ID != currentevent.ID {
+			events = append(events, toModelExtended(sqlc.GetEventRow(currentevent), cats))
+			cats = []string{}
+			currentevent=row
+		}
+		cats=append(cats, row.Category.String)
 	}
+	events = append(events, toModelExtended(sqlc.GetEventRow(currentevent), cats))
 	return events, nil
 }
 
@@ -256,6 +330,42 @@ func toModel(row sqlc.Event, code int64) event_model.Event {
 		ActivityURL: 	row.Activityurl.String,
 		StartDate:   	row.Startdate.Time,
 		EndDate:     	row.Enddate.Time,
+	}
+}
+
+func toModelExtended(row sqlc.GetEventRow, cats []string) event_model.Event {
+	return event_model.Event{
+		ID:          	int(row.ID),
+		Code:        	row.Code.Int64,
+		Title:       	row.Title,
+		Subtitle:    	row.Subtitle.String,
+		Schedule:    	row.Schedule.String,
+		Tickets:     	row.Tickets.String,
+		URL:         	row.Url.String,
+		TicketsURL:  	row.Ticketsurl.String,
+		Description: 	row.Description.String,
+		Free:        	row.Free.Bool,
+		Permanent:   	row.Permanent.Bool,
+		RelatedURLs: 	row.Relatedurls.String,
+		URLnames:    	row.Urlnames.String,
+		Modality:    	row.Modality.String,
+		Images:      	row.Images.String,
+		Videos:      	row.Videos.String,
+		Email:       	row.Email.String,
+		Place:	     	row.Place.String,
+		Latitude:		row.Latitude.Float32,
+		Longitude:		row.Longitude.Float32,
+		PostalCode:		row.PostalCode.String,
+		Municipality:	row.Municipality.String,
+		Region:			row.Region.String,
+		Address:		row.Address.String,
+		Phone:       	row.Phone.String,
+		ActivityURL: 	row.Activityurl.String,
+		StartDate:   	row.Startdate.Time,
+		EndDate:     	row.Enddate.Time,
+		Creator:		row.Creator,
+		DateCreated:	row.Datecreated.Time,
+		Categories:		cats,
 	}
 }
 

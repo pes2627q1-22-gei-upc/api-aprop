@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"reflect"
 	"testing"
 
 	"api-aprop/internal/models/event_model"
@@ -19,7 +20,7 @@ type fakeEventRepository struct {
 	gotFilter event_model.MapFilter
 }
 
-func (f *fakeEventRepository) Create(e event_model.Event) (event_model.Event, error) {
+func (f *fakeEventRepository) Create(e event_model.Event, _ bool) (event_model.Event, error) {
 	return e, nil
 }
 
@@ -27,8 +28,12 @@ func (f *fakeEventRepository) CreateOrReplace(e event_model.Event) (event_model.
 	return e, nil
 }
 
-func (f *fakeEventRepository) Update(_ int, e event_model.Event) (event_model.Event, error) {
+func (f *fakeEventRepository) Update(_ int, e event_model.Event, _ bool) (event_model.Event, error) {
 	return e, nil
+}
+
+func (f *fakeEventRepository) SetCategories(_ int, _ []string, _ bool) error {
+	return nil
 }
 
 func (f *fakeEventRepository) Get(_ int) (event_model.Event, error) {
@@ -159,7 +164,7 @@ func TestListMapEvents(t *testing.T) {
 				t.Fatalf("got %d events, want %d", len(got), len(tt.want))
 			}
 			for i := range got {
-				if got[i] != tt.want[i] {
+				if !reflect.DeepEqual(got[i], tt.want[i]) {
 					t.Errorf("event[%d] = %+v, want %+v", i, got[i], tt.want[i])
 				}
 			}

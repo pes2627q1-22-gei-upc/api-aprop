@@ -2,6 +2,7 @@ package event_model
 
 import (
 	"time"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // Event is the resource. Struct tags control the JSON field names.
@@ -33,7 +34,10 @@ type Event struct {
 	Phone 			string 		`json:"phone"`
 	ActivityURL 	string 		`json:"activity-url"` // URL where the activity is held (for online events)
 	StartDate 		time.Time 	`json:"start-date"`
-	EndDate 		time.Time 	`json:"end-date"` 
+	EndDate 		time.Time 	`json:"end-date"`
+	Categories		[]string	`json:"categories"`
+	Creator			pgtype.UUID	`json:"creator"`
+	DateCreated		time.Time	`json:"date-created"`
 }
 
 // MapFilter defines the visible map bounding box and optional user ID for friend indicators.
