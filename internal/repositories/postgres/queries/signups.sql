@@ -8,6 +8,21 @@ WHERE NOT EXISTS (
     WHERE UserID = sqlc.arg(user_id)::uuid AND Event = sqlc.arg(event_id)::integer
 );
 
+-- name: DeleteSignUp :execrows
+DELETE FROM SignUp
+WHERE UserID = sqlc.arg(user_id)::uuid AND Event = sqlc.arg(event_id)::integer;
+
+-- name: CountEventSignUps :one
+SELECT COUNT(DISTINCT UserID)::bigint
+FROM SignUp
+WHERE Event = sqlc.arg(event_id)::integer;
+
+-- name: IsUserSignedUp :one
+SELECT EXISTS (
+    SELECT 1 FROM SignUp
+    WHERE UserID = sqlc.arg(user_id)::uuid AND Event = sqlc.arg(event_id)::integer
+)::boolean;
+
 -- name: ListUserSignedUpEvents :many
 -- Events the user is signed up to that overlap the optional [from_date, to_date] range.
 -- EXISTS returns each event once even if SignUp contains duplicated rows.

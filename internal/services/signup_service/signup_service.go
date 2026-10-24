@@ -47,6 +47,68 @@ func (s *SignUpService) SignUp(ctx context.Context, userID string, eventID int) 
 	return signup_model.SignUp{UserID: userID, EventID: eventID, Created: created}, nil
 }
 
+// Unenroll removes the user's sign up from the event.
+func (s *SignUpService) Unenroll(ctx context.Context, userID string, eventID int) (signup_model.Unenroll, error) {
+	userID, err := normalizeUserID(userID)
+	if err != nil {
+		return signup_model.Unenroll{}, err
+	}
+	if eventID <= 0 {
+		return signup_model.Unenroll{}, fmt.Errorf("%w: %d", ErrInvalidEventID, eventID)
+	}
+
+	exists, err := s.signUpRepository.EventExists(ctx, eventID)
+	if err != nil {
+		return signup_model.Unenroll{}, err
+	}
+	if !exists {
+		return signup_model.Unenroll{}, fmt.Errorf("unenroll from event %d: %w", eventID, ErrEventNotFound)
+	}
+
+	deleted, err := s.signUpRepository.Delete(ctx, userID, eventID)
+	if err != nil {
+		return signup_model.Unenroll{}, err
+	}
+	return signup_model.Unenroll{UserID: userID, EventID: eventID, Deleted: deleted}, nil
+}
+
+// GetEnrollmentStatus returns whether the user is enrolled and the total count of sign ups.
+func (s *SignUpService) GetEnrollmentStatus(ctx context.Context, userID string, eventID int) (signup_model.EnrollmentStatus, error) {
+	if eventID <= 0 {
+		return signup_model.EnrollmentStatus{}, fmt.Errorf("%w: %d", ErrInvalidEventID, eventID)
+	}
+
+	exists, err := s.signUpRepository.EventExists(ctx, eventID)
+	if err != nil {
+		return signup_model.EnrollmentStatus{}, err
+	}
+	if !exists {
+		return signup_model.EnrollmentStatus{}, fmt.Errorf("event %d: %w", eventID, ErrEventNotFound)
+	}
+
+	count, err := s.signUpRepository.CountSignUps(ctx, eventID)
+	if err != nil {
+		return signup_model.EnrollmentStatus{}, err
+	}
+
+	var isEnrolled bool
+	if userID != "" {
+		normalizedUID, normErr := normalizeUserID(userID)
+		if normErr == nil {
+			isEnrolled, err = s.signUpRepository.IsSignedUp(ctx, normalizedUID, eventID)
+			if err != nil {
+				return signup_model.EnrollmentStatus{}, err
+			}
+		}
+	}
+
+	return signup_model.EnrollmentStatus{
+		EventID:       eventID,
+		IsEnrolled:    isEnrolled,
+		EnrolledCount: count,
+	}, nil
+}
+
 // ListUserEvents returns the events the user is signed up to that overlap the date range.
 func (s *SignUpService) ListUserEvents(ctx context.Context, userID string, dateRange signup_model.DateRange) ([]event_model.Event, error) {
 	userID, err := normalizeUserID(userID)
