@@ -33,6 +33,8 @@ func (h *EventHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /events/map", h.ListMapEvents)
 	mux.HandleFunc("GET /events/{id}", h.GetEvent)
 	mux.HandleFunc("POST /events", h.CreateEvent)
+	mux.HandleFunc("GET /categories", h.GetCategories)
+	mux.HandleFunc("GET /categories/{id}", h.GetCategory)
 }
 
 // ListEvents handles GET /events
@@ -40,6 +42,21 @@ func (h *EventHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 	params := make(map[string]any)
 	params["pageSize"], _ = strconv.Atoi(r.URL.Query().Get("pageSize"))
 	params["pageNum"], _ = strconv.Atoi(r.URL.Query().Get("pageNum"))
+	tmp := r.URL.Query().Get("filterCategory")
+	if tmp!=""{
+		params["filterCategory"], _ = strconv.Atoi(tmp)
+	} else {
+		params["filterCategory"] = 0
+	}
+	params["filterRegion"]= r.URL.Query().Get("filterRegion")
+	params["startBefore"]= r.URL.Query().Get("startBefore")
+	params["startAfter"]= r.URL.Query().Get("startAfter")
+	params["endBefore"]= r.URL.Query().Get("endBefore")
+	params["endAfter"]= r.URL.Query().Get("endAfter")
+	params["filterPermanent"]= r.URL.Query().Get("filterPermanent")
+	params["filterFree"]= r.URL.Query().Get("filterFree")
+	params["filterOfficial"]= r.URL.Query().Get("filterOfficial")
+	params["filterModality"]= r.URL.Query().Get("filterModality")
 	
 	list, err := h.eventService.ListEvents(params)
 	if err != nil {
@@ -82,6 +99,16 @@ func (h *EventHandler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 	response.WriteJSON(w, http.StatusCreated, created)
 }
 
+// GetCategories handles GET /categories
+func (h *EventHandler) GetCategories(w http.ResponseWriter, r *http.Request){
+	list, err := h.eventService.GetCategories()
+  if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+  response.WriteJSON(w, http.StatusOK, list)
+}
+
 // ListMapEvents handles GET /event/map?minLat=...&maxLat=...&minLng=...&maxLng=...
 func (h *EventHandler) ListMapEvents(w http.ResponseWriter, r *http.Request) {
 	filter, ok := parseMapFilter(w, r)
@@ -94,7 +121,24 @@ func (h *EventHandler) ListMapEvents(w http.ResponseWriter, r *http.Request) {
 		writeServiceError(w, err)
 		return
 	}
-	response.WriteJSON(w, http.StatusOK, events)
+  response.WriteJSON(w, http.StatusOK, events)
+}
+
+// GetCategories handles GET /categories/{id}
+func (h *EventHandler) GetCategory(w http.ResponseWriter, r *http.Request){
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil {
+		response.WriteError(w, http.StatusBadRequest, "invalid category id")
+		return
+	}
+	
+	cat, err := h.eventService.GetCategory(id)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, cat)
 }
 
 func parseMapFilter(w http.ResponseWriter, r *http.Request) (event_model.MapFilter, bool) {

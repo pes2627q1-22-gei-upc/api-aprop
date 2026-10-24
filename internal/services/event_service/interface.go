@@ -13,5 +13,7 @@ type Service interface {
 	ListMapEvents(ctx context.Context, filter event_model.MapFilter) ([]event_model.MapEvent, error)
 	CreateEvent(e event_model.Event) (event_model.Event, error)
 	LoadOfficialEvents(ctx context.Context, pageSize int) error
+	GetCategories() ([]event_model.Category, error)
+	GetCategory(id int) (event_model.Category, error)
 }
 

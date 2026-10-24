@@ -14,6 +14,8 @@ type Repository interface {
 	SetCategories(id int, cats []string, official bool) (error)
 	Get(id int) (event_model.Event, error)
 	List(params map[string]any) ([]event_model.Event, error)
+	GetCategories() ([]event_model.Category, error)
+	GetCategory(id int) (event_model.Category, error)
 	ListMapEvents(ctx context.Context, filter event_model.MapFilter) ([]event_model.MapEvent, error)
 }
 

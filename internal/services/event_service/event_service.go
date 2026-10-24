@@ -98,6 +98,13 @@ func (s *EventService) LoadOfficialEvents(ctx context.Context, pageSize int) err
 	return nil
 }
 
+func (s *EventService) GetCategories() ([]event_model.Category, error){
+	return s.eventRepository.GetCategories()
+}
+
+func (s *EventService) GetCategory(id int) (event_model.Category, error){
+	return s.eventRepository.GetCategory(id)
+}
 func validateBoundingBox(minLat, maxLat, minLng, maxLng float32) error {
 	if math.IsNaN(float64(minLat)) || math.IsNaN(float64(maxLat)) || math.IsNaN(float64(minLng)) || math.IsNaN(float64(maxLng)) {
 		return fmt.Errorf("%w: coordinates must not be NaN", ErrInvalidBoundingBox)

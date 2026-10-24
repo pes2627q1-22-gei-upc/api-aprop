@@ -168,7 +168,7 @@ func toSummary(e event_model.Event) EventSummary {
 		StartDate:    formatDate(e.StartDate),
 		EndDate:      formatDate(e.EndDate),
 		Schedule:     e.Schedule,
-		Free:         e.Free,
+		Free:         e.Free.Bool,
 		Description:  truncate(e.Description, maxDescriptionRune),
 	}
 }

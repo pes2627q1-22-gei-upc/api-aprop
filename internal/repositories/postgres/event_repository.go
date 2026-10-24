@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"strings"
+	"strconv"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -35,8 +37,8 @@ func (r *EventRepository) Create(e event_model.Event, official bool) (event_mode
 		Url:         	toText(e.URL),
 		Tickets:     	toText(e.Tickets),
 		Ticketsurl:  	toText(e.TicketsURL),
-		Free:        	toPGXBool(e.Free),
-		Permanent:   	toPGXBool(e.Permanent),
+		Free:        	e.Free,
+		Permanent:   	e.Permanent,
 		Modality:    	toText(e.Modality),
 		Relatedurls: 	toText(e.RelatedURLs),
 		Urlnames:    	toText(e.URLnames),
@@ -80,8 +82,8 @@ func (r *EventRepository) Update(id int, e event_model.Event, official bool) (ev
 		Url:         	toText(e.URL),
 		Tickets:     	toText(e.Tickets),
 		Ticketsurl:  	toText(e.TicketsURL),
-		Free:        	toPGXBool(e.Free),
-		Permanent:   	toPGXBool(e.Permanent),
+		Free:        	e.Free,
+		Permanent:   	e.Permanent,
 		Modality:    	toText(e.Modality),
 		Relatedurls: 	toText(e.RelatedURLs),
 		Urlnames:    	toText(e.URLnames),
@@ -122,8 +124,8 @@ func (r *EventRepository) CreateOrReplace(e event_model.Event) (event_model.Even
 		Url:         	toText(e.URL),
 		Tickets:     	toText(e.Tickets),
 		Ticketsurl:  	toText(e.TicketsURL),
-		Free:        	toPGXBool(e.Free),
-		Permanent:   	toPGXBool(e.Permanent),
+		Free:        	e.Free,
+		Permanent:   	e.Permanent,
 		Modality:    	toText(e.Modality),
 		Relatedurls: 	toText(e.RelatedURLs),
 		Urlnames:    	toText(e.URLnames),
@@ -152,6 +154,10 @@ func (r *EventRepository) CreateOrReplace(e event_model.Event) (event_model.Even
 }
 
 func (r *EventRepository) SetCategories(id int, cats []string, official bool) (error){
+	if len(cats)==0 {
+		return nil
+	}
+	
 	err := r.queries.RemoveExistingEventCategories(context.Background(), int32(id))
 	if err != nil {
 		return fmt.Errorf("remove categories from event %d: %w", id, err)
@@ -207,7 +213,17 @@ func (r *EventRepository) Get(id int) (event_model.Event, error) {
 	return toModelExtended(rows[0], cats), nil
 }
 
+func regionFilterToDBEntry(s string) (string, error){
+	tmp := strings.Split(s, "_")
+	if len(tmp)!=2{
+		return "", fmt.Errorf("list events: error converting filterRegion parameter")
+	}
+	return fmt.Sprintf("agenda:ubicacions/%s/%s", tmp[0], tmp[1]), nil
+}
+
 func (r *EventRepository) List(params map[string]any) ([]event_model.Event, error) {
+	var err error
+	
 	pageSize, ok := params["pageSize"].(int)
 	if !ok {
 		return nil, fmt.Errorf("list events: error converting pageSize parameter")
@@ -216,11 +232,131 @@ func (r *EventRepository) List(params map[string]any) ([]event_model.Event, erro
 	if !ok {
 		return nil, fmt.Errorf("list events: error converting pageNum parameter")
 	}
-	rows, err := r.queries.ListEvents(context.Background(), sqlc.ListEventsParams{Limit: int32(pageSize), Offset: int32(pageNum * pageSize)})
+
+	filterCategory, ok := params["filterCategory"].(int)
+	if !ok {
+		return nil, fmt.Errorf("list events: error converting filterCategory parameter")
+	}
+
+	filterRegion, _ := params["filterRegion"].(string)
+	if filterRegion != ""{
+		filterRegion, err = regionFilterToDBEntry(string(filterRegion))
+		if err!=nil{
+			return nil, err
+		}
+	}
+
+	var startBefore time.Time
+	var startAfter time.Time
+	var endBefore time.Time
+	var endAfter time.Time
+	var filterPermanent pgtype.Bool
+	var filterFree pgtype.Bool
+	var filterOfficial pgtype.Bool
+	var filterModality sqlc.NullModalitytype
+	
+	startBeforeTmp, _ := params["startBefore"].(string)
+	if startBeforeTmp=="" {
+		startBefore = time.Time{}
+	} else {
+		startBefore, err = time.Parse("2006-01-02T15:04:05.000", startBeforeTmp)
+		if err!=nil {
+			return nil, fmt.Errorf("list events: error converting startBefore parameter: %w", err)
+		}
+	}
+	startAfterTmp, _ := params["startAfter"].(string)
+	if startAfterTmp=="" {
+		startAfter = time.Time{}
+	} else {
+		startAfter, err = time.Parse("2006-01-02T15:04:05.000", startAfterTmp)
+		if err!=nil {
+			return nil, fmt.Errorf("list events: error converting startAfter parameter: %w", err)
+		}
+	}
+	endBeforeTmp, _ := params["endBefore"].(string)
+	if endBeforeTmp=="" {
+		endBefore = time.Time{}
+	} else {
+		endBefore, err = time.Parse("2006-01-02T15:04:05.000", endBeforeTmp)
+		if err!=nil {
+			return nil, fmt.Errorf("list events: error converting endBefore parameter: %w", err)
+		}
+	}
+	endAfterTmp, _ := params["endAfter"].(string)
+	if endAfterTmp=="" {
+		endAfter = time.Time{}
+	} else {
+		endAfter, err = time.Parse("2006-01-02T15:04:05.000", endAfterTmp)
+		if err!=nil {
+			return nil, fmt.Errorf("list events: error converting endAfter parameter: %w", err)
+		}
+	}
+
+	filterPermanentTmp, _ := params["filterPermanent"].(string)
+	if filterPermanentTmp == ""{
+		filterPermanent=pgtype.Bool{Valid:false}
+	} else {
+		filterPermanent.Bool, err = strconv.ParseBool(filterPermanentTmp)
+		if err!=nil {
+			return nil, fmt.Errorf("list events: error converting filterPermanent parameter: %w", err)
+		}
+		filterPermanent.Valid=true
+	}
+	filterFreeTmp, _ := params["filterFree"].(string)
+	if filterFreeTmp == ""{
+		filterFree=pgtype.Bool{Valid:false}
+	} else {
+		filterFree.Bool, err = strconv.ParseBool(filterFreeTmp)
+		if err!=nil {
+			return nil, fmt.Errorf("list events: error converting filterFree parameter: %w", err)
+		}
+		filterFree.Valid=true
+	}
+	filterOfficialTmp, _ := params["filterOfficial"].(string)
+	if filterOfficialTmp == ""{
+		filterOfficial=pgtype.Bool{Valid:false}
+	} else {
+		filterOfficial.Bool, err = strconv.ParseBool(filterOfficialTmp)
+		if err!=nil {
+			return nil, fmt.Errorf("list events: error converting filterOfficial parameter: %w", err)
+		}
+		filterOfficial.Valid=true
+	}
+	filterModalityTmp, _ := params["filterModality"].(string)
+	if filterModalityTmp == ""{
+		filterModality = sqlc.NullModalitytype{Valid: false}
+	} else if filterModalityTmp == "Online"{
+		filterModality = sqlc.NullModalitytype{Modalitytype:sqlc.ModalitytypeOnline, Valid: true}
+	} else if filterModalityTmp == "Face-to-Face" {
+		filterModality = sqlc.NullModalitytype{Modalitytype:sqlc.ModalitytypeFaceToFace, Valid: true}
+	} else if filterModalityTmp == "Online and Face-to-Face" {
+		filterModality = sqlc.NullModalitytype{Modalitytype:sqlc.ModalitytypeOnlineandFaceToFace, Valid: true}
+	} else {
+		return nil, fmt.Errorf("list events: error converting filterModality parameter")
+	}
+
+	rows, err := r.queries.ListEvents(context.Background(), sqlc.ListEventsParams{
+		Limit: int32(pageSize),
+		Offset: int32(pageNum * pageSize),
+		Category: int32(filterCategory),
+		Region: filterRegion,
+		Startbefore: toDate(startBefore),
+		Startafter: toDate(startAfter),
+		Endbefore: toDate(endBefore),
+		Endafter: toDate(endAfter),
+		Permanent: filterPermanent,
+		Official: filterOfficial,
+		Free: filterFree,
+		Modality: filterModality,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list events: %w", err)
 	}
 	
+	if len(rows) == 0 {
+		return []event_model.Event{}, nil
+	}
+
 	events := []event_model.Event{}
 	currentevent := rows[0]
 	cats := []string{}
@@ -236,6 +372,32 @@ func (r *EventRepository) List(params map[string]any) ([]event_model.Event, erro
 	return events, nil
 }
 
+func (r *EventRepository) GetCategories() ([]event_model.Category, error){
+	rows, err := r.queries.GetCategories(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("list events: %w", err)
+	}
+	
+	cats := []event_model.Category{}
+	for _, row := range rows {
+		cat := toCategory(row)
+		cats=append(cats, cat)
+	}
+	return cats, nil
+}
+
+func (r *EventRepository) GetCategory(id int) (event_model.Category, error){
+	row, err := r.queries.GetCategory(context.Background(), int32(id))
+	if err != nil {
+		return event_model.Category{}, fmt.Errorf("get category %d: %w", id, err)
+	}
+	
+	return toCategory(row), nil
+}
+
+func toCategory(cat sqlc.Category) event_model.Category {
+	return event_model.Category{ID: int(cat.ID), Name: cat.Name}
+}
 func (r *EventRepository) ListMapEvents(ctx context.Context, filter event_model.MapFilter) ([]event_model.MapEvent, error) {
 	params := sqlc.ListMapEventsParams{
 		MinLat: filter.MinLat,
@@ -311,8 +473,8 @@ func toModel(row sqlc.Event, code int64) event_model.Event {
 		URL:         	row.Url.String,
 		TicketsURL:  	row.Ticketsurl.String,
 		Description: 	row.Description.String,
-		Free:        	row.Free.Bool,
-		Permanent:   	row.Permanent.Bool,
+		Free:        	row.Free,
+		Permanent:   	row.Permanent,
 		RelatedURLs: 	row.Relatedurls.String,
 		URLnames:    	row.Urlnames.String,
 		Modality:    	row.Modality.String,
@@ -344,8 +506,8 @@ func toModelExtended(row sqlc.GetEventRow, cats []string) event_model.Event {
 		URL:         	row.Url.String,
 		TicketsURL:  	row.Ticketsurl.String,
 		Description: 	row.Description.String,
-		Free:        	row.Free.Bool,
-		Permanent:   	row.Permanent.Bool,
+		Free:        	row.Free,
+		Permanent:   	row.Permanent,
 		RelatedURLs: 	row.Relatedurls.String,
 		URLnames:    	row.Urlnames.String,
 		Modality:    	row.Modality.String,
