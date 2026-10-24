@@ -15,7 +15,7 @@ import (
 	"github.com/joho/godotenv"
 
 	"api-aprop/internal/clients/firebase_client"
-	"api-aprop/internal/clients/gemini_client"
+	"api-aprop/internal/clients/groq_client"
 	"api-aprop/internal/clients/gencat_client"
 	"api-aprop/internal/clients/mcp_client"
 	"api-aprop/internal/drivers/postgres_driver"
@@ -90,8 +90,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("invalid GENCAT_PAGE_SIZE: %v", err)
 	}
-	geminiAPIKey := getEnv("GEMINI_API_KEY")
-	geminiModel := getEnv("GEMINI_MODEL")
+	groqAPIKey := getEnv("GROQ_API_KEY")
+	groqModel := getEnv("GROQ_MODEL")
 	mcpURL := getEnv("MCP_URL")
 	mcpToken := getEnv("MCP_TOKEN")
 	location, err := time.LoadLocation(timeZone)
@@ -147,12 +147,20 @@ func main() {
 	// Clients
 	httpClient := &http.Client{Timeout: 15 * time.Second}
 	gencatClient := gencat_client.NewGencatClient(httpClient, gencatEventsURL, appToken)
-	geminiClient := gemini_client.NewGeminiClient(httpClient, gemini_client.DefaultBaseURL, geminiAPIKey, geminiModel)
+	groqClient := groq_client.NewGroqClient(httpClient, groq_client.DefaultBaseURL, groqAPIKey, groqModel)
 	mcpClient := mcp_client.NewMCPClient(httpClient, mcpURL, mcpToken)
-	firebaseClient, err := firebase_client.NewFirebaseClient(context.Background(), firebaseCredentialsFile)
-	if err != nil {
-		slog.Error("Error initializing Firebase", "error", err)
-		os.Exit(1)
+
+	var authMiddleware func(http.Handler) http.Handler
+	if _, err := os.Stat(firebaseCredentialsFile); err == nil {
+		firebaseClient, err := firebase_client.NewFirebaseClient(context.Background(), firebaseCredentialsFile)
+		if err != nil {
+			slog.Error("Error initializing Firebase", "error", err)
+			os.Exit(1)
+		}
+		authMiddleware = auth_middleware.NewAuthMiddleware(firebaseClient)
+	} else {
+		slog.Warn("Firebase credentials file not found; running without auth middleware for local development", "file", firebaseCredentialsFile)
+		authMiddleware = func(next http.Handler) http.Handler { return next }
 	}
 
 	// Repositories
@@ -165,7 +173,7 @@ func main() {
 	// Services
 	eventService := event_service.NewEventService(eventRepository, gencatClient)
 	assistantService := assistant_service.NewAssistantService(
-		chatbotRepository, catalogueRepository, geminiClient, mcpClient,
+		chatbotRepository, catalogueRepository, groqClient, mcpClient,
 		func() time.Time { return time.Now().In(location) }, assistant_service.ReplyTimeout,
 	)
 	signUpService := signup_service.NewSignUpService(signUpRepository)
@@ -177,13 +185,13 @@ func main() {
 	signUpHandler := signup_handler.NewSignUpHandler(signUpService)
 	authHandler := auth_handler.NewAuthHandler(authService)
 
-	// Middlewares
-	authMiddleware := auth_middleware.NewAuthMiddleware(firebaseClient)
 
 	// Initial data
-	if err := eventService.LoadOfficialEvents(context.Background(), gencatPageSize); err != nil {
-		log.Printf("could not load official events: %v", err)
-	}
+	go func() {
+		if err := eventService.LoadOfficialEvents(context.Background(), gencatPageSize); err != nil {
+			log.Printf("could not load official events: %v", err)
+		}
+	}()
 	// Start goroutine
 	runDaily(func() {
 		if err := eventService.LoadOfficialEvents(context.Background(), gencatPageSize); err != nil {
