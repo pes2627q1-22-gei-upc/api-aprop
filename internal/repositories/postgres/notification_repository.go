@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -88,8 +89,20 @@ func (r *NotificationRepository) Create(n notification_model.Notification) (int,
 	return int(row), nil
 }
 
-func (r *NotificationRepository) GetUserNotifications(id int) ([]notification_model.Notification, error) {
-	rows, err := r.queries.GetUserNotifications(context.Background(), int32(id))
+func (r *NotificationRepository) GetUserNotifications(id int, params map[string]any) ([]notification_model.Notification, error) {
+	typefiltertmp := params["filterType"].(string)
+	var typefilter int
+	var err error
+	if typefiltertmp == ""{
+		typefilter=0
+	} else {
+		typefilter, err=strconv.Atoi(typefiltertmp)
+		if err!=nil{
+			return []notification_model.Notification{}, err
+		}
+	}
+
+	rows, err := r.queries.GetUserNotifications(context.Background(), sqlc.GetUserNotificationsParams{Userid: int32(id), Filtertype: int32(typefilter)})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return []notification_model.Notification{}, fmt.Errorf("get notifications from user %d: %w", id, notification_repository.ErrUserNotFound)
 	}

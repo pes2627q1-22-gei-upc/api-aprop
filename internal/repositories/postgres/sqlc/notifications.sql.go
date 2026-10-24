@@ -84,10 +84,16 @@ func (q *Queries) GetNotificationTypes(ctx context.Context) ([]Notificationtype,
 
 const getUserNotifications = `-- name: GetUserNotifications :many
 SELECT notificationdate, requestdate, event, type, id, read, userid, friend FROM notifications where userid = $1
+and ($2::integer = 0 or type = $2::integer)
 `
 
-func (q *Queries) GetUserNotifications(ctx context.Context, userid int32) ([]Notification, error) {
-	rows, err := q.db.Query(ctx, getUserNotifications, userid)
+type GetUserNotificationsParams struct {
+	Userid     int32
+	Filtertype int32
+}
+
+func (q *Queries) GetUserNotifications(ctx context.Context, arg GetUserNotificationsParams) ([]Notification, error) {
+	rows, err := q.db.Query(ctx, getUserNotifications, arg.Userid, arg.Filtertype)
 	if err != nil {
 		return nil, err
 	}

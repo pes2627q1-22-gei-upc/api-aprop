@@ -65,8 +65,10 @@ func (h *NotificationHandler) GetUserNotifications(w http.ResponseWriter, r *htt
 		response.WriteError(w, http.StatusBadRequest, "invalid user id")
 		return
 	}
+	params := map[string]any{}
+	params["filterType"] = r.URL.Query().Get("filterType")
 
-	notifs, err := h.notificationService.GetUserNotifications(id)
+	notifs, err := h.notificationService.GetUserNotifications(id, params)
 	if err != nil {
 		writeServiceError(w, err)
 		return

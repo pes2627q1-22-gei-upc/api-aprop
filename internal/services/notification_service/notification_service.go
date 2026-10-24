@@ -37,8 +37,8 @@ func (s *NotificationService) GetNotificationTypes() ([]notification_model.Notif
 	return n, nil
 }
 
-func (s *NotificationService) GetUserNotifications(id int) ([]notification_model.Notification, error) {
-	notifs, err := s.notificationRepository.GetUserNotifications(id)
+func (s *NotificationService) GetUserNotifications(id int, params map[string]any) ([]notification_model.Notification, error) {
+	notifs, err := s.notificationRepository.GetUserNotifications(id, params)
 	if errors.Is(err, notification_repository.ErrNotificationNotFound) {
 		return []notification_model.Notification{}, fmt.Errorf("%w: %w", notification_repository.ErrUserNotFound, err)
 	}
