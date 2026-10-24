@@ -2,9 +2,13 @@ package user_service_test
 
 import (
 	"context"
+	"errors"
+	"io"
+	"strings"
 	"testing"
 	"time"
 
+	"api-aprop/internal/clients/s3_client"
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/repositories/user_repository"
@@ -12,9 +16,9 @@ import (
 )
 
 type mockUserRepo struct {
-	users          map[string]user_model.User // indexed by id, uuid, username, firebase_uid
-	showPlans      map[int]bool               // settingsID -> showPlans
-	friends        map[string]map[string]bool // uuid1 -> uuid2 -> areFriends
+	usersByID      map[int]*user_model.User
+	showPlans      map[int]bool
+	friends        map[string]map[string]bool
 	plansCount     map[string]int
 	completedPlans map[string]int
 	reliability    map[string]*float32
@@ -23,7 +27,7 @@ type mockUserRepo struct {
 
 func newMockUserRepo() *mockUserRepo {
 	return &mockUserRepo{
-		users:          make(map[string]user_model.User),
+		usersByID:      make(map[int]*user_model.User),
 		showPlans:      make(map[int]bool),
 		friends:        make(map[string]map[string]bool),
 		plansCount:     make(map[string]int),
@@ -34,46 +38,44 @@ func newMockUserRepo() *mockUserRepo {
 }
 
 func (m *mockUserRepo) addUser(u user_model.User, showPlans bool) {
-	m.users[u.Username] = u
-	m.users[u.FirebaseUID] = u
-	if u.UUID != "" {
-		m.users[u.UUID] = u
-	}
-	m.users[string(rune(u.ID))] = u
+	copy := u
+	m.usersByID[u.ID] = &copy
 	m.showPlans[u.Settings] = showPlans
 }
 
 func (m *mockUserRepo) GetByID(_ context.Context, id int) (user_model.User, bool, error) {
-	for _, u := range m.users {
-		if u.ID == id {
-			return u, m.showPlans[u.Settings], nil
+	u, ok := m.usersByID[id]
+	if !ok {
+		return user_model.User{}, false, user_repository.ErrUserNotFound
+	}
+	return *u, m.showPlans[u.Settings], nil
+}
+
+func (m *mockUserRepo) GetByUsername(_ context.Context, username string) (user_model.User, bool, error) {
+	for _, u := range m.usersByID {
+		if u.Username == username {
+			return *u, m.showPlans[u.Settings], nil
 		}
 	}
 	return user_model.User{}, false, user_repository.ErrUserNotFound
 }
 
-func (m *mockUserRepo) GetByUsername(_ context.Context, username string) (user_model.User, bool, error) {
-	u, ok := m.users[username]
-	if !ok {
-		return user_model.User{}, false, user_repository.ErrUserNotFound
-	}
-	return u, m.showPlans[u.Settings], nil
-}
-
 func (m *mockUserRepo) GetByFirebaseUID(_ context.Context, firebaseUID string) (user_model.User, bool, error) {
-	u, ok := m.users[firebaseUID]
-	if !ok {
-		return user_model.User{}, false, user_repository.ErrUserNotFound
+	for _, u := range m.usersByID {
+		if u.FirebaseUID == firebaseUID {
+			return *u, m.showPlans[u.Settings], nil
+		}
 	}
-	return u, m.showPlans[u.Settings], nil
+	return user_model.User{}, false, user_repository.ErrUserNotFound
 }
 
 func (m *mockUserRepo) GetByUUID(_ context.Context, uuid string) (user_model.User, bool, error) {
-	u, ok := m.users[uuid]
-	if !ok {
-		return user_model.User{}, false, user_repository.ErrUserNotFound
+	for _, u := range m.usersByID {
+		if u.UUID == uuid {
+			return *u, m.showPlans[u.Settings], nil
+		}
 	}
-	return u, m.showPlans[u.Settings], nil
+	return user_model.User{}, false, user_repository.ErrUserNotFound
 }
 
 func (m *mockUserRepo) CountFriends(_ context.Context, userUUID string) (int, error) {
@@ -114,20 +116,15 @@ func (m *mockUserRepo) ListCreatedEvents(_ context.Context, creatorUUID string) 
 }
 
 func (m *mockUserRepo) UpdateProfile(_ context.Context, id int, name, username, biography, profilePicture *string) (user_model.User, error) {
-	var target *user_model.User
-	for _, u := range m.users {
-		if u.ID == id {
-			copy := u
-			target = &copy
-			break
-		}
-	}
-	if target == nil {
+	target, ok := m.usersByID[id]
+	if !ok {
 		return user_model.User{}, user_repository.ErrUserNotFound
 	}
 	if username != nil && *username != target.Username {
-		if _, exists := m.users[*username]; exists {
-			return user_model.User{}, user_repository.ErrUsernameTaken
+		for _, u := range m.usersByID {
+			if u.Username == *username {
+				return user_model.User{}, user_repository.ErrUsernameTaken
+			}
 		}
 		target.Username = *username
 	}
@@ -140,17 +137,29 @@ func (m *mockUserRepo) UpdateProfile(_ context.Context, id int, name, username, 
 	if profilePicture != nil {
 		target.ProfilePicture = *profilePicture
 	}
-	m.users[target.Username] = *target
-	m.users[target.FirebaseUID] = *target
-	if target.UUID != "" {
-		m.users[target.UUID] = *target
-	}
 	return *target, nil
 }
 
 func (m *mockUserRepo) UpdateSettings(_ context.Context, settingsID int, showPlans bool) error {
 	m.showPlans[settingsID] = showPlans
 	return nil
+}
+
+type mockS3Client struct {
+	uploadedURL string
+	failErr     error
+}
+
+var _ s3_client.Client = (*mockS3Client)(nil)
+
+func (m *mockS3Client) UploadAvatar(_ context.Context, userID, filename, contentType string, _ io.Reader) (string, error) {
+	if m.failErr != nil {
+		return "", m.failErr
+	}
+	if m.uploadedURL != "" {
+		return m.uploadedURL, nil
+	}
+	return "https://my-bucket.s3.amazonaws.com/avatars/" + userID + "/" + filename, nil
 }
 
 func TestGetUserProfile_OwnProfile(t *testing.T) {
@@ -173,9 +182,8 @@ func TestGetUserProfile_OwnProfile(t *testing.T) {
 	repo.plansCount[u.UUID] = 5
 	repo.completedPlans[u.UUID] = 3
 
-	svc := user_service.NewUserService(repo)
+	svc := user_service.NewUserService(repo, &mockS3Client{})
 
-	// Fetching "me"
 	profile, err := svc.GetUserProfile(context.Background(), "me", "fb-user-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -215,12 +223,11 @@ func TestGetUserProfile_OtherUser_FriendAndShowPlans(t *testing.T) {
 		Settings:    2,
 	}
 	repo.addUser(alice, true)
-	repo.addUser(bob, true) // Bob has showPlans = true
+	repo.addUser(bob, true)
 
-	// Set friendship
 	repo.friends[alice.UUID] = map[string]bool{bob.UUID: true}
 
-	svc := user_service.NewUserService(repo)
+	svc := user_service.NewUserService(repo, &mockS3Client{})
 
 	profile, err := svc.GetUserProfile(context.Background(), "bob", "fb-alice")
 	if err != nil {
@@ -255,11 +262,11 @@ func TestGetUserProfile_OtherUser_FriendAndHidePlans(t *testing.T) {
 		Settings:    2,
 	}
 	repo.addUser(alice, true)
-	repo.addUser(bob, false) // Bob hides plans!
+	repo.addUser(bob, false)
 
 	repo.friends[alice.UUID] = map[string]bool{bob.UUID: true}
 
-	svc := user_service.NewUserService(repo)
+	svc := user_service.NewUserService(repo, &mockS3Client{})
 
 	profile, err := svc.GetUserProfile(context.Background(), "bob", "fb-alice")
 	if err != nil {
@@ -291,9 +298,9 @@ func TestGetUserProfile_OtherUser_NotFriend(t *testing.T) {
 		Settings:    2,
 	}
 	repo.addUser(alice, true)
-	repo.addUser(bob, true) // Bob allows plans for friends, but Alice is NOT a friend
+	repo.addUser(bob, true)
 
-	svc := user_service.NewUserService(repo)
+	svc := user_service.NewUserService(repo, &mockS3Client{})
 
 	profile, err := svc.GetUserProfile(context.Background(), "bob", "fb-alice")
 	if err != nil {
@@ -319,7 +326,7 @@ func TestGetUserProfile_Unauthenticated_NotVisible(t *testing.T) {
 	}
 	repo.addUser(bob, true)
 
-	svc := user_service.NewUserService(repo)
+	svc := user_service.NewUserService(repo, &mockS3Client{})
 
 	profile, err := svc.GetUserProfile(context.Background(), "bob", "")
 	if err != nil {
@@ -336,7 +343,7 @@ func TestGetUserProfile_Unauthenticated_NotVisible(t *testing.T) {
 
 func TestGetUserProfile_NotFound(t *testing.T) {
 	repo := newMockUserRepo()
-	svc := user_service.NewUserService(repo)
+	svc := user_service.NewUserService(repo, &mockS3Client{})
 
 	_, err := svc.GetUserProfile(context.Background(), "nonexistent", "")
 	if err != user_service.ErrUserNotFound {
@@ -344,7 +351,7 @@ func TestGetUserProfile_NotFound(t *testing.T) {
 	}
 }
 
-func TestUpdateProfile(t *testing.T) {
+func TestUpdateProfile_Valid(t *testing.T) {
 	repo := newMockUserRepo()
 	u := user_model.User{
 		ID:          1,
@@ -355,7 +362,7 @@ func TestUpdateProfile(t *testing.T) {
 	}
 	repo.addUser(u, true)
 
-	svc := user_service.NewUserService(repo)
+	svc := user_service.NewUserService(repo, &mockS3Client{})
 
 	newName := "Alice Wonderland"
 	newBio := "Exploring wonderland"
@@ -381,6 +388,79 @@ func TestUpdateProfile(t *testing.T) {
 	}
 }
 
+func TestUpdateProfile_R1_Validations(t *testing.T) {
+	repo := newMockUserRepo()
+	u := user_model.User{
+		ID:          1,
+		FirebaseUID: "fb-alice",
+		Username:    "alice",
+		Settings:    1,
+	}
+	repo.addUser(u, true)
+
+	svc := user_service.NewUserService(repo, &mockS3Client{})
+
+	// Username with invalid characters
+	invalidUser := "bad username!"
+	_, err := svc.UpdateProfile(context.Background(), "fb-alice", user_service.UpdateProfileInput{
+		Username: &invalidUser,
+	})
+	if !errors.Is(err, user_service.ErrInvalidInput) {
+		t.Errorf("expected ErrInvalidInput for invalid username characters, got %v", err)
+	}
+
+	// Username too short
+	shortUser := "ab"
+	_, err = svc.UpdateProfile(context.Background(), "fb-alice", user_service.UpdateProfileInput{
+		Username: &shortUser,
+	})
+	if !errors.Is(err, user_service.ErrInvalidInput) {
+		t.Errorf("expected ErrInvalidInput for too short username, got %v", err)
+	}
+
+	// Name too long (> 100)
+	longName := strings.Repeat("A", 101)
+	_, err = svc.UpdateProfile(context.Background(), "fb-alice", user_service.UpdateProfileInput{
+		Name: &longName,
+	})
+	if !errors.Is(err, user_service.ErrInvalidInput) {
+		t.Errorf("expected ErrInvalidInput for too long name, got %v", err)
+	}
+
+	// Bio too long (> 500)
+	longBio := strings.Repeat("B", 501)
+	_, err = svc.UpdateProfile(context.Background(), "fb-alice", user_service.UpdateProfileInput{
+		Biography: &longBio,
+	})
+	if !errors.Is(err, user_service.ErrInvalidInput) {
+		t.Errorf("expected ErrInvalidInput for too long biography, got %v", err)
+	}
+}
+
+func TestUploadAvatar_Success(t *testing.T) {
+	repo := newMockUserRepo()
+	u := user_model.User{
+		ID:          1,
+		UUID:        "550e8400-e29b-41d4-a716-446655440001",
+		FirebaseUID: "fb-alice",
+		Username:    "alice",
+		Settings:    1,
+	}
+	repo.addUser(u, true)
+
+	s3 := &mockS3Client{uploadedURL: "https://storage.example.com/avatar.png"}
+	svc := user_service.NewUserService(repo, s3)
+
+	profile, err := svc.UploadAvatar(context.Background(), "fb-alice", "photo.png", "image/png", strings.NewReader("fake-image"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if profile.ProfilePicture != "https://storage.example.com/avatar.png" {
+		t.Errorf("expected profile picture to be updated, got %s", profile.ProfilePicture)
+	}
+}
+
 func TestListCreatedEvents(t *testing.T) {
 	repo := newMockUserRepo()
 	u := user_model.User{
@@ -395,7 +475,7 @@ func TestListCreatedEvents(t *testing.T) {
 		{ID: 10, Title: "Concert de Jazz"},
 	}
 
-	svc := user_service.NewUserService(repo)
+	svc := user_service.NewUserService(repo, &mockS3Client{})
 
 	events, err := svc.ListCreatedEvents(context.Background(), "alice")
 	if err != nil {

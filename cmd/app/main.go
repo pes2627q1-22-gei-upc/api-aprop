@@ -18,6 +18,7 @@ import (
 	"api-aprop/internal/clients/gencat_client"
 	"api-aprop/internal/clients/groq_client"
 	"api-aprop/internal/clients/mcp_client"
+	"api-aprop/internal/clients/s3_client"
 	"api-aprop/internal/drivers/postgres_driver"
 	"api-aprop/internal/handlers/assistant_handler"
 	"api-aprop/internal/handlers/auth_handler"
@@ -151,6 +152,12 @@ func main() {
 	gencatClient := gencat_client.NewGencatClient(httpClient, gencatEventsURL, appToken)
 	groqClient := groq_client.NewGroqClient(httpClient, groq_client.DefaultBaseURL, groqAPIKey, groqModel)
 	mcpClient := mcp_client.NewMCPClient(httpClient, mcpURL, mcpToken)
+	s3Client := s3_client.NewS3Client(httpClient, s3_client.S3Config{
+		Bucket:    os.Getenv("S3_BUCKET"),
+		Region:    os.Getenv("S3_REGION"),
+		Endpoint:  os.Getenv("S3_ENDPOINT"),
+		PublicURL: os.Getenv("S3_PUBLIC_URL"),
+	})
 
 	var authMiddleware func(http.Handler) http.Handler
 	if _, err := os.Stat(firebaseCredentialsFile); err == nil {
@@ -181,7 +188,7 @@ func main() {
 	)
 	signUpService := signup_service.NewSignUpService(signUpRepository)
 	authService := auth_service.NewAuthService(authRepository)
-	userService := user_service.NewUserService(userRepository)
+	userService := user_service.NewUserService(userRepository, s3Client)
 
 	// Handlers
 	eventHandler := event_handler.NewEventHandler(eventService)

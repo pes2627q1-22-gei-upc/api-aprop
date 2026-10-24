@@ -3,22 +3,38 @@ package user_service
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"net/url"
+	"regexp"
 	"strconv"
+	"strings"
 
+	"api-aprop/internal/clients/s3_client"
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/repositories/user_repository"
 )
 
+var usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9_]{3,30}$`)
+
+const (
+	maxNameLength = 100
+	maxBioLength  = 500
+)
+
 type userService struct {
 	userRepo user_repository.Repository
+	s3Client s3_client.Client
 }
 
 var _ Service = (*userService)(nil)
 
-func NewUserService(userRepo user_repository.Repository) Service {
-	return &userService{userRepo: userRepo}
+func NewUserService(userRepo user_repository.Repository, s3Client s3_client.Client) Service {
+	return &userService{
+		userRepo: userRepo,
+		s3Client: s3Client,
+	}
 }
 
 func (s *userService) GetUserProfile(ctx context.Context, targetIdentifier string, requesterIdentifier string) (user_model.UserProfile, error) {
@@ -157,6 +173,33 @@ func (s *userService) UpdateProfile(ctx context.Context, requesterIdentifier str
 		return user_model.UserProfile{}, ErrUserNotFound
 	}
 
+	// Validation R1: Username
+	if input.Username != nil {
+		trimmedUser := strings.TrimSpace(*input.Username)
+		if !usernameRegex.MatchString(trimmedUser) {
+			return user_model.UserProfile{}, fmt.Errorf("%w: username must be 3-30 characters long and contain only letters, numbers and underscores", ErrInvalidInput)
+		}
+		input.Username = &trimmedUser
+	}
+
+	// Validation R1: Name
+	if input.Name != nil {
+		trimmedName := strings.TrimSpace(*input.Name)
+		if len(trimmedName) > maxNameLength {
+			return user_model.UserProfile{}, fmt.Errorf("%w: name cannot exceed %d characters", ErrInvalidInput, maxNameLength)
+		}
+		input.Name = &trimmedName
+	}
+
+	// Validation R1: Biography
+	if input.Biography != nil {
+		trimmedBio := strings.TrimSpace(*input.Biography)
+		if len(trimmedBio) > maxBioLength {
+			return user_model.UserProfile{}, fmt.Errorf("%w: biography cannot exceed %d characters", ErrInvalidInput, maxBioLength)
+		}
+		input.Biography = &trimmedBio
+	}
+
 	if input.ShowPlans != nil {
 		if err := s.userRepo.UpdateSettings(ctx, user.Settings, *input.ShowPlans); err != nil {
 			return user_model.UserProfile{}, err
@@ -175,6 +218,37 @@ func (s *userService) UpdateProfile(ctx context.Context, requesterIdentifier str
 	}
 
 	return s.GetUserProfile(ctx, strconv.Itoa(user.ID), requesterIdentifier)
+}
+
+func (s *userService) UploadAvatar(ctx context.Context, requesterIdentifier string, filename string, contentType string, reader io.Reader) (user_model.UserProfile, error) {
+	if requesterIdentifier == "" {
+		return user_model.UserProfile{}, ErrUnauthorized
+	}
+	user, _, err := s.findUser(ctx, requesterIdentifier)
+	if err != nil {
+		return user_model.UserProfile{}, ErrUserNotFound
+	}
+
+	if s.s3Client == nil {
+		return user_model.UserProfile{}, fmt.Errorf("%w: storage service unconfigured", ErrInvalidInput)
+	}
+
+	targetUID := user.UUID
+	if targetUID == "" {
+		targetUID = strconv.Itoa(user.ID)
+	}
+
+	avatarURL, err := s.s3Client.UploadAvatar(ctx, targetUID, filename, contentType, reader)
+	if err != nil {
+		return user_model.UserProfile{}, fmt.Errorf("%w: %v", ErrInvalidInput, err)
+	}
+
+	updatedUser, err := s.userRepo.UpdateProfile(ctx, user.ID, nil, nil, nil, &avatarURL)
+	if err != nil {
+		return user_model.UserProfile{}, err
+	}
+
+	return s.GetUserProfile(ctx, strconv.Itoa(updatedUser.ID), requesterIdentifier)
 }
 
 func (s *userService) findUser(ctx context.Context, identifier string) (user_model.User, bool, error) {
