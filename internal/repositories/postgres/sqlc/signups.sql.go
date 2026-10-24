@@ -35,6 +35,24 @@ func (q *Queries) CreateSignUp(ctx context.Context, arg CreateSignUpParams) (int
 	return result.RowsAffected(), nil
 }
 
+const deleteSignUp = `-- name: DeleteSignUp :execrows
+DELETE FROM SignUp
+WHERE UserID = $1::uuid AND Event = $2::integer
+`
+
+type DeleteSignUpParams struct {
+	UserID  pgtype.UUID
+	EventID int32
+}
+
+func (q *Queries) DeleteSignUp(ctx context.Context, arg DeleteSignUpParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteSignUp, arg.UserID, arg.EventID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const listUserSignedUpEvents = `-- name: ListUserSignedUpEvents :many
 SELECT
     e.id, e.title, e.subtitle, e.description, e.schedule, e.url, e.tickets, e.ticketsurl,

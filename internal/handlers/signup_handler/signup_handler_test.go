@@ -19,10 +19,12 @@ import (
 const validUserID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
 
 type fakeService struct {
-	signUp    signup_model.SignUp
-	signUpErr error
-	events    []event_model.Event
-	listErr   error
+	unenroll    signup_model.Unenroll
+	unenrollErr error
+	signUp      signup_model.SignUp
+	signUpErr   error
+	events      []event_model.Event
+	listErr     error
 
 	calls      int
 	gotUserID  string
@@ -35,6 +37,13 @@ func (f *fakeService) SignUp(_ context.Context, userID string, eventID int) (sig
 	f.gotUserID = userID
 	f.gotEventID = eventID
 	return f.signUp, f.signUpErr
+}
+
+func (f *fakeService) Unenroll(_ context.Context, userID string, eventID int) (signup_model.Unenroll, error) {
+	f.calls++
+	f.gotUserID = userID
+	f.gotEventID = eventID
+	return f.unenroll, f.unenrollErr
 }
 
 func (f *fakeService) ListUserEvents(_ context.Context, userID string, dateRange signup_model.DateRange) ([]event_model.Event, error) {
@@ -50,6 +59,8 @@ func newMux(s signup_service.Service) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /events/{id}/signup", h.SignUp)
 	mux.HandleFunc("GET /users/{userId}/events", h.ListUserEvents)
+	mux.HandleFunc("DELETE /events/{id}/enroll", h.Unenroll)
+	mux.HandleFunc("DELETE /events/{id}/signup", h.Unenroll)
 	return mux
 }
 
@@ -334,5 +345,100 @@ func assertDate(t *testing.T, name string, got, want *time.Time) {
 		t.Errorf("%s = %v, want %v", name, got, want)
 	case !got.Equal(*want):
 		t.Errorf("%s = %v, want %v", name, *got, *want)
+	}
+}
+
+func TestUnenroll(t *testing.T) {
+	tests := []struct {
+		name       string
+		path       string
+		userHeader string
+		service    fakeService
+		wantStatus int
+		wantCalls  int
+		wantError  string
+		wantBody   string
+	}{
+		{
+			name:       "successful unenroll via /events/{id}/enroll",
+			path:       "/events/42/enroll",
+			userHeader: validUserID,
+			service:    fakeService{unenroll: signup_model.Unenroll{UserID: validUserID, EventID: 42, Enrolled: false}},
+			wantStatus: http.StatusOK,
+			wantCalls:  1,
+			wantBody:   "{\"user-id\":\"" + validUserID + "\",\"event-id\":42,\"enrolled\":false}",
+		},
+		{
+			name:       "successful unenroll via /events/{id}/signup",
+			path:       "/events/42/signup",
+			userHeader: validUserID,
+			service:    fakeService{unenroll: signup_model.Unenroll{UserID: validUserID, EventID: 42, Enrolled: false}},
+			wantStatus: http.StatusOK,
+			wantCalls:  1,
+			wantBody:   "{\"user-id\":\"" + validUserID + "\",\"event-id\":42,\"enrolled\":false}",
+		},
+		{
+			name:       "missing X-User-ID header returns 400",
+			path:       "/events/42/enroll",
+			wantStatus: http.StatusBadRequest,
+			wantCalls:  0,
+			wantError:  "missing X-User-ID header",
+		},
+		{
+			name:       "invalid event ID returns 400",
+			path:       "/events/abc/enroll",
+			userHeader: validUserID,
+			wantStatus: http.StatusBadRequest,
+			wantCalls:  0,
+			wantError:  "invalid event id",
+		},
+		{
+			name:       "event not found returns 404",
+			path:       "/events/99/enroll",
+			userHeader: validUserID,
+			service:    fakeService{unenrollErr: signup_service.ErrEventNotFound},
+			wantStatus: http.StatusNotFound,
+			wantCalls:  1,
+			wantError:  "event not found",
+		},
+		{
+			name:       "service error returns 500",
+			path:       "/events/42/enroll",
+			userHeader: validUserID,
+			service:    fakeService{unenrollErr: errors.New("db error")},
+			wantStatus: http.StatusInternalServerError,
+			wantCalls:  1,
+			wantError:  "internal server error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := tt.service
+			req := httptest.NewRequest(http.MethodDelete, tt.path, nil)
+			if tt.userHeader != "" {
+				req.Header.Set(UserIDHeader, tt.userHeader)
+			}
+
+			rec := serve(&s, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d (body %s)", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+			if s.calls != tt.wantCalls {
+				t.Errorf("service calls = %d, want %d", s.calls, tt.wantCalls)
+			}
+			if tt.wantError != "" {
+				if got := errorMessage(t, rec); got != tt.wantError {
+					t.Errorf("error message = %q, want %q", got, tt.wantError)
+				}
+				return
+			}
+			if tt.wantBody != "" {
+				if got := strings.TrimSpace(rec.Body.String()); got != tt.wantBody {
+					t.Errorf("body = %q, want %q", got, tt.wantBody)
+				}
+			}
+		})
 	}
 }

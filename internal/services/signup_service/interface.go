@@ -10,5 +10,6 @@ import (
 // Service contains the business logic for signing users up to events.
 type Service interface {
 	SignUp(ctx context.Context, userID string, eventID int) (signup_model.SignUp, error)
+	Unenroll(ctx context.Context, userID string, eventID int) (signup_model.Unenroll, error)
 	ListUserEvents(ctx context.Context, userID string, dateRange signup_model.DateRange) ([]event_model.Event, error)
 }

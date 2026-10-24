@@ -14,12 +14,15 @@ import (
 const validUserID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
 
 type fakeRepository struct {
-	exists    bool
-	existsErr error
-	created   bool
-	createErr error
-	events    []event_model.Event
-	listErr   error
+	deleted     bool
+	deleteErr   error
+	deleteCalls int
+	exists      bool
+	existsErr   error
+	created     bool
+	createErr   error
+	events      []event_model.Event
+	listErr     error
 
 	createCalls int
 	listCalls   int
@@ -38,6 +41,13 @@ func (f *fakeRepository) Create(_ context.Context, userID string, eventID int) (
 	f.gotUserID = userID
 	f.gotEventID = eventID
 	return f.created, f.createErr
+}
+
+func (f *fakeRepository) Delete(_ context.Context, userID string, eventID int) (bool, error) {
+	f.deleteCalls++
+	f.gotUserID = userID
+	f.gotEventID = eventID
+	return f.deleted, f.deleteErr
 }
 
 func (f *fakeRepository) ListUserEvents(_ context.Context, userID string, dateRange signup_model.DateRange) ([]event_model.Event, error) {
@@ -166,6 +176,80 @@ func TestListUserEvents(t *testing.T) {
 				if got[i].ID != tt.want[i].ID {
 					t.Errorf("event[%d].ID = %d, want %d", i, got[i].ID, tt.want[i].ID)
 				}
+			}
+		})
+	}
+}
+
+func TestUnenroll(t *testing.T) {
+	repoErr := errors.New("db down")
+	tests := []struct {
+		name      string
+		userID    string
+		eventID   int
+		repo      fakeRepository
+		want      signup_model.Unenroll
+		wantErr   error
+		wantCalls int
+	}{
+		{
+			name:      "successful unenroll",
+			userID:    validUserID,
+			eventID:   42,
+			repo:      fakeRepository{exists: true, deleted: true},
+			want:      signup_model.Unenroll{UserID: validUserID, EventID: 42, Enrolled: false},
+			wantCalls: 1,
+		},
+		{
+			name:      "event not found returns ErrEventNotFound",
+			userID:    validUserID,
+			eventID:   99,
+			repo:      fakeRepository{exists: false},
+			wantErr:   ErrEventNotFound,
+			wantCalls: 0,
+		},
+		{
+			name:      "invalid user id returns ErrInvalidUserID",
+			userID:    "invalid-uuid",
+			eventID:   42,
+			wantErr:   ErrInvalidUserID,
+			wantCalls: 0,
+		},
+		{
+			name:      "invalid event id returns ErrInvalidEventID",
+			userID:    validUserID,
+			eventID:   0,
+			wantErr:   ErrInvalidEventID,
+			wantCalls: 0,
+		},
+		{
+			name:      "repository delete error is propagated",
+			userID:    validUserID,
+			eventID:   42,
+			repo:      fakeRepository{exists: true, deleteErr: repoErr},
+			wantErr:   repoErr,
+			wantCalls: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := tt.repo
+			s := NewSignUpService(&repo)
+
+			got, err := s.Unenroll(context.Background(), tt.userID, tt.eventID)
+
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("error = %v, want %v", err, tt.wantErr)
+			}
+			if repo.deleteCalls != tt.wantCalls {
+				t.Errorf("delete calls = %d, want %d", repo.deleteCalls, tt.wantCalls)
+			}
+			if tt.wantErr != nil {
+				return
+			}
+			if got != tt.want {
+				t.Errorf("got %+v, want %+v", got, tt.want)
 			}
 		})
 	}
