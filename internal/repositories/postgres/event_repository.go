@@ -372,6 +372,62 @@ func (r *EventRepository) List(params map[string]any) ([]event_model.Event, erro
 	return events, nil
 }
 
+func (r *EventRepository) Search(ctx context.Context, query string, pageNum, pageSize int) (event_model.SearchResult, error) {
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if pageNum < 0 {
+		pageNum = 0
+	}
+
+	total, err := r.queries.CountSearchEvents(ctx, query)
+	if err != nil {
+		return event_model.SearchResult{}, fmt.Errorf("count search events %q: %w", query, err)
+	}
+
+	rows, err := r.queries.SearchEventsWithRelevance(ctx, sqlc.SearchEventsWithRelevanceParams{
+		Query:  query,
+		Limit:  int32(pageSize),
+		Offset: int32(pageNum * pageSize),
+	})
+	if err != nil {
+		return event_model.SearchResult{}, fmt.Errorf("search events %q: %w", query, err)
+	}
+
+	if len(rows) == 0 {
+		return event_model.SearchResult{
+			Query:    query,
+			Total:    total,
+			PageNum:  pageNum,
+			PageSize: pageSize,
+			Events:   []event_model.Event{},
+		}, nil
+	}
+
+	events := []event_model.Event{}
+	currentevent := rows[0]
+	cats := []string{}
+	for _, row := range rows {
+		if row.ID != currentevent.ID {
+			events = append(events, toModelExtended(sqlc.GetEventRow(currentevent), cats))
+			cats = []string{}
+			currentevent = row
+		}
+		if row.Category.Valid && row.Category.String != "" {
+			cats = append(cats, row.Category.String)
+		}
+	}
+	events = append(events, toModelExtended(sqlc.GetEventRow(currentevent), cats))
+
+	return event_model.SearchResult{
+		Query:    query,
+		Total:    total,
+		PageNum:  pageNum,
+		PageSize: pageSize,
+		Events:   events,
+	}, nil
+}
+
 func (r *EventRepository) GetCategories() ([]event_model.Category, error){
 	rows, err := r.queries.GetCategories(context.Background())
 	if err != nil {

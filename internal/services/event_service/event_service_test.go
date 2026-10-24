@@ -50,6 +50,24 @@ func (f *fakeEventRepository) ListMapEvents(_ context.Context, filter event_mode
 	return f.mapEvents, f.mapErr
 }
 
+func (f *fakeEventRepository) GetCategories() ([]event_model.Category, error) {
+	return nil, nil
+}
+
+func (f *fakeEventRepository) GetCategory(_ int) (event_model.Category, error) {
+	return event_model.Category{}, nil
+}
+
+func (f *fakeEventRepository) Search(_ context.Context, query string, pageNum, pageSize int) (event_model.SearchResult, error) {
+	return event_model.SearchResult{
+		Query:    query,
+		Total:    1,
+		PageNum:  pageNum,
+		PageSize: pageSize,
+		Events:   []event_model.Event{{ID: 1, Title: "Concert de Jazz"}},
+	}, nil
+}
+
 func TestListMapEvents(t *testing.T) {
 	repoErr := errors.New("db down")
 	sample := []event_model.MapEvent{
@@ -169,5 +187,28 @@ func TestListMapEvents(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSearchEvents(t *testing.T) {
+	repo := &fakeEventRepository{}
+	svc := NewEventService(repo, nil)
+
+	// Empty query returns 0 total
+	res, err := svc.SearchEvents(context.Background(), "", 0, 20)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Total != 0 || len(res.Events) != 0 {
+		t.Errorf("expected empty search result, got %+v", res)
+	}
+
+	// Non-empty query searches repo
+	res, err = svc.SearchEvents(context.Background(), "jazz", 0, 20)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Total != 1 || len(res.Events) != 1 {
+		t.Errorf("unexpected search result: %+v", res)
 	}
 }

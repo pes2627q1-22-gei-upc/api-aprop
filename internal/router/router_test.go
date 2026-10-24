@@ -48,6 +48,18 @@ func (s *stubEventService) LoadOfficialEvents(_ context.Context, _ int) error {
 	return nil
 }
 
+func (s *stubEventService) GetCategories() ([]event_model.Category, error) {
+	return nil, nil
+}
+
+func (s *stubEventService) GetCategory(_ int) (event_model.Category, error) {
+	return event_model.Category{}, nil
+}
+
+func (s *stubEventService) SearchEvents(_ context.Context, query string, pageNum, pageSize int) (event_model.SearchResult, error) {
+	return event_model.SearchResult{}, nil
+}
+
 var noopAuth = func(next http.Handler) http.Handler { return next }
 
 func TestRouter_MapRoutesAndEventDetailRoute(t *testing.T) {

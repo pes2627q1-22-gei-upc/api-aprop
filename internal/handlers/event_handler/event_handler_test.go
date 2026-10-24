@@ -45,14 +45,28 @@ func (f *fakeEventService) LoadOfficialEvents(_ context.Context, _ int) error {
 	return nil
 }
 
+func (f *fakeEventService) GetCategories() ([]event_model.Category, error) {
+	return nil, nil
+}
+
+func (f *fakeEventService) GetCategory(_ int) (event_model.Category, error) {
+	return event_model.Category{}, nil
+}
+
+func (f *fakeEventService) SearchEvents(_ context.Context, query string, pageNum, pageSize int) (event_model.SearchResult, error) {
+	return event_model.SearchResult{
+		Query:    query,
+		Total:    1,
+		PageNum:  pageNum,
+		PageSize: pageSize,
+		Events:   []event_model.Event{{ID: 1, Title: "Concert de Jazz"}},
+	}, nil
+}
+
 func newMux(s event_service.Service) *http.ServeMux {
 	h := NewEventHandler(s)
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /events", h.ListEvents)
-	mux.HandleFunc("GET /event/map", h.ListMapEvents)
-	mux.HandleFunc("GET /events/map", h.ListMapEvents)
-	mux.HandleFunc("GET /events/{id}", h.GetEvent)
-	mux.HandleFunc("POST /events", h.CreateEvent)
+	h.RegisterRoutes(mux)
 	return mux
 }
 
@@ -230,5 +244,26 @@ func TestListMapEvents(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSearchEvents(t *testing.T) {
+	s := &fakeEventService{}
+	mux := newMux(s)
+
+	req := httptest.NewRequest(http.MethodGet, "/events/search?q=jazz", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var res event_model.SearchResult
+	if err := json.NewDecoder(w.Body).Decode(&res); err != nil {
+		t.Fatalf("failed to decode json: %v", err)
+	}
+	if res.Total != 1 || res.Query != "jazz" || len(res.Events) != 1 {
+		t.Errorf("unexpected search result: %+v", res)
 	}
 }
