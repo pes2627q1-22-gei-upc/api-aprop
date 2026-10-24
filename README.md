@@ -35,24 +35,24 @@ Atenció: `models.go` i `events.sql.go` s'han editat a mà, així que regenerar-
 sequenceDiagram
   participant App as App
   participant API as api-aprop
-  participant Gemini as Gemini
+  participant LLM as Groq AI
   participant MCP as mcp-aprop
   participant DB as Postgres
   App->>API: POST /assistant/messages
   API->>MCP: tools/list
-  API->>Gemini: interaction amb les eines MCP
-  Gemini-->>API: function_call search_events
+  API->>LLM: chat completion amb les eines MCP
+  LLM-->>API: tool_calls search_events
   API->>MCP: tools/call search_events
   MCP->>DB: cerca al catàleg
-  API->>Gemini: function_result
-  Gemini-->>API: resposta en català
+  API->>LLM: tool message amb el resultat
+  LLM-->>API: resposta en català
   API->>DB: desa els dos missatges i les recomanacions
   API-->>App: resposta, criteris interpretats i esdeveniments
 ```
 
-- Gemini (Interactions API, sense estat: `store: false`) decideix quines eines MCP crida. L'API fa de client MCP.
+- Groq AI (Chat Completions API amb function calling) decideix quines eines MCP crida. L'API fa de client MCP.
 - Els criteris interpretats són els arguments de la darrera cerca i els esdeveniments recomanats són els que ha retornat el catàleg real: el model no pot inventar-ne cap.
-- Temps màxim de resposta: 8 s (NFR < 10 s). Si Gemini o el MCP fallen, només falla aquesta petició (502/504) i no es desa res, així que l'app pot reintentar el mateix missatge.
+- Temps màxim de resposta: 8 s (NFR < 10 s). Si Groq AI o el MCP fallen, només falla aquesta petició (502/504) i no es desa res, així que l'app pot reintentar el mateix missatge.
 - R12 es comprova al servei i a la BD (`CHECK` i clau forana): només els missatges del xatbot interpreten i recomanen; només els de l'usuari poden ser per veu.
 
 ### Endpoints
@@ -89,5 +89,5 @@ Els esdeveniments tenen el mateix format que `GET /events/{id}`. `interpretation
 | Codi | Quan |
 |---|---|
 | 400 | Falta `X-User-ID`, no és un UUID, cos invàlid o text buit o de més de 1000 caràcters |
-| 502 | Gemini o el servidor MCP no responen correctament |
+| 502 | Groq AI o el servidor MCP no responen correctament |
 | 504 | El xatbot no ha respost en 8 s |

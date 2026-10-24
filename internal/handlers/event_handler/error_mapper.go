@@ -16,8 +16,13 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		response.WriteError(w, http.StatusNotFound, "event not found")
 	case errors.Is(err, event_service.ErrInvalidEvent):
 		response.WriteError(w, http.StatusUnprocessableEntity, "event is invalid")
+	case errors.Is(err, event_service.ErrInvalidBoundingBox):
+		response.WriteError(w, http.StatusBadRequest, "invalid bounding box")
+	case errors.Is(err, event_service.ErrInvalidUserID):
+		response.WriteError(w, http.StatusBadRequest, "invalid user id")
 	default:
 		log.Printf("internal error: %v", err)
 		response.WriteError(w, http.StatusInternalServerError, "internal server error")
 	}
 }
+

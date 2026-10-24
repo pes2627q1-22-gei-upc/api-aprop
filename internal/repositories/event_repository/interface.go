@@ -1,6 +1,8 @@
 package event_repository
 
 import (
+	"context"
+
 	"api-aprop/internal/models/event_model"
 )
 
@@ -14,4 +16,6 @@ type Repository interface {
 	List(params map[string]any) ([]event_model.Event, error)
 	GetCategories() ([]event_model.Category, error)
 	GetCategory(id int) (event_model.Category, error)
+	ListMapEvents(ctx context.Context, filter event_model.MapFilter) ([]event_model.MapEvent, error)
 }
+

@@ -1,4 +1,4 @@
-package gemini_client
+package groq_client
 
 import "encoding/json"
 
