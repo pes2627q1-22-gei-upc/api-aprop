@@ -58,7 +58,7 @@ func TestMapEventRowToModel(t *testing.T) {
 	if got.Latitude != 41.3851 || got.Longitude != 2.1734 {
 		t.Errorf("unexpected coordinates: (%v, %v)", got.Latitude, got.Longitude)
 	}
-	if got.Modality != "Face-to-Face" || got.Municipality != "Barcelona" || !got.Free {
+	if got.Modality != "Face-to-Face" || got.Municipality != "Barcelona" || !got.Free.Bool {
 		t.Errorf("unexpected mapped fields: %+v", got)
 	}
 	if !got.StartDate.Equal(start) || !got.EndDate.Equal(end) {

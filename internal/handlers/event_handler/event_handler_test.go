@@ -45,6 +45,14 @@ func (f *fakeEventService) LoadOfficialEvents(_ context.Context, _ int) error {
 	return nil
 }
 
+func (f *fakeEventService) GetCategories() ([]event_model.Category, error) {
+	return nil, nil
+}
+
+func (f *fakeEventService) GetCategory(_ int) (event_model.Category, error) {
+	return event_model.Category{}, nil
+}
+
 func newMux(s event_service.Service) *http.ServeMux {
 	h := NewEventHandler(s)
 	mux := http.NewServeMux()

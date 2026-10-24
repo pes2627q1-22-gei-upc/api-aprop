@@ -13,7 +13,6 @@ import (
 	"api-aprop/internal/repositories/event_repository"
 )
 
-
 type EventService struct {
 	eventRepository event_repository.Repository
 	gencatClient    gencat_client.Client
@@ -62,7 +61,6 @@ func (s *EventService) ListMapEvents(ctx context.Context, filter event_model.Map
 	return events, nil
 }
 
-
 func (s *EventService) CreateEvent(e event_model.Event) (event_model.Event, error) {
 	if strings.TrimSpace(e.Title) == "" {
 		return event_model.Event{}, fmt.Errorf("create event: %w: title is required", ErrInvalidEvent)
@@ -82,7 +80,7 @@ func (s *EventService) LoadOfficialEvents(ctx context.Context, pageSize int) err
 		if err != nil {
 			return fmt.Errorf("load official events: %w", err)
 		}
-		if len(events)<pageSize{
+		if len(events) < pageSize {
 			end = true
 		}
 		for _, e := range events {
@@ -93,16 +91,16 @@ func (s *EventService) LoadOfficialEvents(ctx context.Context, pageSize int) err
 
 		total += len(events)
 		log.Printf("events loaded: %d", total)
-		i+=1
+		i += 1
 	}
 	return nil
 }
 
-func (s *EventService) GetCategories() ([]event_model.Category, error){
+func (s *EventService) GetCategories() ([]event_model.Category, error) {
 	return s.eventRepository.GetCategories()
 }
 
-func (s *EventService) GetCategory(id int) (event_model.Category, error){
+func (s *EventService) GetCategory(id int) (event_model.Category, error) {
 	return s.eventRepository.GetCategory(id)
 }
 func validateBoundingBox(minLat, maxLat, minLng, maxLng float32) error {
@@ -139,4 +137,3 @@ func normalizeUserID(userID string) (string, error) {
 func isHex(c rune) bool {
 	return ('0' <= c && c <= '9') || ('a' <= c && c <= 'f') || ('A' <= c && c <= 'F')
 }
-

@@ -25,4 +25,3 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		response.WriteError(w, http.StatusInternalServerError, "internal server error")
 	}
 }
-

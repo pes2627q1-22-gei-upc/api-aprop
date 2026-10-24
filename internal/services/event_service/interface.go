@@ -16,4 +16,3 @@ type Service interface {
 	GetCategories() ([]event_model.Category, error)
 	GetCategory(id int) (event_model.Category, error)
 }
-

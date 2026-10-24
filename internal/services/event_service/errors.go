@@ -8,4 +8,3 @@ var (
 	ErrInvalidBoundingBox = errors.New("invalid bounding box")
 	ErrInvalidUserID      = errors.New("invalid user id")
 )
-
