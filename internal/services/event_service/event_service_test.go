@@ -50,6 +50,14 @@ func (f *fakeEventRepository) ListMapEvents(_ context.Context, filter event_mode
 	return f.mapEvents, f.mapErr
 }
 
+func (f *fakeEventRepository) GetCategories() ([]event_model.Category, error) {
+	return nil, nil
+}
+
+func (f *fakeEventRepository) GetCategory(_ int) (event_model.Category, error) {
+	return event_model.Category{}, nil
+}
+
 func TestListMapEvents(t *testing.T) {
 	repoErr := errors.New("db down")
 	sample := []event_model.MapEvent{

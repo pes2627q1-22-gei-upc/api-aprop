@@ -22,6 +22,7 @@ import (
 	"api-aprop/internal/handlers/assistant_handler"
 	"api-aprop/internal/handlers/auth_handler"
 	"api-aprop/internal/handlers/event_handler"
+	"api-aprop/internal/handlers/preference_handler"
 	"api-aprop/internal/handlers/signup_handler"
 	"api-aprop/internal/middleware/auth_middleware"
 	postgres_repository "api-aprop/internal/repositories/postgres"
@@ -29,6 +30,7 @@ import (
 	"api-aprop/internal/services/assistant_service"
 	"api-aprop/internal/services/auth_service"
 	"api-aprop/internal/services/event_service"
+	"api-aprop/internal/services/preference_service"
 	"api-aprop/internal/services/signup_service"
 	"api-aprop/migrations"
 )
@@ -169,6 +171,7 @@ func main() {
 	catalogueRepository := postgres_repository.NewCatalogueRepository(postgresDriver.Pool())
 	signUpRepository := postgres_repository.NewSignUpRepository(postgresDriver.Pool())
 	authRepository := postgres_repository.NewAuthRepository(postgresDriver.Pool())
+	preferenceRepository := postgres_repository.NewPreferenceRepository(postgresDriver.Pool())
 
 	// Services
 	eventService := event_service.NewEventService(eventRepository, gencatClient)
@@ -178,12 +181,14 @@ func main() {
 	)
 	signUpService := signup_service.NewSignUpService(signUpRepository)
 	authService := auth_service.NewAuthService(authRepository)
+	preferenceService := preference_service.NewPreferenceService(preferenceRepository)
 
 	// Handlers
 	eventHandler := event_handler.NewEventHandler(eventService)
 	assistantHandler := assistant_handler.NewAssistantHandler(assistantService)
 	signUpHandler := signup_handler.NewSignUpHandler(signUpService)
 	authHandler := auth_handler.NewAuthHandler(authService)
+	preferenceHandler := preference_handler.NewPreferenceHandler(preferenceService)
 
 
 	// Initial data
@@ -206,7 +211,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           router.NewRouter(authMiddleware, eventHandler, assistantHandler, signUpHandler, authHandler),
+		Handler:           router.NewRouter(authMiddleware, eventHandler, assistantHandler, signUpHandler, authHandler, preferenceHandler),
 		Protocols:         protocols,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
