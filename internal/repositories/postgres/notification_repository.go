@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"api-aprop/internal/models/notification_model"
 	"api-aprop/internal/repositories/notification_repository"
@@ -75,7 +76,7 @@ func (r *NotificationRepository) GetNotificationTypes() ([]notification_model.No
 
 func (r *NotificationRepository) Create(n notification_model.Notification) (int, error) {
 	row, err := r.queries.CreateNotification(context.Background(), sqlc.CreateNotificationParams{
-		Userid: int32(n.UserID),
+		Userid: n.UserID,
 		Notificationdate: n.NotificationDate,
 		Requestdate: n.RequestDate,
 		Event: n.Event,
@@ -89,7 +90,7 @@ func (r *NotificationRepository) Create(n notification_model.Notification) (int,
 	return int(row), nil
 }
 
-func (r *NotificationRepository) GetUserNotifications(id int, params map[string]any) ([]notification_model.Notification, error) {
+func (r *NotificationRepository) GetUserNotifications(id pgtype.UUID, params map[string]any) ([]notification_model.Notification, error) {
 	typefiltertmp := params["filterType"].(string)
 	var typefilter int
 	var err error
@@ -102,7 +103,7 @@ func (r *NotificationRepository) GetUserNotifications(id int, params map[string]
 		}
 	}
 
-	rows, err := r.queries.GetUserNotifications(context.Background(), sqlc.GetUserNotificationsParams{Userid: int32(id), Filtertype: int32(typefilter)})
+	rows, err := r.queries.GetUserNotifications(context.Background(), sqlc.GetUserNotificationsParams{Userid: id, Filtertype: int32(typefilter)})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return []notification_model.Notification{}, fmt.Errorf("get notifications from user %d: %w", id, notification_repository.ErrUserNotFound)
 	}
@@ -127,8 +128,8 @@ func (r *NotificationRepository) ReadNotification(id int) (error) {
 	return nil
 }
 
-func (r *NotificationRepository) ReadUserNotifications(id int) (error) {
-	err := r.queries.ReadUserNotifications(context.Background(), int32(id))
+func (r *NotificationRepository) ReadUserNotifications(id pgtype.UUID) (error) {
+	err := r.queries.ReadUserNotifications(context.Background(), id)
 	if err != nil {
 		return fmt.Errorf("read notifications from user %d: %w", id, err)
 	}
@@ -144,7 +145,7 @@ func toNotification(row sqlc.Notification) (notification_model.Notification){
 		Event: row.Event,
 		Type: int(row.Type),
 		Read: row.Read,
-		UserID:	int(row.Userid),
+		UserID:	row.Userid,
 		Friend: row.Friend,
 	}
 }

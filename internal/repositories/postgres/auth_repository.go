@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/repositories/auth_repository"
@@ -65,8 +66,8 @@ func (r *AuthRepository) Create(ctx context.Context, firebaseUID, username, emai
 	return toUserModel(row), nil
 }
 
-func (r *AuthRepository) UpdateEmail(ctx context.Context, id int, email string) (user_model.User, error) {
-	row, err := r.queries.UpdateUserEmail(ctx, sqlc.UpdateUserEmailParams{ID: int32(id), Email: toText(email)})
+func (r *AuthRepository) UpdateEmail(ctx context.Context, id pgtype.UUID, email string) (user_model.User, error) {
+	row, err := r.queries.UpdateUserEmail(ctx, sqlc.UpdateUserEmailParams{ID: id, Email: toText(email)})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return user_model.User{}, fmt.Errorf("update email of user %d: %w", id, auth_repository.ErrUserNotFound)
 	}
@@ -79,7 +80,7 @@ func (r *AuthRepository) UpdateEmail(ctx context.Context, id int, email string) 
 // toUserModel converts a Users row into the model. NULL optional columns become nil or empty strings.
 func toUserModel(row sqlc.User) user_model.User {
 	u := user_model.User{
-		ID:             int(row.ID),
+		ID:             row.ID,
 		FirebaseUID:    row.Firebaseuid,
 		Username:       row.Username,
 		Email:          row.Email.String,

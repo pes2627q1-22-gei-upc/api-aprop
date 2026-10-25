@@ -18,5 +18,5 @@ RETURNING *;
 
 -- name: UpdateUserEmail :one
 UPDATE Users SET Email = sqlc.narg(email)::varchar
-WHERE ID = sqlc.arg(id)::integer
+WHERE ID = sqlc.arg(id)::uuid
 RETURNING *;

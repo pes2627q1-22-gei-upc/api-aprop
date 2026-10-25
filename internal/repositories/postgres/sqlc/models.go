@@ -214,8 +214,8 @@ type Notification struct {
 	Type             int32
 	ID               int32
 	Read             bool
-	Userid           int32
-	Friend           pgtype.Int4
+	Userid           pgtype.UUID
+	Friend           pgtype.UUID
 }
 
 type Notificationtype struct {
@@ -257,7 +257,6 @@ type Unofficialevent struct {
 }
 
 type User struct {
-	ID             int32
 	Firebaseuid    string
 	Username       string
 	Email          pgtype.Text
@@ -269,6 +268,7 @@ type User struct {
 	Level          pgtype.Int4
 	Rating         pgtype.Float4
 	Settings       int32
+	ID             pgtype.UUID
 }
 
 type Userlevel struct {
@@ -287,6 +287,7 @@ type Userrating struct {
 	Rated      pgtype.UUID
 	Event      int32
 	Ratingdate pgtype.Timestamp
+	Rating     int32
 }
 
 type Userstate struct {
