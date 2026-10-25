@@ -15,14 +15,16 @@ import (
 	"github.com/joho/godotenv"
 
 	"api-aprop/internal/clients/firebase_client"
-	"api-aprop/internal/clients/groq_client"
 	"api-aprop/internal/clients/gencat_client"
+	"api-aprop/internal/clients/groq_client"
 	"api-aprop/internal/clients/mcp_client"
+	"api-aprop/internal/clients/s3_client"
 	"api-aprop/internal/drivers/postgres_driver"
 	"api-aprop/internal/handlers/assistant_handler"
 	"api-aprop/internal/handlers/auth_handler"
 	"api-aprop/internal/handlers/event_handler"
 	"api-aprop/internal/handlers/signup_handler"
+	"api-aprop/internal/handlers/notification_handler"
 	"api-aprop/internal/middleware/auth_middleware"
 	postgres_repository "api-aprop/internal/repositories/postgres"
 	"api-aprop/internal/router"
@@ -30,6 +32,7 @@ import (
 	"api-aprop/internal/services/auth_service"
 	"api-aprop/internal/services/event_service"
 	"api-aprop/internal/services/signup_service"
+	"api-aprop/internal/services/notification_service"
 	"api-aprop/migrations"
 )
 
@@ -169,22 +172,30 @@ func main() {
 	catalogueRepository := postgres_repository.NewCatalogueRepository(postgresDriver.Pool())
 	signUpRepository := postgres_repository.NewSignUpRepository(postgresDriver.Pool())
 	authRepository := postgres_repository.NewAuthRepository(postgresDriver.Pool())
+	notificationRepository := postgres_repository.NewNotificationRepository(postgresDriver.Pool())
 
 	// Services
-	eventService := event_service.NewEventService(eventRepository, gencatClient)
+	s3Client := s3_client.NewS3Client(httpClient, s3_client.S3Config{
+		Bucket:    os.Getenv("S3_BUCKET"),
+		Region:    os.Getenv("S3_REGION"),
+		Endpoint:  os.Getenv("S3_ENDPOINT"),
+		PublicURL: os.Getenv("S3_PUBLIC_URL"),
+	})
+	eventService := event_service.NewEventService(eventRepository, gencatClient, s3Client)
 	assistantService := assistant_service.NewAssistantService(
 		chatbotRepository, catalogueRepository, groqClient, mcpClient,
 		func() time.Time { return time.Now().In(location) }, assistant_service.ReplyTimeout,
 	)
 	signUpService := signup_service.NewSignUpService(signUpRepository)
 	authService := auth_service.NewAuthService(authRepository)
+	notificationService := notification_service.NewNotificationService(notificationRepository)
 
 	// Handlers
 	eventHandler := event_handler.NewEventHandler(eventService)
 	assistantHandler := assistant_handler.NewAssistantHandler(assistantService)
 	signUpHandler := signup_handler.NewSignUpHandler(signUpService)
 	authHandler := auth_handler.NewAuthHandler(authService)
-
+	notificationHandler := notification_handler.NewNotificationHandler(notificationService)
 
 	// Initial data
 	go func() {
@@ -206,7 +217,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           router.NewRouter(authMiddleware, eventHandler, assistantHandler, signUpHandler, authHandler),
+		Handler:           router.NewRouter(authMiddleware, eventHandler, assistantHandler, signUpHandler, authHandler, notificationHandler),
 		Protocols:         protocols,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,

@@ -1,15 +1,15 @@
 package event_model
 
 import (
-	"time"
-
 	"github.com/jackc/pgx/v5/pgtype"
+	"time"
 )
 
 // Event is the resource. Struct tags control the JSON field names.
 type Event struct {
 	ID           int         `json:"id"`
 	Code         int64       `json:"code"` // Code given to a specific event. It is NOT UNIQUE and can be reused if the same event is redone or done in multiple places at once
+	IsOfficial   bool        `json:"is-official"`
 	Title        string      `json:"title"`
 	Subtitle     string      `json:"subtitle"`
 	Schedule     string      `json:"schedule"`
