@@ -61,3 +61,12 @@ type MapEvent struct {
 	IsOfficial bool `json:"is-official"`
 	HasFriends bool `json:"has-friends"`
 }
+
+// SearchResult represents the result of an event search query with total count.
+type SearchResult struct {
+	Query    string  `json:"query"`
+	Total    int64   `json:"total"`
+	PageNum  int     `json:"page-num"`
+	PageSize int     `json:"page-size"`
+	Events   []Event `json:"events"`
+}

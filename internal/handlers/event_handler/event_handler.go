@@ -30,6 +30,7 @@ func NewEventHandler(eventService event_service.Service) *EventHandler {
 func (h *EventHandler) RegisterRoutes(mux *http.ServeMux) {
 	// Event handler: events from the Generalitat open data and the ones created by users
 	mux.HandleFunc("GET /events", h.ListEvents)
+	mux.HandleFunc("GET /events/search", h.SearchEvents)
 	mux.HandleFunc("GET /event/map", h.ListMapEvents)
 	mux.HandleFunc("GET /events/map", h.ListMapEvents)
 	mux.HandleFunc("GET /events/{id}", h.GetEvent)
@@ -268,4 +269,25 @@ func parseCoordParam(w http.ResponseWriter, name, value string) (float32, bool) 
 		return 0, false
 	}
 	return float32(f), true
+}
+
+// SearchEvents handles GET /events/search?q={query}&pageNum={n}&pageSize={m}
+func (h *EventHandler) SearchEvents(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query().Get("q")
+	if q == "" {
+		q = r.URL.Query().Get("search")
+	}
+	pageNum, _ := strconv.Atoi(r.URL.Query().Get("pageNum"))
+	pageSize, _ := strconv.Atoi(r.URL.Query().Get("pageSize"))
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+
+	result, err := h.eventService.SearchEvents(r.Context(), q, pageNum, pageSize)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, result)
 }

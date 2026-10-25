@@ -57,6 +57,10 @@ func (s *stubEventService) GetCategory(_ int) (event_model.Category, error) {
 	return event_model.Category{}, nil
 }
 
+func (s *stubEventService) SearchEvents(_ context.Context, query string, pageNum, pageSize int) (event_model.SearchResult, error) {
+	return event_model.SearchResult{}, nil
+}
+
 func (s *stubEventService) CreateUnofficialEvent(_ context.Context, _ string, e event_model.Event) (event_model.Event, error) {
 	return e, nil
 }

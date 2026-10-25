@@ -44,7 +44,36 @@ func (s *EventService) GetEvent(id int) (event_model.Event, error) {
 }
 
 func (s *EventService) ListEvents(params map[string]any) ([]event_model.Event, error) {
+	if q, ok := params["search"].(string); ok && strings.TrimSpace(q) != "" {
+		pageNum := 0
+		if pn, ok := params["pageNum"].(int); ok {
+			pageNum = pn
+		}
+		pageSize := 20
+		if ps, ok := params["pageSize"].(int); ok && ps > 0 {
+			pageSize = ps
+		}
+		res, err := s.eventRepository.Search(context.Background(), strings.TrimSpace(q), pageNum, pageSize)
+		if err != nil {
+			return nil, err
+		}
+		return res.Events, nil
+	}
 	return s.eventRepository.List(params)
+}
+
+func (s *EventService) SearchEvents(ctx context.Context, query string, pageNum, pageSize int) (event_model.SearchResult, error) {
+	trimmed := strings.TrimSpace(query)
+	if trimmed == "" {
+		return event_model.SearchResult{
+			Query:    query,
+			Total:    0,
+			PageNum:  pageNum,
+			PageSize: pageSize,
+			Events:   []event_model.Event{},
+		}, nil
+	}
+	return s.eventRepository.Search(ctx, trimmed, pageNum, pageSize)
 }
 
 func (s *EventService) ListMapEvents(ctx context.Context, filter event_model.MapFilter) ([]event_model.MapEvent, error) {
