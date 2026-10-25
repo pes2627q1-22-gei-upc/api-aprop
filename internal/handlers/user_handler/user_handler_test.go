@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -72,6 +74,19 @@ func (f *fakeUserService) UpdateProfile(_ context.Context, requesterIdentifier s
 	if input.ShowPlans != nil {
 		p.ShowPlans = *input.ShowPlans
 	}
+	f.profiles[requesterIdentifier] = p
+	return p, nil
+}
+
+func (f *fakeUserService) UploadAvatar(_ context.Context, requesterIdentifier string, filename string, contentType string, _ io.Reader) (user_model.UserProfile, error) {
+	if requesterIdentifier == "" {
+		return user_model.UserProfile{}, user_service.ErrUnauthorized
+	}
+	p, ok := f.profiles[requesterIdentifier]
+	if !ok {
+		return user_model.UserProfile{}, user_service.ErrUserNotFound
+	}
+	p.ProfilePicture = "https://uploaded.example.com/" + filename
 	f.profiles[requesterIdentifier] = p
 	return p, nil
 }
@@ -262,6 +277,79 @@ func TestUpdateMyProfile_UsernameConflict(t *testing.T) {
 
 	if w.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d", w.Code)
+	}
+}
+
+func TestUploadAvatar_Success(t *testing.T) {
+	svc := &fakeUserService{
+		profiles: map[string]user_model.UserProfile{
+			"alice-uid": {ID: 1, Username: "alice"},
+		},
+	}
+	mux := setupMux(svc)
+
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	part, err := writer.CreateFormFile("avatar", "profile.png")
+	if err != nil {
+		t.Fatalf("failed to create form file: %v", err)
+	}
+	part.Write([]byte("fake-image-bytes"))
+	writer.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/users/me/avatar", &buf)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("X-User-ID", "alice-uid")
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var res user_model.UserProfile
+	if err := json.NewDecoder(w.Body).Decode(&res); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if res.ProfilePicture != "https://uploaded.example.com/profile.png" {
+		t.Errorf("expected updated avatar, got %s", res.ProfilePicture)
+	}
+}
+
+func TestUploadAvatar_Unauthorized(t *testing.T) {
+	svc := &fakeUserService{profiles: make(map[string]user_model.UserProfile)}
+	mux := setupMux(svc)
+
+	req := httptest.NewRequest(http.MethodPost, "/users/me/avatar", nil)
+	w := httptest.NewRecorder()
+
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestUploadAvatar_MissingField(t *testing.T) {
+	svc := &fakeUserService{
+		profiles: map[string]user_model.UserProfile{"alice-uid": {ID: 1}},
+	}
+	mux := setupMux(svc)
+
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	writer.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/users/me/avatar", &buf)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("X-User-ID", "alice-uid")
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
 	}
 }
 
