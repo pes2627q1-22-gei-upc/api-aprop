@@ -23,6 +23,7 @@ import (
 	"api-aprop/internal/handlers/assistant_handler"
 	"api-aprop/internal/handlers/auth_handler"
 	"api-aprop/internal/handlers/event_handler"
+	"api-aprop/internal/handlers/preference_handler"
 	"api-aprop/internal/handlers/signup_handler"
 	"api-aprop/internal/handlers/user_handler"
 	"api-aprop/internal/handlers/notification_handler"
@@ -32,6 +33,7 @@ import (
 	"api-aprop/internal/services/assistant_service"
 	"api-aprop/internal/services/auth_service"
 	"api-aprop/internal/services/event_service"
+	"api-aprop/internal/services/preference_service"
 	"api-aprop/internal/services/signup_service"
 	"api-aprop/internal/services/user_service"
 	"api-aprop/internal/services/notification_service"
@@ -182,6 +184,7 @@ func main() {
 	authRepository := postgres_repository.NewAuthRepository(postgresDriver.Pool())
 	userRepository := postgres_repository.NewUserRepository(postgresDriver.Pool())
 	notificationRepository := postgres_repository.NewNotificationRepository(postgresDriver.Pool())
+	preferenceRepository := postgres_repository.NewPreferenceRepository(postgresDriver.Pool())
 
 	// Services
 	eventService := event_service.NewEventService(eventRepository, gencatClient, s3Client)
@@ -193,6 +196,7 @@ func main() {
 	authService := auth_service.NewAuthService(authRepository)
 	userService := user_service.NewUserService(userRepository, s3Client)
 	notificationService := notification_service.NewNotificationService(notificationRepository)
+	preferenceService := preference_service.NewPreferenceService(preferenceRepository)
 
 	// Handlers
 	eventHandler := event_handler.NewEventHandler(eventService)
@@ -201,6 +205,7 @@ func main() {
 	authHandler := auth_handler.NewAuthHandler(authService)
 	userHandler := user_handler.NewUserHandler(userService)
 	notificationHandler := notification_handler.NewNotificationHandler(notificationService)
+	preferenceHandler := preference_handler.NewPreferenceHandler(preferenceService)
 
 	// Initial data
 	go func() {
@@ -222,7 +227,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           router.NewRouter(authMiddleware, eventHandler, assistantHandler, signUpHandler, authHandler, notificationHandler, userHandler),
+		Handler:           router.NewRouter(authMiddleware, eventHandler, assistantHandler, signUpHandler, authHandler, notificationHandler, userHandler, preferenceHandler),
 		Protocols:         protocols,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
