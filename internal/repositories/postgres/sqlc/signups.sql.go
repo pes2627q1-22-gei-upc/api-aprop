@@ -53,6 +53,38 @@ func (q *Queries) DeleteSignUp(ctx context.Context, arg DeleteSignUpParams) (int
 	return result.RowsAffected(), nil
 }
 
+const countEventSignUps = `-- name: CountEventSignUps :one
+SELECT COUNT(DISTINCT UserID)::bigint
+FROM SignUp
+WHERE Event = $1::integer
+`
+
+func (q *Queries) CountEventSignUps(ctx context.Context, eventID int32) (int64, error) {
+	row := q.db.QueryRow(ctx, countEventSignUps, eventID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+type IsUserSignedUpParams struct {
+	UserID  pgtype.UUID
+	EventID int32
+}
+
+const isUserSignedUp = `-- name: IsUserSignedUp :one
+SELECT EXISTS (
+    SELECT 1 FROM SignUp
+    WHERE UserID = $1::uuid AND Event = $2::integer
+)::boolean
+`
+
+func (q *Queries) IsUserSignedUp(ctx context.Context, arg IsUserSignedUpParams) (bool, error) {
+	row := q.db.QueryRow(ctx, isUserSignedUp, arg.UserID, arg.EventID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const listUserSignedUpEvents = `-- name: ListUserSignedUpEvents :many
 SELECT
     e.id, e.title, e.subtitle, e.description, e.schedule, e.url, e.tickets, e.ticketsurl,
@@ -81,8 +113,8 @@ type ListUserSignedUpEventsRow struct {
 	Subtitle     pgtype.Text
 	Description  pgtype.Text
 	Schedule     pgtype.Text
-	Url          pgtype.Text
 	Tickets      pgtype.Text
+	Url          pgtype.Text
 	Ticketsurl   pgtype.Text
 	Free         pgtype.Bool
 	Permanent    pgtype.Bool
@@ -123,8 +155,8 @@ func (q *Queries) ListUserSignedUpEvents(ctx context.Context, arg ListUserSigned
 			&i.Subtitle,
 			&i.Description,
 			&i.Schedule,
-			&i.Url,
 			&i.Tickets,
+			&i.Url,
 			&i.Ticketsurl,
 			&i.Free,
 			&i.Permanent,
