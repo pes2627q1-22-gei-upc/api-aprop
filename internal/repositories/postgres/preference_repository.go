@@ -49,8 +49,8 @@ func (r *PreferenceRepository) GetQuestions(ctx context.Context, limit int) ([]p
 		questions = append(questions, preference_model.TestQuestion{
 			EventID:     int(row.ID),
 			Title:       row.Title,
-			Description: row.Description,
-			Images:      row.Images,
+			Description: row.Description.String,
+			Images:      row.Images.String,
 			Categories:  cats,
 		})
 	}

@@ -8,7 +8,6 @@ import (
 // User is the profile stored in the database. FirebaseUID links it with its Firebase Auth account.
 type User struct {
 	ID             pgtype.UUID       `json:"id"`
-	UUID           string    `json:"uuid,omitempty"`
 	FirebaseUID    string    `json:"firebase-uid"`
 	Username       string    `json:"username"`
 	Name           string    `json:"name,omitempty"`
@@ -25,8 +24,7 @@ type User struct {
 
 // UserProfile is the full or public profile representation with derived counters and privacy settings.
 type UserProfile struct {
-	ID                  int       `json:"id"`
-	UUID                string    `json:"uuid,omitempty"`
+	ID                  pgtype.UUID       `json:"id"`
 	FirebaseUID         string    `json:"firebase-uid,omitempty"`
 	Username            string    `json:"username"`
 	Name                string    `json:"name"`

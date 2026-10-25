@@ -7,8 +7,10 @@ import (
 	"io"
 	"net/url"
 	"regexp"
-	"strconv"
 	"strings"
+
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/gofrs/uuid/v5"
 
 	"api-aprop/internal/clients/s3_client"
 	"api-aprop/internal/models/event_model"
@@ -61,7 +63,7 @@ func (s *userService) GetUserProfile(ctx context.Context, targetIdentifier strin
 		}
 		if requesterIdentifier != "" {
 			if requester, _, rErr := s.findUser(ctx, requesterIdentifier); rErr == nil {
-				if requester.ID == target.ID || (requester.UUID != "" && requester.UUID == target.UUID) {
+				if requester.ID == target.ID {
 					isSelf = true
 				}
 			}
@@ -75,12 +77,10 @@ func (s *userService) GetUserProfile(ctx context.Context, targetIdentifier strin
 		reliability         *float32
 	)
 
-	if target.UUID != "" {
-		friendsCount, _ = s.userRepo.CountFriends(ctx, target.UUID)
-		plansCount, _ = s.userRepo.CountPlans(ctx, target.UUID)
-		completedPlansCount, _ = s.userRepo.CountCompletedPlans(ctx, target.UUID)
-		reliability, _ = s.userRepo.GetReliability(ctx, target.UUID)
-	}
+	friendsCount, _ = s.userRepo.CountFriends(ctx, target.ID)
+	plansCount, _ = s.userRepo.CountPlans(ctx, target.ID)
+	completedPlansCount, _ = s.userRepo.CountCompletedPlans(ctx, target.ID)
+	reliability, _ = s.userRepo.GetReliability(ctx, target.ID)
 	if reliability == nil && target.Rating != nil {
 		reliability = target.Rating
 	}
@@ -95,8 +95,8 @@ func (s *userService) GetUserProfile(ctx context.Context, targetIdentifier strin
 		isFriend = nil
 	} else {
 		if requesterIdentifier != "" {
-			if requester, _, rErr := s.findUser(ctx, requesterIdentifier); rErr == nil && requester.UUID != "" && target.UUID != "" {
-				areFriends, _ := s.userRepo.AreFriends(ctx, requester.UUID, target.UUID)
+			if requester, _, rErr := s.findUser(ctx, requesterIdentifier); rErr == nil {
+				areFriends, _ := s.userRepo.AreFriends(ctx, requester.ID, target.ID)
 				isFriend = &areFriends
 				plansVisible = areFriends && showPlans
 			} else {
@@ -119,7 +119,6 @@ func (s *userService) GetUserProfile(ctx context.Context, targetIdentifier strin
 
 	profile := user_model.UserProfile{
 		ID:                  target.ID,
-		UUID:                target.UUID,
 		FirebaseUID:         target.FirebaseUID,
 		Username:            target.Username,
 		Name:                displayName,
@@ -151,10 +150,7 @@ func (s *userService) ListCreatedEvents(ctx context.Context, targetIdentifier st
 	if err != nil {
 		return nil, ErrUserNotFound
 	}
-	if target.UUID == "" {
-		return []event_model.Event{}, nil
-	}
-	events, err := s.userRepo.ListCreatedEvents(ctx, target.UUID)
+	events, err := s.userRepo.ListCreatedEvents(ctx, target.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +213,7 @@ func (s *userService) UpdateProfile(ctx context.Context, requesterIdentifier str
 		user = updatedUser
 	}
 
-	return s.GetUserProfile(ctx, strconv.Itoa(user.ID), requesterIdentifier)
+	return s.GetUserProfile(ctx, uuidToString(user.ID), requesterIdentifier)
 }
 
 func (s *userService) UploadAvatar(ctx context.Context, requesterIdentifier string, filename string, contentType string, reader io.Reader) (user_model.UserProfile, error) {
@@ -233,12 +229,9 @@ func (s *userService) UploadAvatar(ctx context.Context, requesterIdentifier stri
 		return user_model.UserProfile{}, fmt.Errorf("%w: storage service unconfigured", ErrInvalidInput)
 	}
 
-	targetUID := user.UUID
-	if targetUID == "" {
-		targetUID = strconv.Itoa(user.ID)
-	}
+	targetUID := user.ID
 
-	avatarURL, err := s.s3Client.UploadAvatar(ctx, targetUID, filename, contentType, reader)
+	avatarURL, err := s.s3Client.UploadAvatar(ctx, uuidToString(targetUID), filename, contentType, reader)
 	if err != nil {
 		return user_model.UserProfile{}, fmt.Errorf("%w: %v", ErrInvalidInput, err)
 	}
@@ -248,23 +241,19 @@ func (s *userService) UploadAvatar(ctx context.Context, requesterIdentifier stri
 		return user_model.UserProfile{}, err
 	}
 
-	return s.GetUserProfile(ctx, strconv.Itoa(updatedUser.ID), requesterIdentifier)
+	return s.GetUserProfile(ctx, uuidToString(updatedUser.ID), requesterIdentifier)
 }
 
 func (s *userService) findUser(ctx context.Context, identifier string) (user_model.User, bool, error) {
 	if identifier == "" {
 		return user_model.User{}, false, ErrUserNotFound
 	}
-	// Try integer ID first
-	if id, err := strconv.Atoi(identifier); err == nil && id > 0 {
-		u, showPlans, err := s.userRepo.GetByID(ctx, id)
+	// Try ID first
+	if id, err := uuid.FromString(identifier); err == nil {
+		u, showPlans, err := s.userRepo.GetByID(ctx, toPGUUID(id))
 		if err == nil {
 			return u, showPlans, nil
 		}
-	}
-	// Try UUID
-	if u, showPlans, err := s.userRepo.GetByUUID(ctx, identifier); err == nil {
-		return u, showPlans, nil
 	}
 	// Try FirebaseUID
 	if u, showPlans, err := s.userRepo.GetByFirebaseUID(ctx, identifier); err == nil {
@@ -275,4 +264,20 @@ func (s *userService) findUser(ctx context.Context, identifier string) (user_mod
 		return u, showPlans, nil
 	}
 	return user_model.User{}, false, ErrUserNotFound
+}
+
+func uuidToString(u pgtype.UUID) string {
+	if !u.Valid {
+		return ""
+	}
+	src := u.Bytes
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		src[0:4], src[4:6], src[6:8], src[8:10], src[10:16])
+}
+
+func toPGUUID(id uuid.UUID) pgtype.UUID {
+    return pgtype.UUID{
+        Bytes: [16]byte(id),
+        Valid: true,
+    }
 }

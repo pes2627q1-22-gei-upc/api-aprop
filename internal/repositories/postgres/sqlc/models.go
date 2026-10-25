@@ -260,7 +260,6 @@ type Unofficialevent struct {
 type User struct {
 	Firebaseuid    string
 	Username       string
-	Name           pgtype.Text
 	Email          pgtype.Text
 	Profilepicture pgtype.Text
 	Biography      pgtype.Text
@@ -270,8 +269,9 @@ type User struct {
 	Level          pgtype.Int4
 	Rating         pgtype.Float4
 	Settings       int32
-	ID             pgtype.UUID
+	Name           pgtype.Text
 	Uuid           pgtype.UUID
+	ID             pgtype.UUID
 }
 
 type Userlevel struct {

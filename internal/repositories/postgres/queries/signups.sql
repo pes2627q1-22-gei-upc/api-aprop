@@ -30,7 +30,7 @@ SELECT
     e.id, e.title, e.subtitle, e.description, e.schedule, e.url, e.tickets, e.ticketsurl,
     e.free, e.permanent, e.modality, e.images, e.videos, e.email, e.place, e.latitude,
     e.longitude, e.postalcode, e.municipality, e.region, e.address, e.phone, e.activityurl,
-    e.startdate, e.enddate
+    e.startdate, e.enddate, e.relatedurls, e.urlnames
 FROM Events e
 WHERE EXISTS (
     SELECT 1 FROM SignUp s

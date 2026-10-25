@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/gofrs/uuid/v5"
 
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/models/signup_model"
@@ -93,10 +94,16 @@ func (r *SignUpRepository) ListUserEvents(ctx context.Context, userID string, da
 	}
 	params := sqlc.ListUserSignedUpEventsParams{UserID: uid}
 	if dateRange.From != nil {
-		params.FromDate = toDate(*dateRange.From)
+		params.FromDate = pgtype.Timestamptz{
+			Time:  *dateRange.From,
+			Valid: true,
+		}
 	}
 	if dateRange.To != nil {
-		params.ToDate = toDate(*dateRange.To)
+		params.ToDate = pgtype.Timestamptz{
+			Time:  *dateRange.To,
+			Valid: true,
+		}
 	}
 	rows, err := r.queries.ListUserSignedUpEvents(ctx, params)
 	if err != nil {
@@ -122,7 +129,7 @@ func signedUpEventToModel(row sqlc.ListUserSignedUpEventsRow) event_model.Event 
 		Ticketsurl:   row.Ticketsurl,
 		Free:         row.Free,
 		Permanent:    row.Permanent,
-		Modality:     toText(row.Modality),
+		Modality:     row.Modality,
 		Relatedurls:  row.Relatedurls,
 		Urlnames:     row.Urlnames,
 		Images:       row.Images,
@@ -143,9 +150,9 @@ func signedUpEventToModel(row sqlc.ListUserSignedUpEventsRow) event_model.Event 
 }
 
 func toUUID(s string) (pgtype.UUID, error) {
-	var uid pgtype.UUID
-	if err := uid.Scan(s); err != nil {
-		return pgtype.UUID{}, fmt.Errorf("invalid user id %q: %w", s, err)
+	tmp, err := uuid.FromString(s)
+	if err!=nil{
+		return pgtype.UUID{}, fmt.Errorf("invalid user id %s: %w", s, err)
 	}
-	return uid, nil
+	return pgtype.UUID{Valid: true, Bytes: [16]byte(tmp)}, nil
 }

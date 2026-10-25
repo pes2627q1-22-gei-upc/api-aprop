@@ -1,14 +1,6 @@
--- name: GetUserByID :one
-SELECT u.id, u.firebaseuid, u.username, u.name, u.email, u.profilepicture, u.biography,
-       u.dateregistered, u.accountstate, u.experience, u.level, u.rating, u.settings, u.uuid,
-       COALESCE(s.showplans, true)::boolean AS show_plans
-FROM Users u
-LEFT JOIN Settings s ON s.ID = u.Settings
-WHERE u.ID = sqlc.arg(id)::integer;
-
 -- name: GetUserByUsername :one
 SELECT u.id, u.firebaseuid, u.username, u.name, u.email, u.profilepicture, u.biography,
-       u.dateregistered, u.accountstate, u.experience, u.level, u.rating, u.settings, u.uuid,
+       u.dateregistered, u.accountstate, u.experience, u.level, u.rating, u.settings,
        COALESCE(s.showplans, true)::boolean AS show_plans
 FROM Users u
 LEFT JOIN Settings s ON s.ID = u.Settings
@@ -16,7 +8,7 @@ WHERE LOWER(u.Username) = LOWER(sqlc.arg(username)::varchar);
 
 -- name: GetUserByFirebaseUIDWithSettings :one
 SELECT u.id, u.firebaseuid, u.username, u.name, u.email, u.profilepicture, u.biography,
-       u.dateregistered, u.accountstate, u.experience, u.level, u.rating, u.settings, u.uuid,
+       u.dateregistered, u.accountstate, u.experience, u.level, u.rating, u.settings,
        COALESCE(s.showplans, true)::boolean AS show_plans
 FROM Users u
 LEFT JOIN Settings s ON s.ID = u.Settings
@@ -24,11 +16,11 @@ WHERE u.FirebaseUID = sqlc.arg(firebase_uid)::varchar;
 
 -- name: GetUserByUUID :one
 SELECT u.id, u.firebaseuid, u.username, u.name, u.email, u.profilepicture, u.biography,
-       u.dateregistered, u.accountstate, u.experience, u.level, u.rating, u.settings, u.uuid,
+       u.dateregistered, u.accountstate, u.experience, u.level, u.rating, u.settings,
        COALESCE(s.showplans, true)::boolean AS show_plans
 FROM Users u
 LEFT JOIN Settings s ON s.ID = u.Settings
-WHERE u.UUID = sqlc.arg(uuid)::uuid;
+WHERE u.id = sqlc.arg(uuid)::uuid;
 
 -- name: CountFriends :one
 SELECT COUNT(*)::bigint
@@ -76,7 +68,7 @@ UPDATE Users SET
     Username = COALESCE(sqlc.narg(username)::varchar, Username),
     Biography = COALESCE(sqlc.narg(biography)::varchar, Biography),
     ProfilePicture = COALESCE(sqlc.narg(profile_picture)::varchar, ProfilePicture)
-WHERE ID = sqlc.arg(id)::integer
+WHERE ID = sqlc.arg(id)::uuid
 RETURNING *;
 
 -- name: UpdateUserSettings :one

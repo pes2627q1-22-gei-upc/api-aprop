@@ -11,9 +11,22 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countEventSignUps = `-- name: CountEventSignUps :one
+SELECT COUNT(DISTINCT UserID)::bigint
+FROM SignUp
+WHERE Event = $1::integer
+`
+
+func (q *Queries) CountEventSignUps(ctx context.Context, eventID int32) (int64, error) {
+	row := q.db.QueryRow(ctx, countEventSignUps, eventID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const createSignUp = `-- name: CreateSignUp :execrows
-INSERT INTO SignUp (UserID, Event, SignUpDate)
-SELECT $1::uuid, $2::integer, now()
+INSERT INTO SignUp (UserID, Event)
+SELECT $1::uuid, $2::integer
 WHERE NOT EXISTS (
     SELECT 1 FROM SignUp
     WHERE UserID = $1::uuid AND Event = $2::integer
@@ -25,8 +38,7 @@ type CreateSignUpParams struct {
 	EventID int32
 }
 
-// Inserts the sign up only if the user is not already signed up to the event.
-// TODO(DP-012): without a UNIQUE (UserID, Event) constraint, concurrent requests can still insert duplicates.
+// Inserts a sign up row if the (UserID, Event) pair does not already exist.
 func (q *Queries) CreateSignUp(ctx context.Context, arg CreateSignUpParams) (int64, error) {
 	result, err := q.db.Exec(ctx, createSignUp, arg.UserID, arg.EventID)
 	if err != nil {
@@ -45,30 +57,13 @@ type DeleteSignUpParams struct {
 	EventID int32
 }
 
+// Deletes the user's sign up for the event.
 func (q *Queries) DeleteSignUp(ctx context.Context, arg DeleteSignUpParams) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteSignUp, arg.UserID, arg.EventID)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
-}
-
-const countEventSignUps = `-- name: CountEventSignUps :one
-SELECT COUNT(DISTINCT UserID)::bigint
-FROM SignUp
-WHERE Event = $1::integer
-`
-
-func (q *Queries) CountEventSignUps(ctx context.Context, eventID int32) (int64, error) {
-	row := q.db.QueryRow(ctx, countEventSignUps, eventID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
-type IsUserSignedUpParams struct {
-	UserID  pgtype.UUID
-	EventID int32
 }
 
 const isUserSignedUp = `-- name: IsUserSignedUp :one
@@ -78,33 +73,38 @@ SELECT EXISTS (
 )::boolean
 `
 
+type IsUserSignedUpParams struct {
+	UserID  pgtype.UUID
+	EventID int32
+}
+
 func (q *Queries) IsUserSignedUp(ctx context.Context, arg IsUserSignedUpParams) (bool, error) {
 	row := q.db.QueryRow(ctx, isUserSignedUp, arg.UserID, arg.EventID)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const listUserSignedUpEvents = `-- name: ListUserSignedUpEvents :many
 SELECT
     e.id, e.title, e.subtitle, e.description, e.schedule, e.url, e.tickets, e.ticketsurl,
-    e.free, e.permanent, COALESCE(e.modality::text, '')::text AS modality, e.relatedurls, e.urlnames, e.images,
-    e.videos, e.email, e.place, e.latitude, e.longitude, e.postalcode, e.municipality,
-    e.region, e.address, e.phone, e.activityurl, e.startdate, e.enddate
+    e.free, e.permanent, e.modality, e.images, e.videos, e.email, e.place, e.latitude,
+    e.longitude, e.postalcode, e.municipality, e.region, e.address, e.phone, e.activityurl,
+    e.startdate, e.enddate, e.relatedurls, e.urlnames
 FROM Events e
 WHERE EXISTS (
     SELECT 1 FROM SignUp s
-    WHERE s.Event = e.ID AND s.UserID = $1::uuid
+    WHERE s.Event = e.id AND s.UserID = $1::uuid
 )
-AND ($2::date IS NULL OR e.StartDate <= $2::date)
-AND ($3::date IS NULL OR COALESCE(e.EndDate, e.StartDate) >= $3::date)
-ORDER BY e.StartDate, e.ID
+AND ($2::timestamptz IS NULL OR e.EndDate >= $2)
+AND ($3::timestamptz IS NULL OR e.StartDate <= $3)
+ORDER BY e.StartDate ASC, e.id ASC
 `
 
 type ListUserSignedUpEventsParams struct {
 	UserID   pgtype.UUID
-	ToDate   pgtype.Date
-	FromDate pgtype.Date
+	FromDate pgtype.Timestamptz
+	ToDate   pgtype.Timestamptz
 }
 
 type ListUserSignedUpEventsRow struct {
@@ -113,14 +113,12 @@ type ListUserSignedUpEventsRow struct {
 	Subtitle     pgtype.Text
 	Description  pgtype.Text
 	Schedule     pgtype.Text
-	Tickets      pgtype.Text
 	Url          pgtype.Text
+	Tickets      pgtype.Text
 	Ticketsurl   pgtype.Text
 	Free         pgtype.Bool
 	Permanent    pgtype.Bool
-	Modality     string
-	Relatedurls  pgtype.Text
-	Urlnames     pgtype.Text
+	Modality     pgtype.Text
 	Images       pgtype.Text
 	Videos       pgtype.Text
 	Email        pgtype.Text
@@ -135,13 +133,14 @@ type ListUserSignedUpEventsRow struct {
 	Activityurl  pgtype.Text
 	Startdate    pgtype.Date
 	Enddate      pgtype.Date
+	Relatedurls  pgtype.Text
+	Urlnames     pgtype.Text
 }
 
 // Events the user is signed up to that overlap the optional [from_date, to_date] range.
 // EXISTS returns each event once even if SignUp contains duplicated rows.
-// Modality is an enum not present in the hand-edited models, so it is read as text.
 func (q *Queries) ListUserSignedUpEvents(ctx context.Context, arg ListUserSignedUpEventsParams) ([]ListUserSignedUpEventsRow, error) {
-	rows, err := q.db.Query(ctx, listUserSignedUpEvents, arg.UserID, arg.ToDate, arg.FromDate)
+	rows, err := q.db.Query(ctx, listUserSignedUpEvents, arg.UserID, arg.FromDate, arg.ToDate)
 	if err != nil {
 		return nil, err
 	}
@@ -155,14 +154,12 @@ func (q *Queries) ListUserSignedUpEvents(ctx context.Context, arg ListUserSigned
 			&i.Subtitle,
 			&i.Description,
 			&i.Schedule,
-			&i.Tickets,
 			&i.Url,
+			&i.Tickets,
 			&i.Ticketsurl,
 			&i.Free,
 			&i.Permanent,
 			&i.Modality,
-			&i.Relatedurls,
-			&i.Urlnames,
 			&i.Images,
 			&i.Videos,
 			&i.Email,
@@ -177,6 +174,8 @@ func (q *Queries) ListUserSignedUpEvents(ctx context.Context, arg ListUserSigned
 			&i.Activityurl,
 			&i.Startdate,
 			&i.Enddate,
+			&i.Relatedurls,
+			&i.Urlnames,
 		); err != nil {
 			return nil, err
 		}

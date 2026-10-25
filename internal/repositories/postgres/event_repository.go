@@ -73,7 +73,7 @@ func (r *EventRepository) Create(e event_model.Event, official bool) (event_mode
 		_, err := r.queries.CreateUnofficialEvent(context.Background(), sqlc.CreateUnofficialEventParams{
 			ID:          int32(row.ID),
 			Creator:     e.Creator,
-			DateCreated: pgtype.Timestamp{Time: dateCreated, Valid: true},
+			Datecreated: pgtype.Timestamp{Time: dateCreated, Valid: true},
 		})
 		if err != nil {
 			return event_model.Event{}, fmt.Errorf("create unofficial event: %w", err)
@@ -393,6 +393,42 @@ func (r *EventRepository) List(params map[string]any) ([]event_model.Event, erro
 	return events, nil
 }
 
+func toGetEventRow (r sqlc.SearchEventsWithRelevanceRow) sqlc.GetEventRow {
+	return sqlc.GetEventRow{
+		ID:           r.ID,
+		Title:        r.Title,
+		Subtitle:     r.Subtitle,
+		Description:  r.Description,
+		Schedule:     r.Schedule,
+		Tickets:      r.Tickets,
+		Url:          r.Url,
+		Ticketsurl:   r.Url,
+		Free:         r.Free,
+		Permanent:    r.Permanent,
+		Modality:     r.Modality,
+		Relatedurls:  r.Relatedurls,
+		Urlnames:     r.Urlnames,
+		Images:       r.Images,
+		Videos:		  r.Videos,
+		Email:        r.Email,
+		Phone:        r.Phone,
+		Activityurl:  r.Activityurl,
+		Startdate:    r.Startdate,
+		Enddate:      r.Enddate,
+		Place:        r.Place,
+		Latitude:     r.Latitude,
+		Longitude:    r.Longitude,
+		PostalCode:   r.PostalCode,
+		Municipality: r.Municipality,
+		Region:       r.Region,
+		Address:      r.Address,
+		Code:         r.Code,
+		Creator:      r.Creator,
+		Datecreated:  r.Datecreated,
+		Category:     r.Category,
+	}    
+}
+
 func (r *EventRepository) Search(ctx context.Context, query string, pageNum, pageSize int) (event_model.SearchResult, error) {
 	if pageSize <= 0 {
 		pageSize = 20
@@ -430,7 +466,7 @@ func (r *EventRepository) Search(ctx context.Context, query string, pageNum, pag
 	cats := []string{}
 	for _, row := range rows {
 		if row.ID != currentevent.ID {
-			events = append(events, toModelExtended(sqlc.GetEventRow(currentevent), cats))
+			events = append(events, toModelExtended(toGetEventRow(currentevent), cats))
 			cats = []string{}
 			currentevent = row
 		}
@@ -438,7 +474,7 @@ func (r *EventRepository) Search(ctx context.Context, query string, pageNum, pag
 			cats = append(cats, row.Category.String)
 		}
 	}
-	events = append(events, toModelExtended(sqlc.GetEventRow(currentevent), cats))
+	events = append(events, toModelExtended(toGetEventRow(currentevent), cats))
 
 	return event_model.SearchResult{
 		Query:    query,

@@ -155,6 +155,25 @@ func (q *Queries) CreateOfficialEvent(ctx context.Context, arg CreateOfficialEve
 	return id, err
 }
 
+const createUnofficialEvent = `-- name: CreateUnofficialEvent :one
+INSERT INTO UnofficialEvents (id, creator, datecreated)
+VALUES ($1, $2, $3)
+RETURNING id
+`
+
+type CreateUnofficialEventParams struct {
+	ID          int32
+	Creator     pgtype.UUID
+	Datecreated pgtype.Timestamp
+}
+
+func (q *Queries) CreateUnofficialEvent(ctx context.Context, arg CreateUnofficialEventParams) (int32, error) {
+	row := q.db.QueryRow(ctx, createUnofficialEvent, arg.ID, arg.Creator, arg.Datecreated)
+	var id int32
+	err := row.Scan(&id)
+	return id, err
+}
+
 const equalEventExists = `-- name: EqualEventExists :one
 SELECT id FROM events WHERE title IS NOT DISTINCT FROM $1 
 and subtitle IS NOT DISTINCT FROM $2
@@ -655,25 +674,6 @@ func (q *Queries) UpdateEvent(ctx context.Context, arg UpdateEventParams) (Event
 		&i.Address,
 	)
 	return i, err
-}
-
-const createUnofficialEvent = `-- name: CreateUnofficialEvent :one
-INSERT INTO UnofficialEvents (id, creator, datecreated)
-VALUES ($1, $2, $3)
-RETURNING id
-`
-
-type CreateUnofficialEventParams struct {
-	ID          int32
-	Creator     pgtype.UUID
-	DateCreated pgtype.Timestamp
-}
-
-func (q *Queries) CreateUnofficialEvent(ctx context.Context, arg CreateUnofficialEventParams) (int32, error) {
-	row := q.db.QueryRow(ctx, createUnofficialEvent, arg.ID, arg.Creator, arg.DateCreated)
-	var id int32
-	err := row.Scan(&id)
-	return id, err
 }
 
 const updateEventImage = `-- name: UpdateEventImage :exec
