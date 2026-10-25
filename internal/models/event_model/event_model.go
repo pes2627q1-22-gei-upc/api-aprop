@@ -9,6 +9,7 @@ import (
 type Event struct {
 	ID           int         `json:"id"`
 	Code         int64       `json:"code"` // Code given to a specific event. It is NOT UNIQUE and can be reused if the same event is redone or done in multiple places at once
+	IsOfficial   bool        `json:"is-official"`
 	Title        string      `json:"title"`
 	Subtitle     string      `json:"subtitle"`
 	Schedule     string      `json:"schedule"`
@@ -59,4 +60,13 @@ type MapEvent struct {
 	Event
 	IsOfficial bool `json:"is-official"`
 	HasFriends bool `json:"has-friends"`
+}
+
+// SearchResult represents the result of an event search query with total count.
+type SearchResult struct {
+	Query    string  `json:"query"`
+	Total    int64   `json:"total"`
+	PageNum  int     `json:"page-num"`
+	PageSize int     `json:"page-size"`
+	Events   []Event `json:"events"`
 }
