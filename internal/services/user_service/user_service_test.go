@@ -162,6 +162,11 @@ func (m *mockS3Client) UploadAvatar(_ context.Context, userID, filename, content
 	return "https://my-bucket.s3.amazonaws.com/avatars/" + userID + "/" + filename, nil
 }
 
+func (m *mockS3Client) UploadEventImage(_ context.Context, _ int, _, _ string, _ io.Reader) (string, error) {
+	return "", nil
+}
+
+
 func TestGetUserProfile_OwnProfile(t *testing.T) {
 	repo := newMockUserRepo()
 	u := user_model.User{

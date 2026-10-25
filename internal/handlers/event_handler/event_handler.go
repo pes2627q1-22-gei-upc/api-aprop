@@ -2,11 +2,13 @@ package event_handler
 
 import (
 	"encoding/json"
+	"io"
 	"math"
 	"net/http"
 	"strconv"
 
 	"api-aprop/internal/handlers/response"
+	"api-aprop/internal/middleware/auth_middleware"
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/services/event_service"
 )
@@ -28,12 +30,21 @@ func NewEventHandler(eventService event_service.Service) *EventHandler {
 func (h *EventHandler) RegisterRoutes(mux *http.ServeMux) {
 	// Event handler: events from the Generalitat open data and the ones created by users
 	mux.HandleFunc("GET /events", h.ListEvents)
+	mux.HandleFunc("GET /events/search", h.SearchEvents)
 	mux.HandleFunc("GET /event/map", h.ListMapEvents)
 	mux.HandleFunc("GET /events/map", h.ListMapEvents)
 	mux.HandleFunc("GET /events/{id}", h.GetEvent)
 	mux.HandleFunc("POST /events", h.CreateEvent)
+	mux.HandleFunc("POST /events/{id}/image", h.UploadEventImage)
 	mux.HandleFunc("GET /categories", h.GetCategories)
 	mux.HandleFunc("GET /categories/{id}", h.GetCategory)
+}
+
+func getUserID(r *http.Request) string {
+	if u, ok := auth_middleware.UserFromContext(r.Context()); ok && u.UID != "" {
+		return u.UID
+	}
+	return r.Header.Get(UserIDHeader)
 }
 
 // ListEvents handles GET /events
@@ -90,12 +101,64 @@ func (h *EventHandler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	created, err := h.eventService.CreateEvent(e)
+	userID := getUserID(r)
+	var created event_model.Event
+	var err error
+	if userID != "" {
+		created, err = h.eventService.CreateUnofficialEvent(r.Context(), userID, e)
+	} else {
+		created, err = h.eventService.CreateEvent(e)
+	}
 	if err != nil {
 		writeServiceError(w, err)
 		return
 	}
 	response.WriteJSON(w, http.StatusCreated, created)
+}
+
+// UploadEventImage handles POST /events/{id}/image
+func (h *EventHandler) UploadEventImage(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil {
+		response.WriteError(w, http.StatusBadRequest, "invalid event id")
+		return
+	}
+
+	if err := r.ParseMultipartForm(5 << 20); err != nil {
+		response.WriteError(w, http.StatusBadRequest, "file too large or invalid multipart form")
+		return
+	}
+
+	file, header, err := r.FormFile("image")
+	if err != nil {
+		file, header, err = r.FormFile("file")
+		if err != nil {
+			response.WriteError(w, http.StatusBadRequest, "missing image file in multipart form")
+			return
+		}
+	}
+	defer file.Close()
+
+	contentType := header.Header.Get("Content-Type")
+	if contentType == "" || contentType == "application/octet-stream" {
+		buf := make([]byte, 512)
+		n, _ := file.Read(buf)
+		contentType = http.DetectContentType(buf[:n])
+		if seeker, ok := file.(io.Seeker); ok {
+			_, _ = seeker.Seek(0, io.SeekStart)
+		}
+	}
+
+	imageURL, err := h.eventService.UploadEventImage(r.Context(), id, header.Filename, contentType, file)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	response.WriteJSON(w, http.StatusCreated, map[string]any{
+		"event-id":  id,
+		"image-url": imageURL,
+	})
 }
 
 // GetCategories handles GET /categories
@@ -123,7 +186,7 @@ func (h *EventHandler) ListMapEvents(w http.ResponseWriter, r *http.Request) {
 	response.WriteJSON(w, http.StatusOK, events)
 }
 
-// GetCategories handles GET /categories/{id}
+// GetCategory handles GET /categories/{id}
 func (h *EventHandler) GetCategory(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil {
@@ -206,4 +269,25 @@ func parseCoordParam(w http.ResponseWriter, name, value string) (float32, bool) 
 		return 0, false
 	}
 	return float32(f), true
+}
+
+// SearchEvents handles GET /events/search?q={query}&pageNum={n}&pageSize={m}
+func (h *EventHandler) SearchEvents(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query().Get("q")
+	if q == "" {
+		q = r.URL.Query().Get("search")
+	}
+	pageNum, _ := strconv.Atoi(r.URL.Query().Get("pageNum"))
+	pageSize, _ := strconv.Atoi(r.URL.Query().Get("pageSize"))
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+
+	result, err := h.eventService.SearchEvents(r.Context(), q, pageNum, pageSize)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, result)
 }

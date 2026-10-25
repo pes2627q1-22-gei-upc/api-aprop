@@ -14,7 +14,7 @@ type S3Config struct {
 	Bucket    string
 	Region    string
 	Endpoint  string // Optional, e.g. https://<project>.supabase.co/storage/v1/s3 or custom endpoint
-	PublicURL string // Optional base URL to construct the public avatar URL
+	PublicURL string // Optional base URL to construct the public image URL
 }
 
 type S3Client struct {
@@ -26,7 +26,7 @@ var _ Client = (*S3Client)(nil)
 
 func NewS3Client(httpClient *http.Client, config S3Config) *S3Client {
 	if config.Bucket == "" {
-		config.Bucket = "avatars"
+		config.Bucket = "media"
 	}
 	if config.Region == "" {
 		config.Region = "eu-west-1"
@@ -41,28 +41,30 @@ func NewS3Client(httpClient *http.Client, config S3Config) *S3Client {
 }
 
 func (c *S3Client) UploadAvatar(ctx context.Context, userID string, filename string, contentType string, reader io.Reader) (string, error) {
-	// Validate MIME type
 	switch contentType {
 	case "image/jpeg", "image/png", "image/webp":
 	default:
 		return "", ErrInvalidContentType
 	}
 
-	ext := filepath.Ext(filename)
-	if ext == "" {
-		switch contentType {
-		case "image/jpeg":
-			ext = ".jpg"
-		case "image/png":
-			ext = ".png"
-		case "image/webp":
-			ext = ".webp"
-		}
+	ext := extensionForMime(filename, contentType)
+	key := fmt.Sprintf("avatars/%s/avatar-%d%s", userID, time.Now().Unix(), ext)
+	return c.upload(ctx, key, contentType, reader)
+}
+
+func (c *S3Client) UploadEventImage(ctx context.Context, eventID int, filename string, contentType string, reader io.Reader) (string, error) {
+	switch contentType {
+	case "image/jpeg", "image/png", "image/webp":
+	default:
+		return "", ErrInvalidContentType
 	}
 
-	key := fmt.Sprintf("avatars/%s/avatar-%d%s", userID, time.Now().Unix(), ext)
+	ext := extensionForMime(filename, contentType)
+	key := fmt.Sprintf("events/%d/poster-%d%s", eventID, time.Now().Unix(), ext)
+	return c.upload(ctx, key, contentType, reader)
+}
 
-	// If a custom HTTP endpoint is configured, perform HTTP PUT to store the asset
+func (c *S3Client) upload(ctx context.Context, key string, contentType string, reader io.Reader) (string, error) {
 	if c.config.Endpoint != "" {
 		uploadURL := fmt.Sprintf("%s/%s/%s", strings.TrimRight(c.config.Endpoint, "/"), c.config.Bucket, key)
 		req, err := http.NewRequestWithContext(ctx, http.MethodPut, uploadURL, reader)
@@ -82,7 +84,6 @@ func (c *S3Client) UploadAvatar(ctx context.Context, userID string, filename str
 		}
 	}
 
-	// Determine public URL
 	if c.config.PublicURL != "" {
 		return fmt.Sprintf("%s/%s", strings.TrimRight(c.config.PublicURL, "/"), key), nil
 	}
@@ -90,6 +91,22 @@ func (c *S3Client) UploadAvatar(ctx context.Context, userID string, filename str
 		return fmt.Sprintf("%s/%s/%s", strings.TrimRight(c.config.Endpoint, "/"), c.config.Bucket, key), nil
 	}
 
-	// Default standard AWS S3 public URL format
 	return fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", c.config.Bucket, c.config.Region, key), nil
+}
+
+func extensionForMime(filename, contentType string) string {
+	ext := filepath.Ext(filename)
+	if ext != "" {
+		return ext
+	}
+	switch contentType {
+	case "image/jpeg":
+		return ".jpg"
+	case "image/png":
+		return ".png"
+	case "image/webp":
+		return ".webp"
+	default:
+		return ".bin"
+	}
 }

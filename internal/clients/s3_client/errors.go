@@ -3,7 +3,7 @@ package s3_client
 import "errors"
 
 var (
-	ErrInvalidContentType = errors.New("invalid content type: only JPEG, PNG and WebP images are allowed")
-	ErrFileTooLarge       = errors.New("file too large: maximum allowed size is 5MB")
-	ErrUploadFailed       = errors.New("failed to upload avatar to storage")
+	ErrInvalidContentType = errors.New("invalid content type, must be image/jpeg, image/png, or image/webp")
+	ErrUploadFailed       = errors.New("failed to upload image to storage")
+	ErrFileTooLarge       = errors.New("file is too large (maximum 5MB)")
 )

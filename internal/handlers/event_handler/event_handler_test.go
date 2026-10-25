@@ -1,13 +1,17 @@
 package event_handler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/services/event_service"
@@ -16,11 +20,17 @@ import (
 const validUserID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
 
 type fakeEventService struct {
-	mapEvents []event_model.MapEvent
-	mapErr    error
+	mapEvents           []event_model.MapEvent
+	mapErr              error
+	createdUnofficial   event_model.Event
+	createUnofficialErr error
+	uploadedImageURL    string
+	uploadImageErr      error
 
-	mapCalls  int
-	gotFilter event_model.MapFilter
+	mapCalls        int
+	unofficialCalls int
+	uploadCalls     int
+	gotFilter       event_model.MapFilter
 }
 
 func (f *fakeEventService) GetEvent(_ int) (event_model.Event, error) {
@@ -53,14 +63,31 @@ func (f *fakeEventService) GetCategory(_ int) (event_model.Category, error) {
 	return event_model.Category{}, nil
 }
 
+func (f *fakeEventService) SearchEvents(_ context.Context, query string, pageNum, pageSize int) (event_model.SearchResult, error) {
+	return event_model.SearchResult{
+		Query:    query,
+		Total:    1,
+		PageNum:  pageNum,
+		PageSize: pageSize,
+		Events:   []event_model.Event{{ID: 1, Title: "Concert de Jazz"}},
+	}, nil
+}
+
+func (f *fakeEventService) CreateUnofficialEvent(_ context.Context, _ string, e event_model.Event) (event_model.Event, error) {
+	f.unofficialCalls++
+	f.createdUnofficial = e
+	return e, f.createUnofficialErr
+}
+
+func (f *fakeEventService) UploadEventImage(_ context.Context, _ int, _ string, _ string, _ io.Reader) (string, error) {
+	f.uploadCalls++
+	return f.uploadedImageURL, f.uploadImageErr
+}
+
 func newMux(s event_service.Service) *http.ServeMux {
 	h := NewEventHandler(s)
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /events", h.ListEvents)
-	mux.HandleFunc("GET /event/map", h.ListMapEvents)
-	mux.HandleFunc("GET /events/map", h.ListMapEvents)
-	mux.HandleFunc("GET /events/{id}", h.GetEvent)
-	mux.HandleFunc("POST /events", h.CreateEvent)
+	h.RegisterRoutes(mux)
 	return mux
 }
 
@@ -236,6 +263,137 @@ func TestListMapEvents(t *testing.T) {
 				if events[i].HasFriends != sample[i].HasFriends {
 					t.Errorf("event[%d].HasFriends = %v, want %v", i, events[i].HasFriends, sample[i].HasFriends)
 				}
+			}
+		})
+	}
+}
+
+func TestSearchEvents(t *testing.T) {
+	s := &fakeEventService{}
+	mux := newMux(s)
+
+	req := httptest.NewRequest(http.MethodGet, "/events/search?q=jazz", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var res event_model.SearchResult
+	if err := json.NewDecoder(w.Body).Decode(&res); err != nil {
+		t.Fatalf("failed to decode json: %v", err)
+	}
+	if res.Total != 1 || res.Query != "jazz" || len(res.Events) != 1 {
+		t.Errorf("unexpected search result: %+v", res)
+	}
+}
+
+func TestCreateUnofficialEventHandler(t *testing.T) {
+	futureStart := time.Now().UTC().Add(24 * time.Hour)
+	eventJSON := `{"title":"Taller de Teatre","description":"Taller obert per a joves","categories":["Teatre"],"start-date":"` + futureStart.Format(time.RFC3339) + `"}`
+
+	tests := []struct {
+		name       string
+		body       string
+		userID     string
+		service    fakeEventService
+		wantStatus int
+		wantCalls  int
+	}{
+		{
+			name:       "valid unofficial event creation",
+			body:       eventJSON,
+			userID:     validUserID,
+			service:    fakeEventService{},
+			wantStatus: http.StatusCreated,
+			wantCalls:  1,
+		},
+		{
+			name:       "validation failure title required",
+			body:       `{"title":"","description":"Desc","categories":["Teatre"]}`,
+			userID:     validUserID,
+			service:    fakeEventService{createUnofficialErr: event_service.ErrInvalidEventTitle},
+			wantStatus: http.StatusBadRequest,
+			wantCalls:  1,
+		},
+		{
+			name:       "invalid json body",
+			body:       `{not-valid-json`,
+			userID:     validUserID,
+			wantStatus: http.StatusBadRequest,
+			wantCalls:  0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := tt.service
+			req := httptest.NewRequest(http.MethodPost, "/events", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			if tt.userID != "" {
+				req.Header.Set(UserIDHeader, tt.userID)
+			}
+
+			rec := serve(&s, req)
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d (body %s)", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+			if s.unofficialCalls != tt.wantCalls {
+				t.Errorf("service calls = %d, want %d", s.unofficialCalls, tt.wantCalls)
+			}
+		})
+	}
+}
+
+func TestUploadEventImageHandler(t *testing.T) {
+	body := new(bytes.Buffer)
+	writer := multipart.NewWriter(body)
+	part, _ := writer.CreateFormFile("image", "poster.jpg")
+	part.Write([]byte("fake-jpeg-content"))
+	writer.Close()
+
+	tests := []struct {
+		name       string
+		path       string
+		service    fakeEventService
+		wantStatus int
+		wantCalls  int
+	}{
+		{
+			name:       "successful image upload",
+			path:       "/events/15/image",
+			service:    fakeEventService{uploadedImageURL: "https://s3/events/15/poster.jpg"},
+			wantStatus: http.StatusCreated,
+			wantCalls:  1,
+		},
+		{
+			name:       "event not found",
+			path:       "/events/99/image",
+			service:    fakeEventService{uploadImageErr: event_service.ErrEventNotFound},
+			wantStatus: http.StatusNotFound,
+			wantCalls:  1,
+		},
+		{
+			name:       "invalid event id",
+			path:       "/events/abc/image",
+			wantStatus: http.StatusBadRequest,
+			wantCalls:  0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := tt.service
+			req := httptest.NewRequest(http.MethodPost, tt.path, bytes.NewReader(body.Bytes()))
+			req.Header.Set("Content-Type", writer.FormDataContentType())
+
+			rec := serve(&s, req)
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d (body %s)", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+			if s.uploadCalls != tt.wantCalls {
+				t.Errorf("service upload calls = %d, want %d", s.uploadCalls, tt.wantCalls)
 			}
 		})
 	}

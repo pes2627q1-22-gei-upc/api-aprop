@@ -100,3 +100,12 @@ SELECT * from categories;
 
 -- name: GetCategory :one
 SELECT * from categories where id = $1;
+
+
+-- name: CreateUnofficialEvent :one
+INSERT INTO UnofficialEvents (id, creator, datecreated)
+VALUES ($1, $2, $3)
+RETURNING id;
+
+-- name: UpdateEventImage :exec
+UPDATE events SET images = $2 WHERE id = $1;

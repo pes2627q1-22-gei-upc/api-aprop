@@ -19,15 +19,21 @@ import (
 const validUserID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
 
 type fakeService struct {
-	signUp    signup_model.SignUp
-	signUpErr error
-	events    []event_model.Event
-	listErr   error
+	signUp      signup_model.SignUp
+	signUpErr   error
+	unenroll    signup_model.Unenroll
+	unenrollErr error
+	status      signup_model.EnrollmentStatus
+	statusErr   error
+	events      []event_model.Event
+	listErr     error
 
-	calls      int
-	gotUserID  string
-	gotEventID int
-	gotRange   signup_model.DateRange
+	calls         int
+	unenrollCalls int
+	statusCalls   int
+	gotUserID     string
+	gotEventID    int
+	gotRange      signup_model.DateRange
 }
 
 func (f *fakeService) SignUp(_ context.Context, userID string, eventID int) (signup_model.SignUp, error) {
@@ -35,6 +41,20 @@ func (f *fakeService) SignUp(_ context.Context, userID string, eventID int) (sig
 	f.gotUserID = userID
 	f.gotEventID = eventID
 	return f.signUp, f.signUpErr
+}
+
+func (f *fakeService) Unenroll(_ context.Context, userID string, eventID int) (signup_model.Unenroll, error) {
+	f.unenrollCalls++
+	f.gotUserID = userID
+	f.gotEventID = eventID
+	return f.unenroll, f.unenrollErr
+}
+
+func (f *fakeService) GetEnrollmentStatus(_ context.Context, userID string, eventID int) (signup_model.EnrollmentStatus, error) {
+	f.statusCalls++
+	f.gotUserID = userID
+	f.gotEventID = eventID
+	return f.status, f.statusErr
 }
 
 func (f *fakeService) ListUserEvents(_ context.Context, userID string, dateRange signup_model.DateRange) ([]event_model.Event, error) {
@@ -48,8 +68,7 @@ func (f *fakeService) ListUserEvents(_ context.Context, userID string, dateRange
 func newMux(s signup_service.Service) *http.ServeMux {
 	h := NewSignUpHandler(s)
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /events/{id}/signup", h.SignUp)
-	mux.HandleFunc("GET /users/{userId}/events", h.ListUserEvents)
+	h.RegisterRoutes(mux)
 	return mux
 }
 
@@ -334,5 +353,156 @@ func assertDate(t *testing.T, name string, got, want *time.Time) {
 		t.Errorf("%s = %v, want %v", name, got, want)
 	case !got.Equal(*want):
 		t.Errorf("%s = %v, want %v", name, *got, *want)
+	}
+}
+
+func TestUnenroll(t *testing.T) {
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		userID     string
+		service    fakeService
+		wantStatus int
+		wantCalls  int
+		wantError  string
+	}{
+		{
+			name:       "successful unenroll DELETE /events/{id}/signup",
+			method:     http.MethodDelete,
+			path:       "/events/7/signup",
+			userID:     validUserID,
+			service:    fakeService{unenroll: signup_model.Unenroll{UserID: validUserID, EventID: 7, Deleted: true}},
+			wantStatus: http.StatusOK,
+			wantCalls:  1,
+		},
+		{
+			name:       "successful unenroll DELETE /events/{id}/enroll",
+			method:     http.MethodDelete,
+			path:       "/events/7/enroll",
+			userID:     validUserID,
+			service:    fakeService{unenroll: signup_model.Unenroll{UserID: validUserID, EventID: 7, Deleted: true}},
+			wantStatus: http.StatusOK,
+			wantCalls:  1,
+		},
+		{
+			name:       "missing user header",
+			method:     http.MethodDelete,
+			path:       "/events/7/signup",
+			wantStatus: http.StatusBadRequest,
+			wantError:  "missing X-User-ID header",
+		},
+		{
+			name:       "event not found",
+			method:     http.MethodDelete,
+			path:       "/events/99/signup",
+			userID:     validUserID,
+			service:    fakeService{unenrollErr: fmt.Errorf("unenroll: %w", signup_service.ErrEventNotFound)},
+			wantStatus: http.StatusNotFound,
+			wantCalls:  1,
+			wantError:  "event not found",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := tt.service
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			if tt.userID != "" {
+				req.Header.Set(UserIDHeader, tt.userID)
+			}
+
+			rec := serve(&s, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d (body %s)", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+			if s.unenrollCalls != tt.wantCalls {
+				t.Errorf("unenroll calls = %d, want %d", s.unenrollCalls, tt.wantCalls)
+			}
+			if tt.wantError != "" {
+				if got := errorMessage(t, rec); got != tt.wantError {
+					t.Errorf("error = %q, want %q", got, tt.wantError)
+				}
+				return
+			}
+			if s.gotUserID != tt.userID || s.gotEventID != 7 {
+				t.Errorf("service got user %q event %d, want %q 7", s.gotUserID, s.gotEventID, tt.userID)
+			}
+		})
+	}
+}
+
+func TestGetEnrollmentStatus(t *testing.T) {
+	tests := []struct {
+		name       string
+		path       string
+		userID     string
+		service    fakeService
+		wantStatus int
+		wantCalls  int
+		wantBody   map[string]any
+		wantError  string
+	}{
+		{
+			name:       "enrolled status GET /events/{id}/signup",
+			path:       "/events/7/signup",
+			userID:     validUserID,
+			service:    fakeService{status: signup_model.EnrollmentStatus{EventID: 7, IsEnrolled: true, EnrolledCount: 12}},
+			wantStatus: http.StatusOK,
+			wantCalls:  1,
+			wantBody:   map[string]any{"event-id": float64(7), "is-enrolled": true, "enrolled-count": float64(12)},
+		},
+		{
+			name:       "enrolled status GET /events/{id}/enrollment",
+			path:       "/events/7/enrollment",
+			userID:     validUserID,
+			service:    fakeService{status: signup_model.EnrollmentStatus{EventID: 7, IsEnrolled: true, EnrolledCount: 12}},
+			wantStatus: http.StatusOK,
+			wantCalls:  1,
+			wantBody:   map[string]any{"event-id": float64(7), "is-enrolled": true, "enrolled-count": float64(12)},
+		},
+		{
+			name:       "event not found",
+			path:       "/events/99/enrollment",
+			service:    fakeService{statusErr: fmt.Errorf("status: %w", signup_service.ErrEventNotFound)},
+			wantStatus: http.StatusNotFound,
+			wantCalls:  1,
+			wantError:  "event not found",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := tt.service
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			if tt.userID != "" {
+				req.Header.Set(UserIDHeader, tt.userID)
+			}
+
+			rec := serve(&s, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d (body %s)", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+			if s.statusCalls != tt.wantCalls {
+				t.Errorf("status calls = %d, want %d", s.statusCalls, tt.wantCalls)
+			}
+			if tt.wantError != "" {
+				if got := errorMessage(t, rec); got != tt.wantError {
+					t.Errorf("error = %q, want %q", got, tt.wantError)
+				}
+				return
+			}
+			var body map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatalf("decode body: %v", err)
+			}
+			for k, v := range tt.wantBody {
+				if body[k] != v {
+					t.Errorf("body[%q] = %v, want %v", k, body[k], v)
+				}
+			}
+		})
 	}
 }

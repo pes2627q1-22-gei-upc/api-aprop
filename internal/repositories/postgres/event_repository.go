@@ -65,11 +65,29 @@ func (r *EventRepository) Create(e event_model.Event, official bool) (event_mode
 		if err != nil {
 			return event_model.Event{}, fmt.Errorf("create event: %w", err)
 		}
+	} else {
+		dateCreated := e.DateCreated
+		if dateCreated.IsZero() {
+			dateCreated = time.Now().UTC()
+		}
+		_, err := r.queries.CreateUnofficialEvent(context.Background(), sqlc.CreateUnofficialEventParams{
+			ID:          int32(row.ID),
+			Creator:     e.Creator,
+			DateCreated: pgtype.Timestamp{Time: dateCreated, Valid: true},
+		})
+		if err != nil {
+			return event_model.Event{}, fmt.Errorf("create unofficial event: %w", err)
+		}
 	}
 
 	r.SetCategories(int(row.ID), e.Categories, official)
 
-	return toModel(row, e.Code), nil
+	res := toModel(row, e.Code)
+	res.IsOfficial = official
+	res.Creator = e.Creator
+	res.DateCreated = e.DateCreated
+	res.Categories = e.Categories
+	return res, nil
 }
 
 func (r *EventRepository) Update(id int, e event_model.Event, official bool) (event_model.Event, error) {
@@ -153,6 +171,13 @@ func (r *EventRepository) CreateOrReplace(e event_model.Event) (event_model.Even
 	return r.Update(int(id), e, true)
 }
 
+func (r *EventRepository) UpdateImage(ctx context.Context, id int, imageURL string) error {
+	return r.queries.UpdateEventImage(ctx, sqlc.UpdateEventImageParams{
+		ID:     int32(id),
+		Images: toText(imageURL),
+	})
+}
+
 func (r *EventRepository) SetCategories(id int, cats []string, official bool) error {
 	if len(cats) == 0 {
 		return nil
@@ -169,17 +194,13 @@ func (r *EventRepository) SetCategories(id int, cats []string, official bool) er
 			return fmt.Errorf("add categories to event %d: %w", id, err)
 		}
 		if !exists {
-			if official {
-				catid, err := r.queries.NewCategory(context.Background(), v)
-				if err != nil {
-					return fmt.Errorf("add categories to event %d: %w", id, err)
-				}
-				err = r.queries.AddEventCategory(context.Background(), sqlc.AddEventCategoryParams{Event: int32(id), Category: int32(catid)})
-				if err != nil {
-					return fmt.Errorf("add categories to event %d: %w", id, err)
-				}
-			} else {
-				return fmt.Errorf("add categories to event %d: category %s does not exist", id, v)
+			catid, err := r.queries.NewCategory(context.Background(), v)
+			if err != nil {
+				return fmt.Errorf("add categories to event %d: %w", id, err)
+			}
+			err = r.queries.AddEventCategory(context.Background(), sqlc.AddEventCategoryParams{Event: int32(id), Category: int32(catid)})
+			if err != nil {
+				return fmt.Errorf("add categories to event %d: %w", id, err)
 			}
 		} else {
 			catid, err := r.queries.GetCategoryID(context.Background(), v)
@@ -372,6 +393,62 @@ func (r *EventRepository) List(params map[string]any) ([]event_model.Event, erro
 	return events, nil
 }
 
+func (r *EventRepository) Search(ctx context.Context, query string, pageNum, pageSize int) (event_model.SearchResult, error) {
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if pageNum < 0 {
+		pageNum = 0
+	}
+
+	total, err := r.queries.CountSearchEvents(ctx, query)
+	if err != nil {
+		return event_model.SearchResult{}, fmt.Errorf("count search events %q: %w", query, err)
+	}
+
+	rows, err := r.queries.SearchEventsWithRelevance(ctx, sqlc.SearchEventsWithRelevanceParams{
+		Query:  query,
+		Limit:  int32(pageSize),
+		Offset: int32(pageNum * pageSize),
+	})
+	if err != nil {
+		return event_model.SearchResult{}, fmt.Errorf("search events %q: %w", query, err)
+	}
+
+	if len(rows) == 0 {
+		return event_model.SearchResult{
+			Query:    query,
+			Total:    total,
+			PageNum:  pageNum,
+			PageSize: pageSize,
+			Events:   []event_model.Event{},
+		}, nil
+	}
+
+	events := []event_model.Event{}
+	currentevent := rows[0]
+	cats := []string{}
+	for _, row := range rows {
+		if row.ID != currentevent.ID {
+			events = append(events, toModelExtended(sqlc.GetEventRow(currentevent), cats))
+			cats = []string{}
+			currentevent = row
+		}
+		if row.Category.Valid && row.Category.String != "" {
+			cats = append(cats, row.Category.String)
+		}
+	}
+	events = append(events, toModelExtended(sqlc.GetEventRow(currentevent), cats))
+
+	return event_model.SearchResult{
+		Query:    query,
+		Total:    total,
+		PageNum:  pageNum,
+		PageSize: pageSize,
+		Events:   events,
+	}, nil
+}
+
 func (r *EventRepository) GetCategories() ([]event_model.Category, error) {
 	rows, err := r.queries.GetCategories(context.Background())
 	if err != nil {
@@ -465,6 +542,7 @@ func toModel(row sqlc.Event, code int64) event_model.Event {
 	return event_model.Event{
 		ID:           int(row.ID),
 		Code:         code,
+		IsOfficial:   code > 0,
 		Title:        row.Title,
 		Subtitle:     row.Subtitle.String,
 		Schedule:     row.Schedule.String,
@@ -498,6 +576,7 @@ func toModelExtended(row sqlc.GetEventRow, cats []string) event_model.Event {
 	return event_model.Event{
 		ID:           int(row.ID),
 		Code:         row.Code.Int64,
+		IsOfficial:   (row.Code.Valid && row.Code.Int64 > 0) && !row.Creator.Valid,
 		Title:        row.Title,
 		Subtitle:     row.Subtitle.String,
 		Schedule:     row.Schedule.String,
