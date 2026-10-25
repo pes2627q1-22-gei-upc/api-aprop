@@ -148,6 +148,37 @@ func (s *EventService) CreateUnofficialEvent(ctx context.Context, userID string,
 	return s.eventRepository.Create(e, false)
 }
 
+// UpdateUnofficialEvent replaces the fields of an unofficial event. The creator and the creation date are kept,
+// and rule R5 is checked against the original creation date. The handler checks that the requester is the creator.
+func (s *EventService) UpdateUnofficialEvent(ctx context.Context, id int, e event_model.Event) (event_model.Event, error) {
+	stored, err := s.GetEvent(id)
+	if err != nil {
+		return event_model.Event{}, err
+	}
+	if stored.IsOfficial || !stored.Creator.Valid {
+		return event_model.Event{}, fmt.Errorf("update event %d: %w: official events cannot be modified", id, ErrInvalidEvent)
+	}
+
+	if err := validateUnofficialEvent(e, stored.DateCreated); err != nil {
+		return event_model.Event{}, err
+	}
+
+	e.ID = id
+	e.Code = 0
+	e.IsOfficial = false
+	e.Creator = stored.Creator
+	e.DateCreated = stored.DateCreated
+
+	updated, err := s.eventRepository.Update(id, e, false)
+	if errors.Is(err, event_repository.ErrEventNotFound) {
+		return event_model.Event{}, fmt.Errorf("%w: %w", ErrEventNotFound, err)
+	}
+	if err != nil {
+		return event_model.Event{}, err
+	}
+	return updated, nil
+}
+
 // UploadEventImage uploads an event poster/image to S3 storage and associates it with the event.
 func (s *EventService) UploadEventImage(ctx context.Context, eventID int, filename string, contentType string, reader io.Reader) (string, error) {
 	if eventID <= 0 {

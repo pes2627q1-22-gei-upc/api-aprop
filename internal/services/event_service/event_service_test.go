@@ -30,6 +30,9 @@ type fakeEventRepository struct {
 	getErr       error
 	updatedImg   string
 	updateImgErr error
+	updated      event_model.Event
+	updateErr    error
+	updateCalls  int
 }
 
 func (f *fakeEventRepository) Create(e event_model.Event, _ bool) (event_model.Event, error) {
@@ -42,7 +45,9 @@ func (f *fakeEventRepository) CreateOrReplace(e event_model.Event) (event_model.
 }
 
 func (f *fakeEventRepository) Update(_ int, e event_model.Event, _ bool) (event_model.Event, error) {
-	return e, nil
+	f.updateCalls++
+	f.updated = e
+	return e, f.updateErr
 }
 
 func (f *fakeEventRepository) UpdateImage(_ context.Context, _ int, img string) error {
@@ -400,6 +405,106 @@ func TestResolveUserID(t *testing.T) {
 			}
 			if auth.calls != tt.wantLookup {
 				t.Errorf("firebase lookups = %d, want %d", auth.calls, tt.wantLookup)
+			}
+		})
+	}
+}
+
+func TestUpdateUnofficialEvent(t *testing.T) {
+	var creator pgtype.UUID
+	if err := creator.Scan(validUserID); err != nil {
+		t.Fatal(err)
+	}
+	createdAt := time.Now().UTC().Add(-48 * time.Hour)
+	stored := event_model.Event{ID: 7, Title: "Taller", Creator: creator, DateCreated: createdAt}
+
+	changes := event_model.Event{
+		Title:       "Taller de Teatre",
+		Description: "Nova descripció",
+		Categories:  []string{"Teatre"},
+		StartDate:   time.Now().UTC().Add(24 * time.Hour),
+	}
+
+	tests := []struct {
+		name        string
+		stored      event_model.Event
+		getErr      error
+		changes     event_model.Event
+		updateErr   error
+		wantErr     error
+		wantUpdates int
+	}{
+		{
+			name:        "valid update keeps creator and creation date",
+			stored:      stored,
+			changes:     changes,
+			wantUpdates: 1,
+		},
+		{
+			name:   "R5 is checked against the creation date",
+			stored: stored,
+			changes: event_model.Event{
+				Title: "Taller", Description: "Desc", Categories: []string{"C"},
+				StartDate: time.Now().UTC().Add(-24 * time.Hour),
+			},
+			wantUpdates: 1,
+		},
+		{
+			name:   "start date before the creation date violates R5",
+			stored: stored,
+			changes: event_model.Event{
+				Title: "Taller", Description: "Desc", Categories: []string{"C"},
+				StartDate: createdAt.Add(-24 * time.Hour),
+			},
+			wantErr: ErrInvalidEventDates,
+		},
+		{
+			name:    "blank title",
+			stored:  stored,
+			changes: event_model.Event{Title: " ", Description: "Desc", Categories: []string{"C"}, StartDate: changes.StartDate},
+			wantErr: ErrInvalidEventTitle,
+		},
+		{
+			name:    "official event",
+			stored:  event_model.Event{ID: 7, Title: "Festa Major", Code: 1, IsOfficial: true},
+			changes: changes,
+			wantErr: ErrInvalidEvent,
+		},
+		{
+			name:    "event not found",
+			getErr:  event_repository.ErrEventNotFound,
+			changes: changes,
+			wantErr: ErrEventNotFound,
+		},
+		{
+			name:        "event deleted while updating",
+			stored:      stored,
+			changes:     changes,
+			updateErr:   event_repository.ErrEventNotFound,
+			wantErr:     ErrEventNotFound,
+			wantUpdates: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := fakeEventRepository{getEvent: tt.stored, getErr: tt.getErr, updateErr: tt.updateErr}
+			svc := NewEventService(&repo, nil, nil, nil)
+			updated, err := svc.UpdateUnofficialEvent(context.Background(), 7, tt.changes)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("error = %v, want %v", err, tt.wantErr)
+			}
+			if repo.updateCalls != tt.wantUpdates {
+				t.Fatalf("repository updates = %d, want %d", repo.updateCalls, tt.wantUpdates)
+			}
+			if tt.wantErr != nil {
+				return
+			}
+			if updated.ID != 7 || updated.IsOfficial {
+				t.Errorf("updated event id/official = %d/%v, want 7/false", updated.ID, updated.IsOfficial)
+			}
+			if repo.updated.Creator != creator || !repo.updated.DateCreated.Equal(createdAt) {
+				t.Errorf("creator or creation date changed: %v %v", repo.updated.Creator, repo.updated.DateCreated)
 			}
 		})
 	}

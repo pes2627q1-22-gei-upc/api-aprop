@@ -13,13 +13,36 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/services/event_service"
 )
 
-const validUserID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
+const (
+	validUserID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
+	otherUserID = "9b2e6c1a-1d3f-4c5e-8a7b-6f0e2d4c8a19"
+)
+
+// unofficialEvent returns an event created by the given user.
+func unofficialEvent(t *testing.T, id int, creator string) event_model.Event {
+	t.Helper()
+	var uuid pgtype.UUID
+	if err := uuid.Scan(creator); err != nil {
+		t.Fatal(err)
+	}
+	return event_model.Event{ID: id, Title: "Taller de Teatre", Creator: uuid, DateCreated: time.Now().UTC()}
+}
+
+// officialEvent returns an event loaded from the Generalitat open data (it has a code and no creator).
+func officialEvent(id int) event_model.Event {
+	return event_model.Event{ID: id, Title: "Festa Major", Code: 20261026001, IsOfficial: true}
+}
 
 type fakeEventService struct {
+	event               event_model.Event
+	getErr              error
+	updateErr           error
 	mapEvents           []event_model.MapEvent
 	mapErr              error
 	createdUnofficial   event_model.Event
@@ -29,12 +52,19 @@ type fakeEventService struct {
 
 	mapCalls        int
 	unofficialCalls int
+	updateCalls     int
 	uploadCalls     int
 	gotFilter       event_model.MapFilter
 }
 
 func (f *fakeEventService) GetEvent(_ int) (event_model.Event, error) {
-	return event_model.Event{}, nil
+	return f.event, f.getErr
+}
+
+func (f *fakeEventService) UpdateUnofficialEvent(_ context.Context, id int, e event_model.Event) (event_model.Event, error) {
+	f.updateCalls++
+	e.ID = id
+	return e, f.updateErr
 }
 
 func (f *fakeEventService) ListEvents(_ map[string]any) ([]event_model.Event, error) {
@@ -366,6 +396,7 @@ func TestUploadEventImageHandler(t *testing.T) {
 	tests := []struct {
 		name       string
 		path       string
+		userID     string
 		service    fakeEventService
 		wantStatus int
 		wantCalls  int
@@ -373,20 +404,46 @@ func TestUploadEventImageHandler(t *testing.T) {
 		{
 			name:       "successful image upload",
 			path:       "/events/15/image",
-			service:    fakeEventService{uploadedImageURL: "https://s3/events/15/poster.jpg"},
+			userID:     validUserID,
+			service:    fakeEventService{event: unofficialEvent(t, 15, validUserID), uploadedImageURL: "https://s3/events/15/poster.jpg"},
 			wantStatus: http.StatusCreated,
 			wantCalls:  1,
 		},
 		{
 			name:       "event not found",
 			path:       "/events/99/image",
-			service:    fakeEventService{uploadImageErr: event_service.ErrEventNotFound},
+			userID:     validUserID,
+			service:    fakeEventService{getErr: event_service.ErrEventNotFound},
 			wantStatus: http.StatusNotFound,
-			wantCalls:  1,
+			wantCalls:  0,
+		},
+		{
+			name:       "another user cannot change the image",
+			path:       "/events/15/image",
+			userID:     otherUserID,
+			service:    fakeEventService{event: unofficialEvent(t, 15, validUserID)},
+			wantStatus: http.StatusForbidden,
+			wantCalls:  0,
+		},
+		{
+			name:       "official event image cannot be changed",
+			path:       "/events/15/image",
+			userID:     validUserID,
+			service:    fakeEventService{event: officialEvent(15)},
+			wantStatus: http.StatusForbidden,
+			wantCalls:  0,
+		},
+		{
+			name:       "missing user",
+			path:       "/events/15/image",
+			service:    fakeEventService{event: unofficialEvent(t, 15, validUserID)},
+			wantStatus: http.StatusUnauthorized,
+			wantCalls:  0,
 		},
 		{
 			name:       "invalid event id",
 			path:       "/events/abc/image",
+			userID:     validUserID,
 			wantStatus: http.StatusBadRequest,
 			wantCalls:  0,
 		},
@@ -397,6 +454,9 @@ func TestUploadEventImageHandler(t *testing.T) {
 			s := tt.service
 			req := httptest.NewRequest(http.MethodPost, tt.path, bytes.NewReader(body.Bytes()))
 			req.Header.Set("Content-Type", writer.FormDataContentType())
+			if tt.userID != "" {
+				req.Header.Set(UserIDHeader, tt.userID)
+			}
 
 			rec := serve(&s, req)
 			if rec.Code != tt.wantStatus {
@@ -404,6 +464,111 @@ func TestUploadEventImageHandler(t *testing.T) {
 			}
 			if s.uploadCalls != tt.wantCalls {
 				t.Errorf("service upload calls = %d, want %d", s.uploadCalls, tt.wantCalls)
+			}
+		})
+	}
+}
+
+func TestUpdateEventHandler(t *testing.T) {
+	futureStart := time.Now().UTC().Add(24 * time.Hour)
+	eventJSON := `{"title":"Taller de Teatre (nova data)","description":"Taller obert per a joves","categories":["Teatre"],"start-date":"` + futureStart.Format(time.RFC3339) + `"}`
+
+	tests := []struct {
+		name       string
+		path       string
+		body       string
+		userID     string
+		service    fakeEventService
+		wantStatus int
+		wantCalls  int
+	}{
+		{
+			name:       "creator updates the event",
+			path:       "/events/7",
+			body:       eventJSON,
+			userID:     validUserID,
+			service:    fakeEventService{event: unofficialEvent(t, 7, validUserID)},
+			wantStatus: http.StatusOK,
+			wantCalls:  1,
+		},
+		{
+			name:       "another user cannot update the event",
+			path:       "/events/7",
+			body:       eventJSON,
+			userID:     otherUserID,
+			service:    fakeEventService{event: unofficialEvent(t, 7, validUserID)},
+			wantStatus: http.StatusForbidden,
+			wantCalls:  0,
+		},
+		{
+			name:       "official events cannot be updated",
+			path:       "/events/7",
+			body:       eventJSON,
+			userID:     validUserID,
+			service:    fakeEventService{event: officialEvent(7)},
+			wantStatus: http.StatusForbidden,
+			wantCalls:  0,
+		},
+		{
+			name:       "missing user",
+			path:       "/events/7",
+			body:       eventJSON,
+			service:    fakeEventService{event: unofficialEvent(t, 7, validUserID)},
+			wantStatus: http.StatusUnauthorized,
+			wantCalls:  0,
+		},
+		{
+			name:       "event not found",
+			path:       "/events/99",
+			body:       eventJSON,
+			userID:     validUserID,
+			service:    fakeEventService{getErr: event_service.ErrEventNotFound},
+			wantStatus: http.StatusNotFound,
+			wantCalls:  0,
+		},
+		{
+			name:       "validation error from the service",
+			path:       "/events/7",
+			body:       `{"title":"","description":"Desc","categories":["Teatre"]}`,
+			userID:     validUserID,
+			service:    fakeEventService{event: unofficialEvent(t, 7, validUserID), updateErr: event_service.ErrInvalidEventTitle},
+			wantStatus: http.StatusBadRequest,
+			wantCalls:  1,
+		},
+		{
+			name:       "invalid json body",
+			path:       "/events/7",
+			body:       `{not-valid-json`,
+			userID:     validUserID,
+			service:    fakeEventService{event: unofficialEvent(t, 7, validUserID)},
+			wantStatus: http.StatusBadRequest,
+			wantCalls:  0,
+		},
+		{
+			name:       "invalid event id",
+			path:       "/events/abc",
+			body:       eventJSON,
+			userID:     validUserID,
+			wantStatus: http.StatusBadRequest,
+			wantCalls:  0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := tt.service
+			req := httptest.NewRequest(http.MethodPut, tt.path, strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			if tt.userID != "" {
+				req.Header.Set(UserIDHeader, tt.userID)
+			}
+
+			rec := serve(&s, req)
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d (body %s)", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+			if s.updateCalls != tt.wantCalls {
+				t.Errorf("service update calls = %d, want %d", s.updateCalls, tt.wantCalls)
 			}
 		})
 	}

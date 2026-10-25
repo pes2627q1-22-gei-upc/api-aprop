@@ -109,8 +109,34 @@ func createEvent(ctx context.Context, q *sqlc.Queries, e event_model.Event, offi
 	return row, nil
 }
 
+// Update replaces the event fields and its categories in a single transaction.
+// The official/unofficial row is not changed: its creator and creation date stay the same.
 func (r *EventRepository) Update(id int, e event_model.Event, official bool) (event_model.Event, error) {
-	row, err := r.queries.UpdateEvent(context.Background(), sqlc.UpdateEventParams{
+	ctx := context.Background()
+	var row sqlc.Event
+	err := pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+		q := r.queries.WithTx(tx)
+		var err error
+		row, err = updateEvent(ctx, q, id, e)
+		if err != nil {
+			return err
+		}
+		return setCategories(ctx, q, id, e.Categories)
+	})
+	if err != nil {
+		return event_model.Event{}, err
+	}
+
+	res := toModel(row, e.Code)
+	res.IsOfficial = official
+	res.Creator = e.Creator
+	res.DateCreated = e.DateCreated
+	res.Categories = e.Categories
+	return res, nil
+}
+
+func updateEvent(ctx context.Context, q *sqlc.Queries, id int, e event_model.Event) (sqlc.Event, error) {
+	row, err := q.UpdateEvent(ctx, sqlc.UpdateEventParams{
 		ID:           int32(id),
 		Title:        e.Title,
 		Subtitle:     toText(e.Subtitle),
@@ -140,15 +166,12 @@ func (r *EventRepository) Update(id int, e event_model.Event, official bool) (ev
 		Enddate:      toDate(e.EndDate),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return event_model.Event{}, fmt.Errorf("update event %d: %w", id, event_repository.ErrEventNotFound)
+		return sqlc.Event{}, fmt.Errorf("update event %d: %w", id, event_repository.ErrEventNotFound)
 	}
 	if err != nil {
-		return event_model.Event{}, fmt.Errorf("update event %d: %w", id, err)
+		return sqlc.Event{}, fmt.Errorf("update event %d: %w", id, err)
 	}
-
-	r.SetCategories(id, e.Categories, official)
-
-	return toModel(row, e.Code), nil
+	return row, nil
 }
 
 // CreateOrReplace updates the event if its ID already exists, otherwise creates it.

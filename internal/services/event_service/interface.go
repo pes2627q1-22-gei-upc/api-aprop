@@ -17,6 +17,7 @@ type Service interface {
 	// ResolveUserID returns the database ID (UUID) of the user identified by a Firebase UID or a UUID.
 	ResolveUserID(ctx context.Context, identifier string) (string, error)
 	CreateUnofficialEvent(ctx context.Context, userID string, e event_model.Event) (event_model.Event, error)
+	UpdateUnofficialEvent(ctx context.Context, id int, e event_model.Event) (event_model.Event, error)
 	UploadEventImage(ctx context.Context, eventID int, filename string, contentType string, reader io.Reader) (string, error)
 	LoadOfficialEvents(ctx context.Context, pageSize int) error
 	GetCategories() ([]event_model.Category, error)

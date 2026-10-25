@@ -15,6 +15,7 @@ Totes les respostes i cossos de petició utilitzen claus JSON en **kebab-case**.
 | `GET /events` | `EventHandler.ListEvents` | Llistat d'esdeveniments amb filtres per categoria, dates i cerca | Implementat |
 | `GET /events/{id}` | `EventHandler.GetEvent` | Detall complet d'un esdeveniment per ID | Implementat |
 | `POST /events` | `EventHandler.CreateEvent` | Creació d'esdeveniments no oficials | Implementat |
+| `PUT /events/{id}` | `EventHandler.UpdateEvent` | Modificació d'un esdeveniment no oficial (només el creador; 403 si no ho és o si és oficial) | Implementat |
 | `GET /events/map` | `EventHandler.ListMapEvents` | Esdeveniments amb coordenades i metadades bàsiques per al mapa | Implementat |
 | `GET /categories` | `EventHandler.GetCategories` | Llistat de totes les categories del catàleg | Implementat |
 | `GET /categories/{id}` | `EventHandler.GetCategory` | Detall d'una categoria específica | Implementat |
