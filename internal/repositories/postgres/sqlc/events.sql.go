@@ -656,3 +656,36 @@ func (q *Queries) UpdateEvent(ctx context.Context, arg UpdateEventParams) (Event
 	)
 	return i, err
 }
+
+const createUnofficialEvent = `-- name: CreateUnofficialEvent :one
+INSERT INTO UnofficialEvents (id, creator, datecreated)
+VALUES ($1, $2, $3)
+RETURNING id
+`
+
+type CreateUnofficialEventParams struct {
+	ID          int32
+	Creator     pgtype.UUID
+	DateCreated pgtype.Timestamp
+}
+
+func (q *Queries) CreateUnofficialEvent(ctx context.Context, arg CreateUnofficialEventParams) (int32, error) {
+	row := q.db.QueryRow(ctx, createUnofficialEvent, arg.ID, arg.Creator, arg.DateCreated)
+	var id int32
+	err := row.Scan(&id)
+	return id, err
+}
+
+const updateEventImage = `-- name: UpdateEventImage :exec
+UPDATE events SET images = $2 WHERE id = $1
+`
+
+type UpdateEventImageParams struct {
+	ID     int32
+	Images pgtype.Text
+}
+
+func (q *Queries) UpdateEventImage(ctx context.Context, arg UpdateEventImageParams) error {
+	_, err := q.db.Exec(ctx, updateEventImage, arg.ID, arg.Images)
+	return err
+}
