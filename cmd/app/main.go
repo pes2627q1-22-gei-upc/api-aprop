@@ -15,9 +15,10 @@ import (
 	"github.com/joho/godotenv"
 
 	"api-aprop/internal/clients/firebase_client"
-	"api-aprop/internal/clients/groq_client"
 	"api-aprop/internal/clients/gencat_client"
+	"api-aprop/internal/clients/groq_client"
 	"api-aprop/internal/clients/mcp_client"
+	"api-aprop/internal/clients/s3_client"
 	"api-aprop/internal/drivers/postgres_driver"
 	"api-aprop/internal/handlers/assistant_handler"
 	"api-aprop/internal/handlers/auth_handler"
@@ -174,7 +175,13 @@ func main() {
 	notificationRepository := postgres_repository.NewNotificationRepository(postgresDriver.Pool())
 
 	// Services
-	eventService := event_service.NewEventService(eventRepository, gencatClient)
+	s3Client := s3_client.NewS3Client(httpClient, s3_client.S3Config{
+		Bucket:    os.Getenv("S3_BUCKET"),
+		Region:    os.Getenv("S3_REGION"),
+		Endpoint:  os.Getenv("S3_ENDPOINT"),
+		PublicURL: os.Getenv("S3_PUBLIC_URL"),
+	})
+	eventService := event_service.NewEventService(eventRepository, gencatClient, s3Client)
 	assistantService := assistant_service.NewAssistantService(
 		chatbotRepository, catalogueRepository, groqClient, mcpClient,
 		func() time.Time { return time.Now().In(location) }, assistant_service.ReplyTimeout,
@@ -189,7 +196,6 @@ func main() {
 	signUpHandler := signup_handler.NewSignUpHandler(signUpService)
 	authHandler := auth_handler.NewAuthHandler(authService)
 	notificationHandler := notification_handler.NewNotificationHandler(notificationService)
-
 
 	// Initial data
 	go func() {
