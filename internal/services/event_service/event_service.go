@@ -4,25 +4,31 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"api-aprop/internal/clients/gencat_client"
+	"api-aprop/internal/clients/s3_client"
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/repositories/event_repository"
 )
 
-
 type EventService struct {
 	eventRepository event_repository.Repository
 	gencatClient    gencat_client.Client
+	s3Client        s3_client.Client
 }
 
-func NewEventService(eventRepository event_repository.Repository, gencatClient gencat_client.Client) *EventService {
+func NewEventService(eventRepository event_repository.Repository, gencatClient gencat_client.Client, s3Client s3_client.Client) *EventService {
 	return &EventService{
 		eventRepository: eventRepository,
 		gencatClient:    gencatClient,
+		s3Client:        s3Client,
 	}
 }
 
@@ -62,7 +68,6 @@ func (s *EventService) ListMapEvents(ctx context.Context, filter event_model.Map
 	return events, nil
 }
 
-
 func (s *EventService) CreateEvent(e event_model.Event) (event_model.Event, error) {
 	if strings.TrimSpace(e.Title) == "" {
 		return event_model.Event{}, fmt.Errorf("create event: %w: title is required", ErrInvalidEvent)
@@ -70,6 +75,88 @@ func (s *EventService) CreateEvent(e event_model.Event) (event_model.Event, erro
 	// The ID is always assigned by the repository
 	e.ID = 0
 	return s.eventRepository.Create(e, false)
+}
+
+// CreateUnofficialEvent validates and publishes a user-created unofficial event adhering to rule R5.
+func (s *EventService) CreateUnofficialEvent(ctx context.Context, userID string, e event_model.Event) (event_model.Event, error) {
+	uid, err := normalizeUserID(userID)
+	if err != nil {
+		return event_model.Event{}, err
+	}
+
+	if strings.TrimSpace(e.Title) == "" {
+		return event_model.Event{}, ErrInvalidEventTitle
+	}
+	if strings.TrimSpace(e.Description) == "" {
+		return event_model.Event{}, ErrInvalidEventDescription
+	}
+	if len(e.Categories) == 0 {
+		return event_model.Event{}, ErrInvalidEventCategory
+	}
+
+	now := time.Now().UTC()
+	// R5: dataInici >= dataCreacio (allowing 2-minute clock skew)
+	if e.StartDate.IsZero() || e.StartDate.Before(now.Add(-2*time.Minute)) {
+		return event_model.Event{}, fmt.Errorf("%w: start date must be today or in the future", ErrInvalidEventDates)
+	}
+	// R5: dataFi >= dataInici
+	if !e.EndDate.IsZero() && e.EndDate.Before(e.StartDate) {
+		return event_model.Event{}, fmt.Errorf("%w: end date must not be before start date", ErrInvalidEventDates)
+	}
+
+	// Validate coordinates if provided
+	if e.Latitude != 0 || e.Longitude != 0 {
+		if e.Latitude < -90 || e.Latitude > 90 || e.Longitude < -180 || e.Longitude > 180 {
+			return event_model.Event{}, ErrInvalidCoordinates
+		}
+	}
+
+	var creatorUUID pgtype.UUID
+	if err := creatorUUID.Scan(uid); err != nil {
+		return event_model.Event{}, fmt.Errorf("%w: %v", ErrInvalidUserID, err)
+	}
+
+	e.ID = 0
+	e.Code = 0
+	e.IsOfficial = false
+	e.Creator = creatorUUID
+	e.DateCreated = now
+
+	return s.eventRepository.Create(e, false)
+}
+
+// UploadEventImage uploads an event poster/image to S3 storage and associates it with the event.
+func (s *EventService) UploadEventImage(ctx context.Context, eventID int, filename string, contentType string, reader io.Reader) (string, error) {
+	if eventID <= 0 {
+		return "", ErrEventNotFound
+	}
+
+	// Verify event exists
+	_, err := s.eventRepository.Get(eventID)
+	if err != nil {
+		if errors.Is(err, event_repository.ErrEventNotFound) {
+			return "", ErrEventNotFound
+		}
+		return "", err
+	}
+
+	if s.s3Client == nil {
+		return "", fmt.Errorf("%w: storage client not configured", ErrImageUploadFailed)
+	}
+
+	url, err := s.s3Client.UploadEventImage(ctx, eventID, filename, contentType, reader)
+	if err != nil {
+		if errors.Is(err, s3_client.ErrInvalidContentType) {
+			return "", ErrInvalidContentType
+		}
+		return "", fmt.Errorf("%w: %v", ErrImageUploadFailed, err)
+	}
+
+	if err := s.eventRepository.UpdateImage(ctx, eventID, url); err != nil {
+		return "", fmt.Errorf("update event image: %w", err)
+	}
+
+	return url, nil
 }
 
 // LoadOfficialEvents fetches the most recent events from the gencat open data and stores them.
@@ -82,7 +169,7 @@ func (s *EventService) LoadOfficialEvents(ctx context.Context, pageSize int) err
 		if err != nil {
 			return fmt.Errorf("load official events: %w", err)
 		}
-		if len(events)<pageSize{
+		if len(events) < pageSize {
 			end = true
 		}
 		for _, e := range events {
@@ -93,18 +180,19 @@ func (s *EventService) LoadOfficialEvents(ctx context.Context, pageSize int) err
 
 		total += len(events)
 		log.Printf("events loaded: %d", total)
-		i+=1
+		i += 1
 	}
 	return nil
 }
 
-func (s *EventService) GetCategories() ([]event_model.Category, error){
+func (s *EventService) GetCategories() ([]event_model.Category, error) {
 	return s.eventRepository.GetCategories()
 }
 
-func (s *EventService) GetCategory(id int) (event_model.Category, error){
+func (s *EventService) GetCategory(id int) (event_model.Category, error) {
 	return s.eventRepository.GetCategory(id)
 }
+
 func validateBoundingBox(minLat, maxLat, minLng, maxLng float32) error {
 	if math.IsNaN(float64(minLat)) || math.IsNaN(float64(maxLat)) || math.IsNaN(float64(minLng)) || math.IsNaN(float64(maxLng)) {
 		return fmt.Errorf("%w: coordinates must not be NaN", ErrInvalidBoundingBox)
@@ -139,4 +227,3 @@ func normalizeUserID(userID string) (string, error) {
 func isHex(c rune) bool {
 	return ('0' <= c && c <= '9') || ('a' <= c && c <= 'f') || ('A' <= c && c <= 'F')
 }
-
