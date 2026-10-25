@@ -28,6 +28,8 @@ func (h *SignUpHandler) RegisterRoutes(mux *http.ServeMux) {
 	// Sign up handler: users signed up to events (calendar)
 	mux.HandleFunc("POST /events/{id}/signup", h.SignUp)
 	mux.HandleFunc("GET /users/{userId}/events", h.ListUserEvents)
+	mux.HandleFunc("DELETE /events/{id}/enroll", h.Unenroll)
+	mux.HandleFunc("DELETE /events/{id}/signup", h.Unenroll)
 }
 
 // SignUp handles POST /events/{id}/signup
@@ -54,6 +56,27 @@ func (h *SignUpHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusCreated
 	}
 	response.WriteJSON(w, status, signUp)
+}
+
+// Unenroll handles DELETE /events/{id}/enroll and DELETE /events/{id}/signup
+func (h *SignUpHandler) Unenroll(w http.ResponseWriter, r *http.Request) {
+	eventID, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil {
+		response.WriteError(w, http.StatusBadRequest, "invalid event id")
+		return
+	}
+	userID := r.Header.Get(UserIDHeader)
+	if userID == "" {
+		response.WriteError(w, http.StatusBadRequest, "missing "+UserIDHeader+" header")
+		return
+	}
+
+	unenroll, err := h.signUpService.Unenroll(r.Context(), userID, eventID)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	response.WriteJSON(w, http.StatusOK, unenroll)
 }
 
 // ListUserEvents handles GET /users/{userId}/events?from=YYYY-MM-DD&to=YYYY-MM-DD

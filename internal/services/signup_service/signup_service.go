@@ -48,6 +48,31 @@ func (s *SignUpService) SignUp(ctx context.Context, userID string, eventID int) 
 }
 
 // ListUserEvents returns the events the user is signed up to that overlap the date range.
+// Unenroll removes the user's sign up to the event.
+func (s *SignUpService) Unenroll(ctx context.Context, userID string, eventID int) (signup_model.Unenroll, error) {
+	userID, err := normalizeUserID(userID)
+	if err != nil {
+		return signup_model.Unenroll{}, err
+	}
+	if eventID <= 0 {
+		return signup_model.Unenroll{}, fmt.Errorf("%w: %d", ErrInvalidEventID, eventID)
+	}
+
+	exists, err := s.signUpRepository.EventExists(ctx, eventID)
+	if err != nil {
+		return signup_model.Unenroll{}, err
+	}
+	if !exists {
+		return signup_model.Unenroll{}, fmt.Errorf("unenroll from event %d: %w", eventID, ErrEventNotFound)
+	}
+
+	_, err = s.signUpRepository.Delete(ctx, userID, eventID)
+	if err != nil {
+		return signup_model.Unenroll{}, err
+	}
+	return signup_model.Unenroll{UserID: userID, EventID: eventID, Enrolled: false}, nil
+}
+
 func (s *SignUpService) ListUserEvents(ctx context.Context, userID string, dateRange signup_model.DateRange) ([]event_model.Event, error) {
 	userID, err := normalizeUserID(userID)
 	if err != nil {

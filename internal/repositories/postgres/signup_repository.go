@@ -54,6 +54,19 @@ func (r *SignUpRepository) Create(ctx context.Context, userID string, eventID in
 	return rows > 0, nil
 }
 
+// Delete removes the sign up for the user and event.
+func (r *SignUpRepository) Delete(ctx context.Context, userID string, eventID int) (bool, error) {
+	uid, err := toUUID(userID)
+	if err != nil {
+		return false, err
+	}
+	rows, err := r.queries.DeleteSignUp(ctx, sqlc.DeleteSignUpParams{UserID: uid, EventID: int32(eventID)})
+	if err != nil {
+		return false, fmt.Errorf("delete sign up to event %d: %w", eventID, err)
+	}
+	return rows > 0, nil
+}
+
 func (r *SignUpRepository) ListUserEvents(ctx context.Context, userID string, dateRange signup_model.DateRange) ([]event_model.Event, error) {
 	uid, err := toUUID(userID)
 	if err != nil {
