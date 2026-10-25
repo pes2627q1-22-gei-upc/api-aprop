@@ -41,8 +41,8 @@ func (s *stubEventService) ListMapEvents(_ context.Context, _ event_model.MapFil
 	}, nil
 }
 
-func (s *stubEventService) CreateEvent(e event_model.Event) (event_model.Event, error) {
-	return e, nil
+func (s *stubEventService) ResolveUserID(_ context.Context, identifier string) (string, error) {
+	return identifier, nil
 }
 
 func (s *stubEventService) LoadOfficialEvents(_ context.Context, _ int) error {

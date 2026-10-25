@@ -19,17 +19,43 @@ import (
 
 // EventRepository stores events in Postgres using the sqlc generated queries.
 type EventRepository struct {
+	pool    *pgxpool.Pool
 	queries *sqlc.Queries
 }
 
 var _ event_repository.Repository = (*EventRepository)(nil)
 
 func NewEventRepository(pool *pgxpool.Pool) *EventRepository {
-	return &EventRepository{queries: sqlc.New(pool)}
+	return &EventRepository{pool: pool, queries: sqlc.New(pool)}
 }
 
+// Create stores the event, its official or unofficial row and its categories in a single transaction.
 func (r *EventRepository) Create(e event_model.Event, official bool) (event_model.Event, error) {
-	row, err := r.queries.CreateEvent(context.Background(), sqlc.CreateEventParams{
+	ctx := context.Background()
+	var row sqlc.Event
+	err := pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+		q := r.queries.WithTx(tx)
+		var err error
+		row, err = createEvent(ctx, q, e, official)
+		if err != nil {
+			return err
+		}
+		return setCategories(ctx, q, int(row.ID), e.Categories)
+	})
+	if err != nil {
+		return event_model.Event{}, err
+	}
+
+	res := toModel(row, e.Code)
+	res.IsOfficial = official
+	res.Creator = e.Creator
+	res.DateCreated = e.DateCreated
+	res.Categories = e.Categories
+	return res, nil
+}
+
+func createEvent(ctx context.Context, q *sqlc.Queries, e event_model.Event, official bool) (sqlc.Event, error) {
+	row, err := q.CreateEvent(ctx, sqlc.CreateEventParams{
 		Title:        e.Title,
 		Subtitle:     toText(e.Subtitle),
 		Description:  toText(e.Description),
@@ -58,36 +84,29 @@ func (r *EventRepository) Create(e event_model.Event, official bool) (event_mode
 		Enddate:      toDate(e.EndDate),
 	})
 	if err != nil {
-		return event_model.Event{}, fmt.Errorf("create event: %w", err)
+		return sqlc.Event{}, fmt.Errorf("create event: %w", err)
 	}
 	if official {
-		_, err := r.queries.CreateOfficialEvent(context.Background(), sqlc.CreateOfficialEventParams{ID: int32(row.ID), Code: pgtype.Int8{Int64: e.Code, Valid: true}})
+		_, err := q.CreateOfficialEvent(ctx, sqlc.CreateOfficialEventParams{ID: row.ID, Code: pgtype.Int8{Int64: e.Code, Valid: true}})
 		if err != nil {
-			return event_model.Event{}, fmt.Errorf("create event: %w", err)
+			return sqlc.Event{}, fmt.Errorf("create official event: %w", err)
 		}
-	} else {
-		dateCreated := e.DateCreated
-		if dateCreated.IsZero() {
-			dateCreated = time.Now().UTC()
-		}
-		_, err := r.queries.CreateUnofficialEvent(context.Background(), sqlc.CreateUnofficialEventParams{
-			ID:          int32(row.ID),
-			Creator:     e.Creator,
-			Datecreated: pgtype.Timestamp{Time: dateCreated, Valid: true},
-		})
-		if err != nil {
-			return event_model.Event{}, fmt.Errorf("create unofficial event: %w", err)
-		}
+		return row, nil
 	}
 
-	r.SetCategories(int(row.ID), e.Categories, official)
-
-	res := toModel(row, e.Code)
-	res.IsOfficial = official
-	res.Creator = e.Creator
-	res.DateCreated = e.DateCreated
-	res.Categories = e.Categories
-	return res, nil
+	dateCreated := e.DateCreated
+	if dateCreated.IsZero() {
+		dateCreated = time.Now().UTC()
+	}
+	_, err = q.CreateUnofficialEvent(ctx, sqlc.CreateUnofficialEventParams{
+		ID:          row.ID,
+		Creator:     e.Creator,
+		Datecreated: pgtype.Timestamp{Time: dateCreated, Valid: true},
+	})
+	if err != nil {
+		return sqlc.Event{}, fmt.Errorf("create unofficial event: %w", err)
+	}
+	return row, nil
 }
 
 func (r *EventRepository) Update(id int, e event_model.Event, official bool) (event_model.Event, error) {
@@ -178,39 +197,36 @@ func (r *EventRepository) UpdateImage(ctx context.Context, id int, imageURL stri
 	})
 }
 
-func (r *EventRepository) SetCategories(id int, cats []string, official bool) error {
+func (r *EventRepository) SetCategories(id int, cats []string, _ bool) error {
+	return setCategories(context.Background(), r.queries, id, cats)
+}
+
+// setCategories replaces the categories of the event, creating the ones that do not exist yet.
+func setCategories(ctx context.Context, q *sqlc.Queries, id int, cats []string) error {
 	if len(cats) == 0 {
 		return nil
 	}
 
-	err := r.queries.RemoveExistingEventCategories(context.Background(), int32(id))
-	if err != nil {
+	if err := q.RemoveExistingEventCategories(ctx, int32(id)); err != nil {
 		return fmt.Errorf("remove categories from event %d: %w", id, err)
 	}
 
 	for _, v := range cats {
-		exists, err := r.queries.CategoryExists(context.Background(), v)
+		exists, err := q.CategoryExists(ctx, v)
 		if err != nil {
 			return fmt.Errorf("add categories to event %d: %w", id, err)
 		}
-		if !exists {
-			catid, err := r.queries.NewCategory(context.Background(), v)
-			if err != nil {
-				return fmt.Errorf("add categories to event %d: %w", id, err)
-			}
-			err = r.queries.AddEventCategory(context.Background(), sqlc.AddEventCategoryParams{Event: int32(id), Category: int32(catid)})
-			if err != nil {
-				return fmt.Errorf("add categories to event %d: %w", id, err)
-			}
+		var catid int32
+		if exists {
+			catid, err = q.GetCategoryID(ctx, v)
 		} else {
-			catid, err := r.queries.GetCategoryID(context.Background(), v)
-			if err != nil {
-				return fmt.Errorf("add categories to event %d: %w", id, err)
-			}
-			err = r.queries.AddEventCategory(context.Background(), sqlc.AddEventCategoryParams{Event: int32(id), Category: int32(catid)})
-			if err != nil {
-				return fmt.Errorf("add categories to event %d: %w", id, err)
-			}
+			catid, err = q.NewCategory(ctx, v)
+		}
+		if err != nil {
+			return fmt.Errorf("add categories to event %d: %w", id, err)
+		}
+		if err := q.AddEventCategory(ctx, sqlc.AddEventCategoryParams{Event: int32(id), Category: catid}); err != nil {
+			return fmt.Errorf("add categories to event %d: %w", id, err)
 		}
 	}
 

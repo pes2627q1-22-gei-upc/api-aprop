@@ -47,6 +47,11 @@ func getUserID(r *http.Request) string {
 	return r.Header.Get(UserIDHeader)
 }
 
+// requesterID returns the database ID (UUID) of the user making the request.
+func (h *EventHandler) requesterID(r *http.Request) (string, error) {
+	return h.eventService.ResolveUserID(r.Context(), getUserID(r))
+}
+
 // ListEvents handles GET /events
 func (h *EventHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 	params := make(map[string]any)
@@ -101,14 +106,14 @@ func (h *EventHandler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID := getUserID(r)
-	var created event_model.Event
-	var err error
-	if userID != "" {
-		created, err = h.eventService.CreateUnofficialEvent(r.Context(), userID, e)
-	} else {
-		created, err = h.eventService.CreateEvent(e)
+	// Users can only create unofficial events, so the creator is required
+	requester, err := h.requesterID(r)
+	if err != nil {
+		writeServiceError(w, err)
+		return
 	}
+
+	created, err := h.eventService.CreateUnofficialEvent(r.Context(), requester, e)
 	if err != nil {
 		writeServiceError(w, err)
 		return

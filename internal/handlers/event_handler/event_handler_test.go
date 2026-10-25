@@ -47,8 +47,12 @@ func (f *fakeEventService) ListMapEvents(_ context.Context, filter event_model.M
 	return f.mapEvents, f.mapErr
 }
 
-func (f *fakeEventService) CreateEvent(e event_model.Event) (event_model.Event, error) {
-	return e, nil
+// ResolveUserID accepts the test UUIDs as they are, like the real service does without authentication.
+func (f *fakeEventService) ResolveUserID(_ context.Context, identifier string) (string, error) {
+	if identifier == "" {
+		return "", event_service.ErrUserNotRegistered
+	}
+	return identifier, nil
 }
 
 func (f *fakeEventService) LoadOfficialEvents(_ context.Context, _ int) error {
@@ -322,6 +326,12 @@ func TestCreateUnofficialEventHandler(t *testing.T) {
 			body:       `{not-valid-json`,
 			userID:     validUserID,
 			wantStatus: http.StatusBadRequest,
+			wantCalls:  0,
+		},
+		{
+			name:       "missing user",
+			body:       eventJSON,
+			wantStatus: http.StatusUnauthorized,
 			wantCalls:  0,
 		},
 	}

@@ -8,8 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"api-aprop/internal/clients/s3_client"
 	"api-aprop/internal/models/event_model"
+	"api-aprop/internal/models/user_model"
+	"api-aprop/internal/repositories/auth_repository"
 	"api-aprop/internal/repositories/event_repository"
 )
 
@@ -131,7 +135,7 @@ func TestListMapEvents(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := tt.repo
-			svc := NewEventService(&repo, nil, &mockS3Client{})
+			svc := NewEventService(&repo, nil, nil, &mockS3Client{})
 			got, err := svc.ListMapEvents(context.Background(), tt.filter)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("error = %v, want %v", err, tt.wantErr)
@@ -219,7 +223,7 @@ func TestCreateUnofficialEvent(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := fakeEventRepository{}
-			svc := NewEventService(&repo, nil, &mockS3Client{})
+			svc := NewEventService(&repo, nil, nil, &mockS3Client{})
 			created, err := svc.CreateUnofficialEvent(context.Background(), tt.userID, tt.event)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("error = %v, want %v", err, tt.wantErr)
@@ -283,7 +287,7 @@ func TestUploadEventImage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := tt.repo
 			s3 := tt.s3Client
-			svc := NewEventService(&repo, nil, &s3)
+			svc := NewEventService(&repo, nil, nil, &s3)
 
 			url, err := svc.UploadEventImage(context.Background(), tt.eventID, tt.filename, tt.contentType, strings.NewReader("image-bytes"))
 			if !errors.Is(err, tt.wantErr) {
@@ -304,7 +308,7 @@ func TestUploadEventImage(t *testing.T) {
 
 func TestSearchEvents(t *testing.T) {
 	repo := &fakeEventRepository{}
-	svc := NewEventService(repo, nil, nil)
+	svc := NewEventService(repo, nil, nil, nil)
 
 	// Empty query returns 0 total
 	res, err := svc.SearchEvents(context.Background(), "", 0, 20)
@@ -322,5 +326,81 @@ func TestSearchEvents(t *testing.T) {
 	}
 	if res.Total != 1 || len(res.Events) != 1 {
 		t.Errorf("unexpected search result: %+v", res)
+	}
+}
+
+type fakeAuthRepository struct {
+	user  user_model.User
+	err   error
+	calls int
+}
+
+func (f *fakeAuthRepository) GetByFirebaseUID(_ context.Context, _ string) (user_model.User, error) {
+	f.calls++
+	return f.user, f.err
+}
+
+func (f *fakeAuthRepository) Create(_ context.Context, _, _, _ string) (user_model.User, error) {
+	return user_model.User{}, nil
+}
+
+func (f *fakeAuthRepository) UpdateEmail(_ context.Context, _ pgtype.UUID, _ string) (user_model.User, error) {
+	return user_model.User{}, nil
+}
+
+func TestResolveUserID(t *testing.T) {
+	var registeredID pgtype.UUID
+	if err := registeredID.Scan(validUserID); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name       string
+		identifier string
+		auth       fakeAuthRepository
+		want       string
+		wantErr    error
+		wantLookup int
+	}{
+		{
+			name:       "uuid is used as it is",
+			identifier: strings.ToUpper(validUserID),
+			want:       validUserID,
+		},
+		{
+			name:       "firebase uid is resolved to the user id",
+			identifier: "aBcDeFgHiJkLmNoPqRsTuVwXyZ12",
+			auth:       fakeAuthRepository{user: user_model.User{ID: registeredID}},
+			want:       validUserID,
+			wantLookup: 1,
+		},
+		{
+			name:       "unknown firebase uid",
+			identifier: "aBcDeFgHiJkLmNoPqRsTuVwXyZ12",
+			auth:       fakeAuthRepository{err: auth_repository.ErrUserNotFound},
+			wantErr:    ErrUserNotRegistered,
+			wantLookup: 1,
+		},
+		{
+			name:    "missing identifier",
+			wantErr: ErrUserNotRegistered,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			auth := tt.auth
+			svc := NewEventService(&fakeEventRepository{}, &auth, nil, nil)
+			got, err := svc.ResolveUserID(context.Background(), tt.identifier)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("error = %v, want %v", err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Errorf("user id = %q, want %q", got, tt.want)
+			}
+			if auth.calls != tt.wantLookup {
+				t.Errorf("firebase lookups = %d, want %d", auth.calls, tt.wantLookup)
+			}
+		})
 	}
 }
