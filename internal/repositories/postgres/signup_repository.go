@@ -54,6 +54,38 @@ func (r *SignUpRepository) Create(ctx context.Context, userID string, eventID in
 	return rows > 0, nil
 }
 
+func (r *SignUpRepository) Delete(ctx context.Context, userID string, eventID int) (bool, error) {
+	uid, err := toUUID(userID)
+	if err != nil {
+		return false, err
+	}
+	rows, err := r.queries.DeleteSignUp(ctx, sqlc.DeleteSignUpParams{UserID: uid, EventID: int32(eventID)})
+	if err != nil {
+		return false, fmt.Errorf("unenroll from event %d: %w", eventID, err)
+	}
+	return rows > 0, nil
+}
+
+func (r *SignUpRepository) CountSignUps(ctx context.Context, eventID int) (int, error) {
+	count, err := r.queries.CountEventSignUps(ctx, int32(eventID))
+	if err != nil {
+		return 0, fmt.Errorf("count sign ups for event %d: %w", eventID, err)
+	}
+	return int(count), nil
+}
+
+func (r *SignUpRepository) IsSignedUp(ctx context.Context, userID string, eventID int) (bool, error) {
+	uid, err := toUUID(userID)
+	if err != nil {
+		return false, err
+	}
+	signedUp, err := r.queries.IsUserSignedUp(ctx, sqlc.IsUserSignedUpParams{UserID: uid, EventID: int32(eventID)})
+	if err != nil {
+		return false, fmt.Errorf("check sign up for user %s and event %d: %w", userID, eventID, err)
+	}
+	return signedUp, nil
+}
+
 func (r *SignUpRepository) ListUserEvents(ctx context.Context, userID string, dateRange signup_model.DateRange) ([]event_model.Event, error) {
 	uid, err := toUUID(userID)
 	if err != nil {
