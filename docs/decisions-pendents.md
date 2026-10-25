@@ -269,6 +269,26 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Qui decideix:** frontend + backend + responsables de perfils/amistats
 - **Resolució:**
 
+### DP-024 · Desplegament a EC2 des del CD
+- **Estat:** oberta
+- **Obert per:** 2026-10-25 · Claude Code (Opus 5.5) · Taiga US #222
+- **Context:** `.github/workflows/go.yml`, job `publish`; `docs/ai/60-metodologia-i-qualitat.md` (release → imatge → GHCR → EC2).
+- **Dubte:** no hi ha cap servidor EC2 ni secrets de desplegament (host, usuari, clau SSH, ruta del `docker-compose.yml`/`.env`) definits.
+- **Opcions:** A) job de deploy per SSH que fa `docker compose pull && up -d` a l'EC2 · B) l'EC2 consulta GHCR per si mateix (p. ex. Watchtower).
+- **Provisionalment:** el CD només publica la imatge a GHCR (`git tag` i `latest`) quan es fa push d'un tag. `TODO(DP-024)` al workflow.
+- **Qui decideix:** backend (infraestructura)
+- **Resolució:**
+
+### DP-025 · Llindar de cobertura del 80 % al CI
+- **Estat:** oberta
+- **Obert per:** 2026-10-25 · Claude Code (Opus 5.5) · Taiga US #222
+- **Context:** `.github/workflows/go.yml`, job `test`; `docs/ai/agents/devops-ci.md` demana un llindar del 80 %.
+- **Dubte:** la cobertura total actual és del 36,4 % (inclou el codi generat per `sqlc` i paquets sense proves); si s'aplica el llindar ara, cap PR no es podria integrar.
+- **Opcions:** A) aplicar el 80 % excloent `sqlc/`, `cmd/` i models · B) pujar-lo gradualment · C) només informar-ne.
+- **Provisionalment:** el CI calcula la cobertura, la mostra al log i la desa com a artefacte, però no falla per cobertura.
+- **Qui decideix:** equip
+- **Resolució:**
+
 ## Resoltes
 
 (cap)

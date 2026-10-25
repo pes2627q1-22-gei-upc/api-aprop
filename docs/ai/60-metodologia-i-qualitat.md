@@ -45,7 +45,7 @@ actualització de llibreries *deprecated*. **PATCH:** només correccions de bugs
 | Frontend | `dart format --output=none --set-exit-if-changed lib test` · `flutter analyze` · `flutter test` · `flutter build apk --debug` |
 | Backend | `go test ./...` (cobertura) · `golangci-lint run` · `govulncheck ./...` · `docker build` |
 
-Estat: el frontend encara **no té workflow** i el `go.yml` del backend és incomplet (`TODO`, agent `devops-ci`).
+Estat: el frontend encara **no té workflow**. El `go.yml` del backend executa el CI (tests, `golangci-lint`, `govulncheck`) a cada push i, només en fer push d'un tag, publica la imatge a GHCR (desplegament a EC2 pendent: DP-024; llindar de cobertura: DP-025).
 Desplegament: release a `master` → imatge → GHCR → EC2.
 
 ## Definition of Done
