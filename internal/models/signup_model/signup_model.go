@@ -11,9 +11,10 @@ type SignUp struct {
 
 // Unenroll is the result of removing a user's sign up from an event.
 type Unenroll struct {
-	UserID  string `json:"user-id"`
-	EventID int    `json:"event-id"`
-	Deleted bool   `json:"deleted"` // false when the user was not enrolled
+	UserID   string `json:"user-id"`
+	EventID  int    `json:"event-id"`
+	Enrolled bool   `json:"enrolled"` // false when the user is no longer enrolled
+	Deleted  bool   `json:"deleted"`  // false when the user was not enrolled
 }
 
 // EnrollmentStatus represents the current enrollment state and total attendees of an event.

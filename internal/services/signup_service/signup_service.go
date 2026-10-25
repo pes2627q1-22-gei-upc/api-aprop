@@ -69,7 +69,7 @@ func (s *SignUpService) Unenroll(ctx context.Context, userID string, eventID int
 	if err != nil {
 		return signup_model.Unenroll{}, err
 	}
-	return signup_model.Unenroll{UserID: userID, EventID: eventID, Deleted: deleted}, nil
+	return signup_model.Unenroll{UserID: userID, EventID: eventID, Enrolled: false, Deleted: deleted}, nil
 }
 
 // GetEnrollmentStatus returns whether the user is enrolled and the total count of sign ups.
@@ -109,7 +109,6 @@ func (s *SignUpService) GetEnrollmentStatus(ctx context.Context, userID string, 
 	}, nil
 }
 
-// ListUserEvents returns the events the user is signed up to that overlap the date range.
 func (s *SignUpService) ListUserEvents(ctx context.Context, userID string, dateRange signup_model.DateRange) ([]event_model.Event, error) {
 	userID, err := normalizeUserID(userID)
 	if err != nil {
