@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"api-aprop/internal/clients/firebase_client"
 	"api-aprop/internal/handlers/user_handler"
 	"api-aprop/internal/middleware/auth_middleware"
@@ -18,6 +20,11 @@ import (
 	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/services/user_service"
 )
+
+// testID returns a deterministic user UUID whose last byte is n.
+func testID(n byte) pgtype.UUID {
+	return pgtype.UUID{Bytes: [16]byte{15: n}, Valid: true}
+}
 
 type fakeUserService struct {
 	profiles      map[string]user_model.UserProfile
@@ -102,7 +109,7 @@ func TestGetMyProfile_Success(t *testing.T) {
 	svc := &fakeUserService{
 		profiles: map[string]user_model.UserProfile{
 			"alice-uid": {
-				ID:             1,
+				ID:             testID(1),
 				Username:       "alice",
 				Name:           "Alice Smith",
 				Email:          "alice@example.com",
@@ -139,7 +146,7 @@ func TestGetMyProfile_WithAuthContext(t *testing.T) {
 	svc := &fakeUserService{
 		profiles: map[string]user_model.UserProfile{
 			"alice-uid": {
-				ID:             1,
+				ID:             testID(1),
 				Username:       "alice",
 				Email:          "alice@example.com",
 				PlansVisible:   true,
@@ -182,7 +189,7 @@ func TestGetUserProfile_Success(t *testing.T) {
 	svc := &fakeUserService{
 		profiles: map[string]user_model.UserProfile{
 			"bob": {
-				ID:             2,
+				ID:             testID(2),
 				Username:       "bob",
 				Name:           "Bob Builder",
 				PlansVisible:   false,
@@ -229,7 +236,7 @@ func TestUpdateMyProfile_Success(t *testing.T) {
 	svc := &fakeUserService{
 		profiles: map[string]user_model.UserProfile{
 			"alice-uid": {
-				ID:             1,
+				ID:             testID(1),
 				Username:       "alice",
 				Name:           "Alice Smith",
 				ShowPlans:      true,
@@ -263,7 +270,7 @@ func TestUpdateMyProfile_UsernameConflict(t *testing.T) {
 	svc := &fakeUserService{
 		failUsername: true,
 		profiles: map[string]user_model.UserProfile{
-			"alice-uid": {ID: 1, Username: "alice", DateRegistered: time.Now()},
+			"alice-uid": {ID: testID(1), Username: "alice", DateRegistered: time.Now()},
 		},
 	}
 	mux := setupMux(svc)
@@ -283,7 +290,7 @@ func TestUpdateMyProfile_UsernameConflict(t *testing.T) {
 func TestUploadAvatar_Success(t *testing.T) {
 	svc := &fakeUserService{
 		profiles: map[string]user_model.UserProfile{
-			"alice-uid": {ID: 1, Username: "alice"},
+			"alice-uid": {ID: testID(1), Username: "alice"},
 		},
 	}
 	mux := setupMux(svc)
@@ -333,7 +340,7 @@ func TestUploadAvatar_Unauthorized(t *testing.T) {
 
 func TestUploadAvatar_MissingField(t *testing.T) {
 	svc := &fakeUserService{
-		profiles: map[string]user_model.UserProfile{"alice-uid": {ID: 1}},
+		profiles: map[string]user_model.UserProfile{"alice-uid": {ID: testID(1)}},
 	}
 	mux := setupMux(svc)
 

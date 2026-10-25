@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"api-aprop/internal/clients/s3_client"
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/models/user_model"
@@ -15,8 +17,16 @@ import (
 	"api-aprop/internal/services/user_service"
 )
 
+func testUUID(s string) pgtype.UUID {
+	var id pgtype.UUID
+	if err := id.Scan(s); err != nil {
+		panic(err)
+	}
+	return id
+}
+
 type mockUserRepo struct {
-	usersByID      map[int]*user_model.User
+	usersByID      map[pgtype.UUID]*user_model.User
 	showPlans      map[int]bool
 	friends        map[string]map[string]bool
 	plansCount     map[string]int
@@ -27,7 +37,7 @@ type mockUserRepo struct {
 
 func newMockUserRepo() *mockUserRepo {
 	return &mockUserRepo{
-		usersByID:      make(map[int]*user_model.User),
+		usersByID:      make(map[pgtype.UUID]*user_model.User),
 		showPlans:      make(map[int]bool),
 		friends:        make(map[string]map[string]bool),
 		plansCount:     make(map[string]int),
@@ -43,12 +53,13 @@ func (m *mockUserRepo) addUser(u user_model.User, showPlans bool) {
 	m.showPlans[u.Settings] = showPlans
 }
 
-func (m *mockUserRepo) GetByID(_ context.Context, id int) (user_model.User, bool, error) {
-	u, ok := m.usersByID[id]
-	if !ok {
-		return user_model.User{}, false, user_repository.ErrUserNotFound
+func (m *mockUserRepo) GetByID(_ context.Context, id string) (user_model.User, bool, error) {
+	for _, u := range m.usersByID {
+		if u.ID.String() == id {
+			return *u, m.showPlans[u.Settings], nil
+		}
 	}
-	return *u, m.showPlans[u.Settings], nil
+	return user_model.User{}, false, user_repository.ErrUserNotFound
 }
 
 func (m *mockUserRepo) GetByUsername(_ context.Context, username string) (user_model.User, bool, error) {
@@ -69,17 +80,8 @@ func (m *mockUserRepo) GetByFirebaseUID(_ context.Context, firebaseUID string) (
 	return user_model.User{}, false, user_repository.ErrUserNotFound
 }
 
-func (m *mockUserRepo) GetByUUID(_ context.Context, uuid string) (user_model.User, bool, error) {
-	for _, u := range m.usersByID {
-		if u.UUID == uuid {
-			return *u, m.showPlans[u.Settings], nil
-		}
-	}
-	return user_model.User{}, false, user_repository.ErrUserNotFound
-}
-
-func (m *mockUserRepo) CountFriends(_ context.Context, userUUID string) (int, error) {
-	fMap := m.friends[userUUID]
+func (m *mockUserRepo) CountFriends(_ context.Context, userID string) (int, error) {
+	fMap := m.friends[userID]
 	count := 0
 	for _, areFriends := range fMap {
 		if areFriends {
@@ -89,33 +91,33 @@ func (m *mockUserRepo) CountFriends(_ context.Context, userUUID string) (int, er
 	return count, nil
 }
 
-func (m *mockUserRepo) AreFriends(_ context.Context, user1UUID, user2UUID string) (bool, error) {
-	if m.friends[user1UUID] != nil && m.friends[user1UUID][user2UUID] {
+func (m *mockUserRepo) AreFriends(_ context.Context, user1ID, user2ID string) (bool, error) {
+	if m.friends[user1ID] != nil && m.friends[user1ID][user2ID] {
 		return true, nil
 	}
-	if m.friends[user2UUID] != nil && m.friends[user2UUID][user1UUID] {
+	if m.friends[user2ID] != nil && m.friends[user2ID][user1ID] {
 		return true, nil
 	}
 	return false, nil
 }
 
-func (m *mockUserRepo) CountPlans(_ context.Context, userUUID string) (int, error) {
-	return m.plansCount[userUUID], nil
+func (m *mockUserRepo) CountPlans(_ context.Context, userID string) (int, error) {
+	return m.plansCount[userID], nil
 }
 
-func (m *mockUserRepo) CountCompletedPlans(_ context.Context, userUUID string) (int, error) {
-	return m.completedPlans[userUUID], nil
+func (m *mockUserRepo) CountCompletedPlans(_ context.Context, userID string) (int, error) {
+	return m.completedPlans[userID], nil
 }
 
-func (m *mockUserRepo) GetReliability(_ context.Context, creatorUUID string) (*float32, error) {
-	return m.reliability[creatorUUID], nil
+func (m *mockUserRepo) GetReliability(_ context.Context, creatorID string) (*float32, error) {
+	return m.reliability[creatorID], nil
 }
 
-func (m *mockUserRepo) ListCreatedEvents(_ context.Context, creatorUUID string) ([]event_model.Event, error) {
-	return m.createdEvents[creatorUUID], nil
+func (m *mockUserRepo) ListCreatedEvents(_ context.Context, creatorID string) ([]event_model.Event, error) {
+	return m.createdEvents[creatorID], nil
 }
 
-func (m *mockUserRepo) UpdateProfile(_ context.Context, id int, name, username, biography, profilePicture *string) (user_model.User, error) {
+func (m *mockUserRepo) UpdateProfile(_ context.Context, id pgtype.UUID, name, username, biography, profilePicture *string) (user_model.User, error) {
 	target, ok := m.usersByID[id]
 	if !ok {
 		return user_model.User{}, user_repository.ErrUserNotFound
@@ -166,12 +168,10 @@ func (m *mockS3Client) UploadEventImage(_ context.Context, _ int, _, _ string, _
 	return "", nil
 }
 
-
 func TestGetUserProfile_OwnProfile(t *testing.T) {
 	repo := newMockUserRepo()
 	u := user_model.User{
-		ID:             1,
-		UUID:           "550e8400-e29b-41d4-a716-446655440001",
+		ID:             testUUID("550e8400-e29b-41d4-a716-446655440001"),
 		FirebaseUID:    "fb-user-1",
 		Username:       "alice",
 		Name:           "Alice Smith",
@@ -184,8 +184,8 @@ func TestGetUserProfile_OwnProfile(t *testing.T) {
 		Settings:       1,
 	}
 	repo.addUser(u, true)
-	repo.plansCount[u.UUID] = 5
-	repo.completedPlans[u.UUID] = 3
+	repo.plansCount[u.ID.String()] = 5
+	repo.completedPlans[u.ID.String()] = 3
 
 	svc := user_service.NewUserService(repo, &mockS3Client{})
 
@@ -194,8 +194,8 @@ func TestGetUserProfile_OwnProfile(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if profile.ID != 1 {
-		t.Errorf("expected ID 1, got %d", profile.ID)
+	if want := testUUID("550e8400-e29b-41d4-a716-446655440001"); profile.ID != want {
+		t.Errorf("expected ID %s, got %s", want, profile.ID)
 	}
 	if profile.Email != "alice@example.com" {
 		t.Errorf("expected own email exposed, got %q", profile.Email)
@@ -214,15 +214,13 @@ func TestGetUserProfile_OwnProfile(t *testing.T) {
 func TestGetUserProfile_OtherUser_FriendAndShowPlans(t *testing.T) {
 	repo := newMockUserRepo()
 	alice := user_model.User{
-		ID:          1,
-		UUID:        "550e8400-e29b-41d4-a716-446655440001",
+		ID:          testUUID("550e8400-e29b-41d4-a716-446655440001"),
 		FirebaseUID: "fb-alice",
 		Username:    "alice",
 		Settings:    1,
 	}
 	bob := user_model.User{
-		ID:          2,
-		UUID:        "550e8400-e29b-41d4-a716-446655440002",
+		ID:          testUUID("550e8400-e29b-41d4-a716-446655440002"),
 		FirebaseUID: "fb-bob",
 		Username:    "bob",
 		Settings:    2,
@@ -230,7 +228,7 @@ func TestGetUserProfile_OtherUser_FriendAndShowPlans(t *testing.T) {
 	repo.addUser(alice, true)
 	repo.addUser(bob, true)
 
-	repo.friends[alice.UUID] = map[string]bool{bob.UUID: true}
+	repo.friends[alice.ID.String()] = map[string]bool{bob.ID.String(): true}
 
 	svc := user_service.NewUserService(repo, &mockS3Client{})
 
@@ -253,15 +251,13 @@ func TestGetUserProfile_OtherUser_FriendAndShowPlans(t *testing.T) {
 func TestGetUserProfile_OtherUser_FriendAndHidePlans(t *testing.T) {
 	repo := newMockUserRepo()
 	alice := user_model.User{
-		ID:          1,
-		UUID:        "550e8400-e29b-41d4-a716-446655440001",
+		ID:          testUUID("550e8400-e29b-41d4-a716-446655440001"),
 		FirebaseUID: "fb-alice",
 		Username:    "alice",
 		Settings:    1,
 	}
 	bob := user_model.User{
-		ID:          2,
-		UUID:        "550e8400-e29b-41d4-a716-446655440002",
+		ID:          testUUID("550e8400-e29b-41d4-a716-446655440002"),
 		FirebaseUID: "fb-bob",
 		Username:    "bob",
 		Settings:    2,
@@ -269,7 +265,7 @@ func TestGetUserProfile_OtherUser_FriendAndHidePlans(t *testing.T) {
 	repo.addUser(alice, true)
 	repo.addUser(bob, false)
 
-	repo.friends[alice.UUID] = map[string]bool{bob.UUID: true}
+	repo.friends[alice.ID.String()] = map[string]bool{bob.ID.String(): true}
 
 	svc := user_service.NewUserService(repo, &mockS3Client{})
 
@@ -289,15 +285,13 @@ func TestGetUserProfile_OtherUser_FriendAndHidePlans(t *testing.T) {
 func TestGetUserProfile_OtherUser_NotFriend(t *testing.T) {
 	repo := newMockUserRepo()
 	alice := user_model.User{
-		ID:          1,
-		UUID:        "550e8400-e29b-41d4-a716-446655440001",
+		ID:          testUUID("550e8400-e29b-41d4-a716-446655440001"),
 		FirebaseUID: "fb-alice",
 		Username:    "alice",
 		Settings:    1,
 	}
 	bob := user_model.User{
-		ID:          2,
-		UUID:        "550e8400-e29b-41d4-a716-446655440002",
+		ID:          testUUID("550e8400-e29b-41d4-a716-446655440002"),
 		FirebaseUID: "fb-bob",
 		Username:    "bob",
 		Settings:    2,
@@ -323,8 +317,7 @@ func TestGetUserProfile_OtherUser_NotFriend(t *testing.T) {
 func TestGetUserProfile_Unauthenticated_NotVisible(t *testing.T) {
 	repo := newMockUserRepo()
 	bob := user_model.User{
-		ID:          2,
-		UUID:        "550e8400-e29b-41d4-a716-446655440002",
+		ID:          testUUID("550e8400-e29b-41d4-a716-446655440002"),
 		FirebaseUID: "fb-bob",
 		Username:    "bob",
 		Settings:    2,
@@ -359,8 +352,7 @@ func TestGetUserProfile_NotFound(t *testing.T) {
 func TestUpdateProfile_Valid(t *testing.T) {
 	repo := newMockUserRepo()
 	u := user_model.User{
-		ID:          1,
-		UUID:        "550e8400-e29b-41d4-a716-446655440001",
+		ID:          testUUID("550e8400-e29b-41d4-a716-446655440001"),
 		FirebaseUID: "fb-alice",
 		Username:    "alice",
 		Settings:    1,
@@ -396,7 +388,7 @@ func TestUpdateProfile_Valid(t *testing.T) {
 func TestUpdateProfile_R1_Validations(t *testing.T) {
 	repo := newMockUserRepo()
 	u := user_model.User{
-		ID:          1,
+		ID:          testUUID("550e8400-e29b-41d4-a716-446655440001"),
 		FirebaseUID: "fb-alice",
 		Username:    "alice",
 		Settings:    1,
@@ -445,8 +437,7 @@ func TestUpdateProfile_R1_Validations(t *testing.T) {
 func TestUploadAvatar_Success(t *testing.T) {
 	repo := newMockUserRepo()
 	u := user_model.User{
-		ID:          1,
-		UUID:        "550e8400-e29b-41d4-a716-446655440001",
+		ID:          testUUID("550e8400-e29b-41d4-a716-446655440001"),
 		FirebaseUID: "fb-alice",
 		Username:    "alice",
 		Settings:    1,
@@ -469,14 +460,13 @@ func TestUploadAvatar_Success(t *testing.T) {
 func TestListCreatedEvents(t *testing.T) {
 	repo := newMockUserRepo()
 	u := user_model.User{
-		ID:          1,
-		UUID:        "550e8400-e29b-41d4-a716-446655440001",
+		ID:          testUUID("550e8400-e29b-41d4-a716-446655440001"),
 		FirebaseUID: "fb-alice",
 		Username:    "alice",
 		Settings:    1,
 	}
 	repo.addUser(u, true)
-	repo.createdEvents[u.UUID] = []event_model.Event{
+	repo.createdEvents[u.ID.String()] = []event_model.Event{
 		{ID: 10, Title: "Concert de Jazz"},
 	}
 

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"api-aprop/internal/clients/firebase_client"
 	"api-aprop/internal/middleware/auth_middleware"
 	"api-aprop/internal/models/user_model"
@@ -15,6 +17,11 @@ import (
 )
 
 var firebaseUser = firebase_client.User{UID: "Vw3kU1pZ8rQ2hXyT6mN9aB4cD7e1", Email: "anna@example.com"}
+
+// testID returns a deterministic user UUID whose last byte is n.
+func testID(n byte) pgtype.UUID {
+	return pgtype.UUID{Bytes: [16]byte{15: n}, Valid: true}
+}
 
 type fakeService struct {
 	result user_model.SyncResult
@@ -41,7 +48,7 @@ func sync(t *testing.T, service *fakeService, body string, authenticated bool) *
 }
 
 func TestSync_Created(t *testing.T) {
-	service := &fakeService{result: user_model.SyncResult{User: user_model.User{ID: 1, Username: "anna"}, Created: true}}
+	service := &fakeService{result: user_model.SyncResult{User: user_model.User{ID: testID(1), Username: "anna"}, Created: true}}
 
 	rec := sync(t, service, `{"username": "anna"}`, true)
 
@@ -61,7 +68,7 @@ func TestSync_Created(t *testing.T) {
 }
 
 func TestSync_ExistingUserWithoutBody(t *testing.T) {
-	service := &fakeService{result: user_model.SyncResult{User: user_model.User{ID: 1}}}
+	service := &fakeService{result: user_model.SyncResult{User: user_model.User{ID: testID(1)}}}
 
 	rec := sync(t, service, "", true)
 

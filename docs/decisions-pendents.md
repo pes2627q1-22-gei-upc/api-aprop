@@ -269,6 +269,16 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Qui decideix:** frontend + backend + responsables de perfils/amistats
 - **Resolució:**
 
+### DP-024 · Migracions de Supabase desincronitzades amb `migrations/`
+
+- **Obert per:** 2026-10-25 · Claude Code · `feature/remove-user-uuid`
+- **Context:** `migrations/000010_drop_users_uuid` treu la columna pont `Users.UUID` (afegida a 000007) perquè des de 000009 `Users.ID` ja és UUID. `supabase/migrations/` només té l'equivalent de 000001–000005 i 000007; hi falten 000006, 000008 i 000009.
+- **Dubte:** si s'hi afegeix només la 000010, en una base de dades gestionada amb Supabase CLI s'esborraria `Users.UUID` mentre `Users.ID` encara és enter, i es perdria l'únic identificador UUID dels usuaris.
+- **Opcions:** A) portar 000006, 000008, 000009 i 000010 a `supabase/migrations/` en ordre · B) deixar de mantenir `supabase/migrations/` i fer servir només `migrations/` (actualitzant ADR-0004 i `AGENTS.md`).
+- **Provisionalment:** la 000010 només és a `migrations/` (`TODO(DP-024)`).
+- **Qui decideix:** backend (Lluc + Wenqiang)
+- **Resolució:**
+
 ## Resoltes
 
 (cap)

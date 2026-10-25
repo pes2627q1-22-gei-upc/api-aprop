@@ -26,18 +26,6 @@ func NewUserRepository(pool *pgxpool.Pool) *UserRepository {
 	return &UserRepository{queries: sqlc.New(pool)}
 }
 
-func (r *UserRepository) GetByID(ctx context.Context, id int) (user_model.User, bool, error) {
-	row, err := r.queries.GetUserByID(ctx, int32(id))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return user_model.User{}, false, user_repository.ErrUserNotFound
-	}
-	if err != nil {
-		return user_model.User{}, false, fmt.Errorf("get user by id %d: %w", id, err)
-	}
-	u, showPlans := mapGetUserRowToUser(row)
-	return u, showPlans, nil
-}
-
 func (r *UserRepository) GetByUsername(ctx context.Context, username string) (user_model.User, bool, error) {
 	row, err := r.queries.GetUserByUsername(ctx, username)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -62,46 +50,46 @@ func (r *UserRepository) GetByFirebaseUID(ctx context.Context, firebaseUID strin
 	return u, showPlans, nil
 }
 
-func (r *UserRepository) GetByUUID(ctx context.Context, uuidStr string) (user_model.User, bool, error) {
-	uid, err := toUUID(uuidStr)
+func (r *UserRepository) GetByID(ctx context.Context, id string) (user_model.User, bool, error) {
+	uid, err := toUUID(id)
 	if err != nil {
 		return user_model.User{}, false, user_repository.ErrInvalidUserID
 	}
-	row, err := r.queries.GetUserByUUID(ctx, uid)
+	row, err := r.queries.GetUserByID(ctx, uid)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return user_model.User{}, false, user_repository.ErrUserNotFound
 	}
 	if err != nil {
-		return user_model.User{}, false, fmt.Errorf("get user by uuid %q: %w", uuidStr, err)
+		return user_model.User{}, false, fmt.Errorf("get user by id %q: %w", id, err)
 	}
 	u, showPlans := mapGetUserRowToUser(row)
 	return u, showPlans, nil
 }
 
-func (r *UserRepository) CountFriends(ctx context.Context, userUUID string) (int, error) {
-	uid, err := toUUID(userUUID)
+func (r *UserRepository) CountFriends(ctx context.Context, userID string) (int, error) {
+	uid, err := toUUID(userID)
 	if err != nil {
 		return 0, nil
 	}
 	count, err := r.queries.CountFriends(ctx, uid)
 	if err != nil {
-		return 0, fmt.Errorf("count friends for %s: %w", userUUID, err)
+		return 0, fmt.Errorf("count friends for %s: %w", userID, err)
 	}
 	return int(count), nil
 }
 
-func (r *UserRepository) AreFriends(ctx context.Context, user1UUID, user2UUID string) (bool, error) {
-	if user1UUID == "" || user2UUID == "" {
+func (r *UserRepository) AreFriends(ctx context.Context, user1ID, user2ID string) (bool, error) {
+	if user1ID == "" || user2ID == "" {
 		return false, nil
 	}
-	if user1UUID == user2UUID {
+	if user1ID == user2ID {
 		return false, user_repository.ErrCannotFriendSelf
 	}
-	u1, err := toUUID(user1UUID)
+	u1, err := toUUID(user1ID)
 	if err != nil {
 		return false, nil
 	}
-	u2, err := toUUID(user2UUID)
+	u2, err := toUUID(user2ID)
 	if err != nil {
 		return false, nil
 	}
@@ -115,32 +103,32 @@ func (r *UserRepository) AreFriends(ctx context.Context, user1UUID, user2UUID st
 	return areFriends, nil
 }
 
-func (r *UserRepository) CountPlans(ctx context.Context, userUUID string) (int, error) {
-	uid, err := toUUID(userUUID)
+func (r *UserRepository) CountPlans(ctx context.Context, userID string) (int, error) {
+	uid, err := toUUID(userID)
 	if err != nil {
 		return 0, nil
 	}
 	count, err := r.queries.CountUserPlans(ctx, uid)
 	if err != nil {
-		return 0, fmt.Errorf("count plans for %s: %w", userUUID, err)
+		return 0, fmt.Errorf("count plans for %s: %w", userID, err)
 	}
 	return int(count), nil
 }
 
-func (r *UserRepository) CountCompletedPlans(ctx context.Context, userUUID string) (int, error) {
-	uid, err := toUUID(userUUID)
+func (r *UserRepository) CountCompletedPlans(ctx context.Context, userID string) (int, error) {
+	uid, err := toUUID(userID)
 	if err != nil {
 		return 0, nil
 	}
 	count, err := r.queries.CountCompletedUserPlans(ctx, uid)
 	if err != nil {
-		return 0, fmt.Errorf("count completed plans for %s: %w", userUUID, err)
+		return 0, fmt.Errorf("count completed plans for %s: %w", userID, err)
 	}
 	return int(count), nil
 }
 
-func (r *UserRepository) GetReliability(ctx context.Context, creatorUUID string) (*float32, error) {
-	uid, err := toUUID(creatorUUID)
+func (r *UserRepository) GetReliability(ctx context.Context, creatorID string) (*float32, error) {
+	uid, err := toUUID(creatorID)
 	if err != nil {
 		return nil, nil
 	}
@@ -149,20 +137,20 @@ func (r *UserRepository) GetReliability(ctx context.Context, creatorUUID string)
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("get reliability for %s: %w", creatorUUID, err)
+		return nil, fmt.Errorf("get reliability for %s: %w", creatorID, err)
 	}
 	rel := val.Float32
 	return &rel, nil
 }
 
-func (r *UserRepository) ListCreatedEvents(ctx context.Context, creatorUUID string) ([]event_model.Event, error) {
-	uid, err := toUUID(creatorUUID)
+func (r *UserRepository) ListCreatedEvents(ctx context.Context, creatorID string) ([]event_model.Event, error) {
+	uid, err := toUUID(creatorID)
 	if err != nil {
 		return nil, user_repository.ErrInvalidUserID
 	}
 	rows, err := r.queries.ListUserCreatedEvents(ctx, uid)
 	if err != nil {
-		return nil, fmt.Errorf("list created events for %s: %w", creatorUUID, err)
+		return nil, fmt.Errorf("list created events for %s: %w", creatorID, err)
 	}
 	events := make([]event_model.Event, 0, len(rows))
 	for _, row := range rows {
@@ -171,9 +159,9 @@ func (r *UserRepository) ListCreatedEvents(ctx context.Context, creatorUUID stri
 	return events, nil
 }
 
-func (r *UserRepository) UpdateProfile(ctx context.Context, id int, name, username, biography, profilePicture *string) (user_model.User, error) {
+func (r *UserRepository) UpdateProfile(ctx context.Context, id pgtype.UUID, name, username, biography, profilePicture *string) (user_model.User, error) {
 	params := sqlc.UpdateUserProfileParams{
-		ID: int32(id),
+		ID: id,
 	}
 	if name != nil {
 		params.Name = pgtype.Text{String: *name, Valid: true}
@@ -199,11 +187,11 @@ func (r *UserRepository) UpdateProfile(ctx context.Context, id int, name, userna
 		return user_model.User{}, user_repository.ErrUserNotFound
 	}
 	if err != nil {
-		return user_model.User{}, fmt.Errorf("update profile of user %d: %w", id, err)
+		return user_model.User{}, fmt.Errorf("update profile of user %s: %w", id, err)
 	}
 
 	u := user_model.User{
-		ID:             int(row.ID),
+		ID:             row.ID,
 		FirebaseUID:    row.Firebaseuid,
 		Username:       row.Username,
 		Email:          row.Email.String,
@@ -213,7 +201,6 @@ func (r *UserRepository) UpdateProfile(ctx context.Context, id int, name, userna
 		AccountState:   int(row.Accountstate),
 		Experience:     int(row.Experience),
 		Settings:       int(row.Settings),
-		UUID:           uuidToString(row.Uuid),
 	}
 	if row.Name.Valid {
 		u.Name = row.Name.String
@@ -242,7 +229,7 @@ func (r *UserRepository) UpdateSettings(ctx context.Context, settingsID int, sho
 
 func mapGetUserRowToUser(row sqlc.GetUserRow) (user_model.User, bool) {
 	u := user_model.User{
-		ID:             int(row.ID),
+		ID:             row.ID,
 		FirebaseUID:    row.Firebaseuid,
 		Username:       row.Username,
 		Email:          row.Email.String,
@@ -252,7 +239,6 @@ func mapGetUserRowToUser(row sqlc.GetUserRow) (user_model.User, bool) {
 		AccountState:   int(row.Accountstate),
 		Experience:     int(row.Experience),
 		Settings:       int(row.Settings),
-		UUID:           uuidToString(row.Uuid),
 	}
 	if row.Name.Valid {
 		u.Name = row.Name.String
@@ -266,15 +252,6 @@ func mapGetUserRowToUser(row sqlc.GetUserRow) (user_model.User, bool) {
 		u.Rating = &r
 	}
 	return u, row.ShowPlans
-}
-
-func uuidToString(u pgtype.UUID) string {
-	if !u.Valid {
-		return ""
-	}
-	src := u.Bytes
-	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
-		src[0:4], src[4:6], src[6:8], src[8:10], src[10:16])
 }
 
 func createdEventToModel(row sqlc.ListUserCreatedEventsRow) event_model.Event {

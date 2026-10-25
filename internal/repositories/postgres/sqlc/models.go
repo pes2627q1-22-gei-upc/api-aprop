@@ -271,7 +271,6 @@ type User struct {
 	Rating         pgtype.Float4
 	Settings       int32
 	ID             pgtype.UUID
-	Uuid           pgtype.UUID
 }
 
 type Userlevel struct {
