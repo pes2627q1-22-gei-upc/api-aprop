@@ -208,12 +208,14 @@ type Message struct {
 }
 
 type Notification struct {
-	Userid           pgtype.UUID
 	Notificationdate pgtype.Timestamp
-	Friend           pgtype.UUID
 	Requestdate      pgtype.Timestamp
 	Event            pgtype.Int4
-	Type             pgtype.Int4
+	Type             int32
+	ID               int32
+	Read             bool
+	Userid           int32
+	Friend           pgtype.Int4
 }
 
 type Notificationtype struct {
