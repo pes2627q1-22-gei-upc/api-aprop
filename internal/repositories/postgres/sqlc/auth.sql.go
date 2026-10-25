@@ -21,7 +21,7 @@ SELECT
     $1::varchar, $2::varchar, $3::varchar,
     (SELECT ID FROM AccountStates WHERE Name = 'Active'), new_settings.ID
 FROM new_settings
-RETURNING id, firebaseuid, username, email, profilepicture, biography, dateregistered, accountstate, experience, level, rating, settings
+RETURNING firebaseuid, username, email, profilepicture, biography, dateregistered, accountstate, experience, level, rating, settings, id
 `
 
 type CreateUserParams struct {
@@ -36,7 +36,6 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 	row := q.db.QueryRow(ctx, createUser, arg.FirebaseUid, arg.Username, arg.Email)
 	var i User
 	err := row.Scan(
-		&i.ID,
 		&i.Firebaseuid,
 		&i.Username,
 		&i.Email,
@@ -48,12 +47,13 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.Level,
 		&i.Rating,
 		&i.Settings,
+		&i.ID,
 	)
 	return i, err
 }
 
 const getUserByFirebaseUID = `-- name: GetUserByFirebaseUID :one
-SELECT id, firebaseuid, username, email, profilepicture, biography, dateregistered, accountstate, experience, level, rating, settings FROM Users
+SELECT firebaseuid, username, email, profilepicture, biography, dateregistered, accountstate, experience, level, rating, settings, id FROM Users
 WHERE FirebaseUID = $1::varchar
 `
 
@@ -61,7 +61,6 @@ func (q *Queries) GetUserByFirebaseUID(ctx context.Context, firebaseUid string) 
 	row := q.db.QueryRow(ctx, getUserByFirebaseUID, firebaseUid)
 	var i User
 	err := row.Scan(
-		&i.ID,
 		&i.Firebaseuid,
 		&i.Username,
 		&i.Email,
@@ -73,26 +72,26 @@ func (q *Queries) GetUserByFirebaseUID(ctx context.Context, firebaseUid string) 
 		&i.Level,
 		&i.Rating,
 		&i.Settings,
+		&i.ID,
 	)
 	return i, err
 }
 
 const updateUserEmail = `-- name: UpdateUserEmail :one
 UPDATE Users SET Email = $1::varchar
-WHERE ID = $2::integer
-RETURNING id, firebaseuid, username, email, profilepicture, biography, dateregistered, accountstate, experience, level, rating, settings
+WHERE ID = $2::uuid
+RETURNING firebaseuid, username, email, profilepicture, biography, dateregistered, accountstate, experience, level, rating, settings, id
 `
 
 type UpdateUserEmailParams struct {
 	Email pgtype.Text
-	ID    int32
+	ID    pgtype.UUID
 }
 
 func (q *Queries) UpdateUserEmail(ctx context.Context, arg UpdateUserEmailParams) (User, error) {
 	row := q.db.QueryRow(ctx, updateUserEmail, arg.Email, arg.ID)
 	var i User
 	err := row.Scan(
-		&i.ID,
 		&i.Firebaseuid,
 		&i.Username,
 		&i.Email,
@@ -104,6 +103,7 @@ func (q *Queries) UpdateUserEmail(ctx context.Context, arg UpdateUserEmailParams
 		&i.Level,
 		&i.Rating,
 		&i.Settings,
+		&i.ID,
 	)
 	return i, err
 }

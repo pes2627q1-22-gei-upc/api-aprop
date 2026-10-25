@@ -16,9 +16,9 @@ INSERT INTO notifications (userid, notificationdate, friend, requestdate, event,
 `
 
 type CreateNotificationParams struct {
-	Userid           int32
+	Userid           pgtype.UUID
 	Notificationdate pgtype.Timestamp
-	Friend           pgtype.Int4
+	Friend           pgtype.UUID
 	Requestdate      pgtype.Timestamp
 	Event            pgtype.Int4
 	Type             int32
@@ -88,7 +88,7 @@ and ($2::integer = 0 or type = $2::integer)
 `
 
 type GetUserNotificationsParams struct {
-	Userid     int32
+	Userid     pgtype.UUID
 	Filtertype int32
 }
 
@@ -134,7 +134,7 @@ const readUserNotifications = `-- name: ReadUserNotifications :exec
 UPDATE notifications SET read = true where userid = $1
 `
 
-func (q *Queries) ReadUserNotifications(ctx context.Context, userid int32) error {
+func (q *Queries) ReadUserNotifications(ctx context.Context, userid pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, readUserNotifications, userid)
 	return err
 }

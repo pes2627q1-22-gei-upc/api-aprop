@@ -6,6 +6,7 @@ import (
 
 	"api-aprop/internal/models/notification_model"
 	"api-aprop/internal/repositories/notification_repository"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type NotificationService struct {
@@ -37,7 +38,7 @@ func (s *NotificationService) GetNotificationTypes() ([]notification_model.Notif
 	return n, nil
 }
 
-func (s *NotificationService) GetUserNotifications(id int, params map[string]any) ([]notification_model.Notification, error) {
+func (s *NotificationService) GetUserNotifications(id pgtype.UUID, params map[string]any) ([]notification_model.Notification, error) {
 	notifs, err := s.notificationRepository.GetUserNotifications(id, params)
 	if errors.Is(err, notification_repository.ErrNotificationNotFound) {
 		return []notification_model.Notification{}, fmt.Errorf("%w: %w", notification_repository.ErrUserNotFound, err)
@@ -64,7 +65,7 @@ func (s *NotificationService) ReadNotification(id int) (error) {
 	return nil
 }
 
-func (s *NotificationService) ReadUserNotifications(id int) (error) {
+func (s *NotificationService) ReadUserNotifications(id pgtype.UUID) (error) {
 	err := s.notificationRepository.ReadUserNotifications(id)
 	if err != nil {
 		return err

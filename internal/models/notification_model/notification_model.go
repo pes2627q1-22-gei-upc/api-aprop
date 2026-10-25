@@ -6,9 +6,9 @@ import (
 
 type Notification struct{
 	ID					int					`json:"id"`
-	UserID 				int					`json:"user-id"`
+	UserID 				pgtype.UUID			`json:"user-id"`
 	NotificationDate	pgtype.Timestamp	`json:"notification-date"`
-	Friend 				pgtype.Int4			`json:"friend-id"`
+	Friend 				pgtype.UUID			`json:"friend-id"`
 	RequestDate 		pgtype.Timestamp	`json:"request-date"`
 	Event				pgtype.Int4			`json:"event"`
 	Type				int					`json:"type"`

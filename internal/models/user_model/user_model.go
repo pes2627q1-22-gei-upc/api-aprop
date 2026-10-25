@@ -1,10 +1,13 @@
 package user_model
 
-import "time"
+import (
+	"time"
+	"github.com/jackc/pgx/v5/pgtype"
+)
 
 // User is the profile stored in the database. FirebaseUID links it with its Firebase Auth account.
 type User struct {
-	ID             int       `json:"id"`
+	ID             pgtype.UUID       `json:"id"`
 	UUID           string    `json:"uuid,omitempty"`
 	FirebaseUID    string    `json:"firebase-uid"`
 	Username       string    `json:"username"`
