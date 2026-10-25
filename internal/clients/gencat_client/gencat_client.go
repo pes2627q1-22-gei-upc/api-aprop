@@ -5,12 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strconv"
-	"time"
-	"io"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -40,7 +40,7 @@ type queryPage struct {
 
 type queryRequest struct {
 	Query string    `json:"query"`
-	Page queryPage	`json:"page"`
+	Page  queryPage `json:"page"`
 }
 
 func (c *GencatClient) FetchEvents(ctx context.Context, pageNumber int, pageSize int) ([]event_model.Event, error) {
@@ -48,7 +48,7 @@ func (c *GencatClient) FetchEvents(ctx context.Context, pageNumber int, pageSize
 		Query: "SELECT * WHERE data_fi IS NULL OR data_fi > '2026-10-18T00:00:00' ORDER BY data_fi ASC NULLS LAST",
 		Page: queryPage{
 			PageNumber: pageNumber,
-			PageSize: pageSize,
+			PageSize:   pageSize,
 		},
 	})
 	if err != nil {
@@ -112,11 +112,11 @@ func mapEvent(val map[string]any) event_model.Event {
 	}
 
 	tmp, _ = val["tags_categor_es"].(string)
-	if tmp!=""{
+	if tmp != "" {
 		e.Categories = strings.Split(tmp, ",")
 	}
 	tmp, _ = val["tags_mbits"].(string)
-	if tmp!=""{
+	if tmp != "" {
 		tmp2 := strings.Split(tmp, ",")
 		e.Categories = append(e.Categories, tmp2...)
 	}
@@ -129,16 +129,16 @@ func mapEvent(val map[string]any) event_model.Event {
 	e.TicketsURL, _ = val["linkbotoentrades"].(string)
 	e.Description, _ = val["descripcio"].(string)
 	tmp, _ = val["gratuita"].(string)
-	if tmp=="Sí"{
-		e.Free=pgtype.Bool{Bool: true, Valid: true}
-	} else if tmp=="No" {
-		e.Free=pgtype.Bool{Bool: false, Valid: true}
+	if tmp == "Sí" {
+		e.Free = pgtype.Bool{Bool: true, Valid: true}
+	} else if tmp == "No" {
+		e.Free = pgtype.Bool{Bool: false, Valid: true}
 	}
 	tmp, _ = val["permanent"].(string)
-	if tmp=="Sí"{
-		e.Permanent=pgtype.Bool{Bool: true, Valid: true}
-	} else if tmp=="No" {
-		e.Permanent=pgtype.Bool{Bool: false, Valid: true}
+	if tmp == "Sí" {
+		e.Permanent = pgtype.Bool{Bool: true, Valid: true}
+	} else if tmp == "No" {
+		e.Permanent = pgtype.Bool{Bool: false, Valid: true}
 	}
 	e.RelatedURLs, _ = val["enlla_os"].(string)
 
@@ -146,22 +146,22 @@ func mapEvent(val map[string]any) event_model.Event {
 	tmp2, _ := val["enllac2_nom"].(string)
 	tmp3, _ := val["enllac3_nom"].(string)
 
-	if tmp!=""{
+	if tmp != "" {
 		e.URLnames = tmp
 	}
-	if tmp2!=""{
+	if tmp2 != "" {
 		e.URLnames = fmt.Sprintf("%s,%s", e.URLnames, tmp2)
 	}
-	if tmp3!=""{
+	if tmp3 != "" {
 		e.URLnames = fmt.Sprintf("%s,%s", e.URLnames, tmp3)
 	}
 
 	e.Modality, _ = val["modalitat"].(string)
-	if e.Modality == "Presencial"{
+	if e.Modality == "Presencial" {
 		e.Modality = "Face-to-Face"
-	} else if e.Modality == "Virtual"{
+	} else if e.Modality == "Virtual" {
 		e.Modality = "Online"
-	} else if e.Modality == "Presencial i virtual"{
+	} else if e.Modality == "Presencial i virtual" {
 		e.Modality = "Online and Face-to-Face"
 	}
 	e.Place, _ = val["espai"].(string)
