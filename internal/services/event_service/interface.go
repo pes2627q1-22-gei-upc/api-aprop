@@ -13,6 +13,7 @@ type Service interface {
 	ListEvents(params map[string]any) ([]event_model.Event, error)
 	SearchEvents(ctx context.Context, query string, pageNum, pageSize int) (event_model.SearchResult, error)
 	ListMapEvents(ctx context.Context, filter event_model.MapFilter) ([]event_model.MapEvent, error)
+	GetPopularEvents(pageSize int, pageNum int) ([]event_model.Event, error)
 
 	// ResolveUserID returns the database ID (UUID) of the user identified by a Firebase UID or a UUID.
 	ResolveUserID(ctx context.Context, identifier string) (string, error)
