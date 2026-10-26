@@ -11,8 +11,9 @@ import (
 	"api-aprop/internal/handlers/assistant_handler"
 	"api-aprop/internal/handlers/event_handler"
 	"api-aprop/internal/handlers/signup_handler"
-	"api-aprop/internal/middleware/cors_middleware"
 	"api-aprop/internal/models/event_model"
+
+	"github.com/rs/cors"
 )
 
 type stubEventService struct {
@@ -146,7 +147,7 @@ func TestRouter_CORSPreflightSkipsAuth(t *testing.T) {
 		})
 	}
 	mux := NewRouter(
-		cors_middleware.NewCORSMiddleware([]string{cors_middleware.AnyOrigin}),
+		cors.AllowAll().Handler,
 		rejectAuth,
 		event_handler.NewEventHandler(&stubEventService{}),
 	)
@@ -160,8 +161,8 @@ func TestRouter_CORSPreflightSkipsAuth(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("preflight status = %d, want 204", rec.Code)
 	}
-	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != cors_middleware.AnyOrigin {
-		t.Errorf("Access-Control-Allow-Origin = %q, want %q", got, cors_middleware.AnyOrigin)
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Errorf("Access-Control-Allow-Origin = %q, want %q", got, "*")
 	}
 
 	// Real requests still go through the auth middleware, with the CORS header so the browser can read the 401
@@ -173,7 +174,7 @@ func TestRouter_CORSPreflightSkipsAuth(t *testing.T) {
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("request status = %d, want 401 from the auth middleware", rec.Code)
 	}
-	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != cors_middleware.AnyOrigin {
-		t.Errorf("Access-Control-Allow-Origin = %q on the 401, want %q", got, cors_middleware.AnyOrigin)
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Errorf("Access-Control-Allow-Origin = %q on the 401, want %q", got, "*")
 	}
 }

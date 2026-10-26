@@ -14,6 +14,7 @@ import (
 	_ "time/tzdata" // the runtime image has no time zone database
 
 	"github.com/joho/godotenv"
+	"github.com/rs/cors"
 
 	"api-aprop/internal/clients/firebase_client"
 	"api-aprop/internal/clients/gencat_client"
@@ -25,11 +26,11 @@ import (
 	"api-aprop/internal/handlers/auth_handler"
 	"api-aprop/internal/handlers/event_handler"
 	"api-aprop/internal/handlers/preference_handler"
+	"api-aprop/internal/handlers/requester"
 	"api-aprop/internal/handlers/signup_handler"
 	"api-aprop/internal/handlers/user_handler"
 	"api-aprop/internal/handlers/notification_handler"
 	"api-aprop/internal/middleware/auth_middleware"
-	"api-aprop/internal/middleware/cors_middleware"
 	postgres_repository "api-aprop/internal/repositories/postgres"
 	"api-aprop/internal/router"
 	"api-aprop/internal/services/assistant_service"
@@ -60,7 +61,7 @@ const (
 
 	// CORS environment variable: comma separated origins that can call the API from a browser
 	corsEnvAllowedOrigins = "CORS_ALLOWED_ORIGINS" // optional, defaults to defaultCORSOrigins
-	defaultCORSOrigins    = cors_middleware.AnyOrigin
+	defaultCORSOrigins    = "*"                    // any origin
 )
 
 func runDaily(task func()) {
@@ -169,11 +170,22 @@ func main() {
 		PublicURL: os.Getenv("S3_PUBLIC_URL"),
 	})
 
+	// CORS: it wraps the auth middleware (see router.NewRouter) because browsers send the preflight without the token.
+	// Requests without an Origin header (mobile app, curl) are not affected.
 	corsOrigins := os.Getenv(corsEnvAllowedOrigins)
 	if corsOrigins == "" {
 		corsOrigins = defaultCORSOrigins
 	}
-	corsMiddleware := cors_middleware.NewCORSMiddleware(strings.Split(corsOrigins, ","))
+	allowedOrigins := strings.Split(corsOrigins, ",")
+	for i, origin := range allowedOrigins {
+		allowedOrigins[i] = strings.TrimSpace(origin)
+	}
+	corsMiddleware := cors.New(cors.Options{
+		AllowedOrigins: allowedOrigins,
+		AllowedMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete},
+		AllowedHeaders: []string{"Authorization", "Content-Type", requester.UserIDHeader},
+		MaxAge:         600, // seconds the browser caches the preflight response
+	}).Handler
 
 	var authMiddleware func(http.Handler) http.Handler
 	if _, err := os.Stat(firebaseCredentialsFile); err == nil {
