@@ -40,6 +40,7 @@ func (h *EventHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /events/{id}/image", h.UploadEventImage)
 	mux.HandleFunc("GET /categories", h.GetCategories)
 	mux.HandleFunc("GET /categories/{id}", h.GetCategory)
+	mux.HandleFunc("GET /events/recommended", h.GetRecommendedEvents)
 }
 
 func getUserID(r *http.Request) string {
@@ -104,6 +105,31 @@ func (h *EventHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response.WriteJSON(w, http.StatusOK, list)
+}
+
+func (h *EventHandler) GetRecommendedEvents(w http.ResponseWriter, r *http.Request){
+	pageSize, err := strconv.Atoi(r.URL.Query().Get("pageSize"))
+	if err!=nil{
+		response.WriteError(w, http.StatusBadRequest, "invalid page size")
+		return
+	}
+	pageNum, err := strconv.Atoi(r.URL.Query().Get("pageNum"))
+	if err!=nil{
+		response.WriteError(w, http.StatusBadRequest, "invalid page num")
+		return
+	}
+	requester, err := h.requesterID(r)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	ev, err := h.eventService.GetRecommendedEvents(r.Context(), requester, pageSize, pageNum)
+	if err!=nil{
+		writeServiceError(w, err)
+		return
+	}
+	response.WriteJSON(w, http.StatusOK, ev)
 }
 
 // GetEvent handles GET /events/{id}
