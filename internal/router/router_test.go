@@ -11,6 +11,7 @@ import (
 	"api-aprop/internal/handlers/assistant_handler"
 	"api-aprop/internal/handlers/event_handler"
 	"api-aprop/internal/handlers/signup_handler"
+	"api-aprop/internal/middleware/cors_middleware"
 	"api-aprop/internal/models/event_model"
 )
 
@@ -80,11 +81,14 @@ func (s *stubEventService) UploadEventImage(_ context.Context, _ int, _ string, 
 
 var noopAuth = func(next http.Handler) http.Handler { return next }
 
+var noopCORS = func(next http.Handler) http.Handler { return next }
+
 func TestRouter_MapRoutesAndEventDetailRoute(t *testing.T) {
 	for _, path := range []string{"/event/map", "/events/map"} {
 		t.Run("GET "+path, func(t *testing.T) {
 			svc := &stubEventService{}
 			mux := NewRouter(
+				noopCORS,
 				noopAuth,
 				event_handler.NewEventHandler(svc),
 				assistant_handler.NewAssistantHandler(nil, nil),
@@ -114,6 +118,7 @@ func TestRouter_MapRoutesAndEventDetailRoute(t *testing.T) {
 	t.Run("GET /events/{id} still routes to GetEvent", func(t *testing.T) {
 		svc := &stubEventService{}
 		mux := NewRouter(
+			noopCORS,
 			noopAuth,
 			event_handler.NewEventHandler(svc),
 			assistant_handler.NewAssistantHandler(nil, nil),
@@ -131,4 +136,44 @@ func TestRouter_MapRoutesAndEventDetailRoute(t *testing.T) {
 			t.Fatalf("expected GetEvent(75) to be called, got getCalled=%v gotID=%d mapCalled=%v", svc.getCalled, svc.gotID, svc.mapCalled)
 		}
 	})
+}
+
+// The CORS preflight has no bearer token, so it must be answered before the auth middleware rejects it.
+func TestRouter_CORSPreflightSkipsAuth(t *testing.T) {
+	rejectAuth := func(http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusUnauthorized)
+		})
+	}
+	mux := NewRouter(
+		cors_middleware.NewCORSMiddleware([]string{cors_middleware.AnyOrigin}),
+		rejectAuth,
+		event_handler.NewEventHandler(&stubEventService{}),
+	)
+
+	req := httptest.NewRequest(http.MethodOptions, "/events", nil)
+	req.Header.Set("Origin", "https://admin.aprop.cat")
+	req.Header.Set("Access-Control-Request-Method", http.MethodPost)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("preflight status = %d, want 204", rec.Code)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != cors_middleware.AnyOrigin {
+		t.Errorf("Access-Control-Allow-Origin = %q, want %q", got, cors_middleware.AnyOrigin)
+	}
+
+	// Real requests still go through the auth middleware, with the CORS header so the browser can read the 401
+	req = httptest.NewRequest(http.MethodGet, "/events", nil)
+	req.Header.Set("Origin", "https://admin.aprop.cat")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("request status = %d, want 401 from the auth middleware", rec.Code)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != cors_middleware.AnyOrigin {
+		t.Errorf("Access-Control-Allow-Origin = %q on the 401, want %q", got, cors_middleware.AnyOrigin)
+	}
 }

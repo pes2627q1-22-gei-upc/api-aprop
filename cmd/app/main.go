@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 	_ "time/tzdata" // the runtime image has no time zone database
 
@@ -28,6 +29,7 @@ import (
 	"api-aprop/internal/handlers/user_handler"
 	"api-aprop/internal/handlers/notification_handler"
 	"api-aprop/internal/middleware/auth_middleware"
+	"api-aprop/internal/middleware/cors_middleware"
 	postgres_repository "api-aprop/internal/repositories/postgres"
 	"api-aprop/internal/router"
 	"api-aprop/internal/services/assistant_service"
@@ -55,6 +57,10 @@ const (
 	dbEnvSslMode   = "DB_SSLMODE"   // optional, defaults to defaultSslMode
 	dbEnvPoolSize  = "DB_POOL_SIZE" // optional, defaults to the pgxpool default
 	defaultSslMode = "disable"
+
+	// CORS environment variable: comma separated origins that can call the API from a browser
+	corsEnvAllowedOrigins = "CORS_ALLOWED_ORIGINS" // optional, defaults to defaultCORSOrigins
+	defaultCORSOrigins    = cors_middleware.AnyOrigin
 )
 
 func runDaily(task func()) {
@@ -163,6 +169,12 @@ func main() {
 		PublicURL: os.Getenv("S3_PUBLIC_URL"),
 	})
 
+	corsOrigins := os.Getenv(corsEnvAllowedOrigins)
+	if corsOrigins == "" {
+		corsOrigins = defaultCORSOrigins
+	}
+	corsMiddleware := cors_middleware.NewCORSMiddleware(strings.Split(corsOrigins, ","))
+
 	var authMiddleware func(http.Handler) http.Handler
 	if _, err := os.Stat(firebaseCredentialsFile); err == nil {
 		firebaseClient, err := firebase_client.NewFirebaseClient(context.Background(), firebaseCredentialsFile)
@@ -227,7 +239,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           router.NewRouter(authMiddleware, eventHandler, assistantHandler, signUpHandler, authHandler, notificationHandler, userHandler, preferenceHandler),
+		Handler:           router.NewRouter(corsMiddleware, authMiddleware, eventHandler, assistantHandler, signUpHandler, authHandler, notificationHandler, userHandler, preferenceHandler),
 		Protocols:         protocols,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
