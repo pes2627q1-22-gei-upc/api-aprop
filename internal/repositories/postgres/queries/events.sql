@@ -49,6 +49,17 @@ SELECT evlst.*, c.name as category FROM (
     LIMIT $1 OFFSET $2
 ) evlst left join eventcategories ec on evlst.id = ec.event left join categories c on ec.category = c.id;
 
+-- name: GetPopularEvents :many
+SELECT evlst.*, c.name as category FROM (
+    SELECT e.id, e.title, e.subtitle, e.description, e.schedule, e.tickets, e.url, e.ticketsurl,
+    e.free, e.permanent, e.modality, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone,
+    e.activityurl, e.startdate, e.enddate, e.place, e.latitude, e.longitude, e.postalcode, e.municipality,
+    e.region, e.address, oe.code, ue.creator, ue.datecreated, count(s.userid) as num_signups FROM events e left join officialevents oe on e.id=oe.id
+    left join unofficialevents ue on e.id=ue.id left join signup s on s.event=e.id
+    GROUP BY e.id, oe.id, ue.id ORDER BY num_signups DESC, e.enddate ASC NULLS LAST
+    LIMIT $1 OFFSET $2
+) evlst left join eventcategories ec on evlst.id = ec.event left join categories c on ec.category = c.id ORDER BY evlst.num_signups DESC, evlst.enddate ASC NULLS LAST, evlst.id ASC;
+
 -- name: CreateOfficialEvent :one
 INSERT INTO OfficialEvents(id, code) VALUES ($1, $2) RETURNING ID;
 

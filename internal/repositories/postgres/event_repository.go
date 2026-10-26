@@ -616,6 +616,65 @@ func (r *EventRepository) ListMapEvents(ctx context.Context, filter event_model.
 	return events, nil
 }
 
+func getPopularToGetEventRow(row sqlc.GetPopularEventsRow) sqlc.GetEventRow{
+	return sqlc.GetEventRow{
+		ID:			  row.ID,
+		Title:        row.Title,
+		Description:  row.Description,
+		Subtitle:     row.Subtitle,
+		Schedule:     row.Schedule,
+		Tickets:      row.Tickets,
+		Url:          row.Url,
+		Ticketsurl:   row.Ticketsurl,
+		Free:         row.Free,
+		Permanent:    row.Permanent,
+		Modality:     row.Modality,
+		Relatedurls:  row.Relatedurls,
+		Urlnames:     row.Urlnames,
+		Images:       row.Images,
+		Videos:       row.Videos,
+		Email:        row.Email,
+		Phone:        row.Phone,
+		Activityurl:  row.Activityurl,
+		Startdate:    row.Startdate,
+		Enddate:      row.Enddate,
+		Place:        row.Place,
+		Latitude:     row.Latitude,
+		Longitude:    row.Longitude,
+		PostalCode:   row.PostalCode,
+		Municipality: row.Municipality,
+		Region:       row.Region,
+		Address:      row.Address,
+		Code:         row.Code,
+		Creator:      row.Creator,
+		Datecreated:  row.Datecreated,
+		Category:	  row.Category,
+	}
+}
+
+func (r *EventRepository) GetPopular(pageSize int, pageNum int) ([]event_model.Event, error){
+	rows, err := r.queries.GetPopularEvents(context.Background(), sqlc.GetPopularEventsParams{Limit: int32(pageSize), Offset: int32(pageSize*pageNum)})
+	if err!=nil{
+		return []event_model.Event{}, err
+	}
+	if len(rows)==0{
+		return []event_model.Event{}, nil
+	}
+	events := []event_model.Event{}
+	currentevent := rows[0]
+	cats := []string{}
+	for _, row := range rows {
+		if row.ID != currentevent.ID {
+			events = append(events, toModelExtended(getPopularToGetEventRow(currentevent), cats))
+			cats = []string{}
+			currentevent = row
+		}
+		cats = append(cats, row.Category.String)
+	}
+	events = append(events, toModelExtended(getPopularToGetEventRow(currentevent), cats))
+	return events, nil
+}
+
 func mapEventRowToModel(row sqlc.ListMapEventsRow) event_model.MapEvent {
 	return event_model.MapEvent{
 		Event: toModel(sqlc.Event{
