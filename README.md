@@ -57,7 +57,7 @@ sequenceDiagram
 
 ### Endpoints
 
-L'usuari s'identifica amb la capçalera `X-User-ID` (UUID) fins que hi hagi autenticació (`TODO(DP-011)`).
+L'usuari s'identifica amb el token de Firebase: el backend tradueix l'UID de Firebase a l'UUID de l'usuari (cal haver fet `POST /auth/sync`). Sense el middleware d'autenticació (desenvolupament local), es fa servir la capçalera `X-User-ID` (UUID).
 
 `POST /assistant/messages` amb `{"text": "concerts a Girona aquest cap de setmana", "by-voice": false}` respon `201`:
 
@@ -88,6 +88,7 @@ Els esdeveniments tenen el mateix format que `GET /events/{id}`. `interpretation
 
 | Codi | Quan |
 |---|---|
-| 400 | Falta `X-User-ID`, no és un UUID, cos invàlid o text buit o de més de 1000 caràcters |
+| 400 | Sense autenticació, falta `X-User-ID` o no és un UUID; cos invàlid o text buit o de més de 1000 caràcters |
+| 401 | L'usuari de Firebase no està registrat a la BD (no ha fet `POST /auth/sync`) |
 | 502 | Groq AI o el servidor MCP no responen correctament |
 | 504 | El xatbot no ha respost en 8 s |

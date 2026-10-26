@@ -145,6 +145,7 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Dubte:** encara no hi ha Firebase Auth al backend ni taula d'usuaris; qualsevol client pot apuntar o consultar els plans d'un altre UUID.
 - **Opcions:** A) validar el token de Firebase en un middleware i obtenir-ne l'usuari (eliminar `X-User-ID` i comprovar que `{userId}` és el de la sessió) · B) mantenir-ho només en desenvolupament
 - **Provisionalment:** l'UUID arriba a la capçalera o a la ruta sense autorització; `TODO(DP-011)` als handlers. El frontend continua amb el repositori de demostració (DP-010).
+- **Actualització 2026-10-26** (Claude Code, branca `fix/resolve-user-id`): inscripcions (`signup`/`enroll` i estat), xatbot i preferències apliquen l'opció A: amb el middleware, l'usuari surt del token de Firebase i es tradueix a UUID (`internal/handlers/requester`), i `X-User-ID` s'ignora; només es llegeix sense middleware. Queda oberta per a `GET /users/{userId}/events` (no es comprova que `{userId}` sigui el de la sessió), les notificacions (`/notifications/user/{id}`) i el `userId` del mapa.
 - **Qui decideix:** backend + equip (ADR-0003)
 - **Resolució:**
 

@@ -87,8 +87,8 @@ func TestRouter_MapRoutesAndEventDetailRoute(t *testing.T) {
 			mux := NewRouter(
 				noopAuth,
 				event_handler.NewEventHandler(svc),
-				assistant_handler.NewAssistantHandler(nil),
-				signup_handler.NewSignUpHandler(nil),
+				assistant_handler.NewAssistantHandler(nil, nil),
+				signup_handler.NewSignUpHandler(nil, nil),
 			)
 
 			req := httptest.NewRequest(http.MethodGet, path+"?minLat=41.0&maxLat=42.0&minLng=2.0&maxLng=3.0", nil)
@@ -116,8 +116,8 @@ func TestRouter_MapRoutesAndEventDetailRoute(t *testing.T) {
 		mux := NewRouter(
 			noopAuth,
 			event_handler.NewEventHandler(svc),
-			assistant_handler.NewAssistantHandler(nil),
-			signup_handler.NewSignUpHandler(nil),
+			assistant_handler.NewAssistantHandler(nil, nil),
+			signup_handler.NewSignUpHandler(nil, nil),
 		)
 
 		req := httptest.NewRequest(http.MethodGet, "/events/75", nil)
