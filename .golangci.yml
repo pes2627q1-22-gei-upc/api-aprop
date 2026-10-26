@@ -1,0 +1,7 @@
+version: "2"
+
+linters:
+  exclusions:
+    # Unchecked errors from deferred Close/Flush and prints are idiomatic and safe to ignore
+    presets:
+      - std-error-handling

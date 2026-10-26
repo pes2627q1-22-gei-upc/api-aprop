@@ -424,15 +424,16 @@ func (r *EventRepository) List(params map[string]any) ([]event_model.Event, erro
 		filterOfficial.Valid = true
 	}
 	filterModalityTmp, _ := params["filterModality"].(string)
-	if filterModalityTmp == "" {
+	switch filterModalityTmp {
+	case "":
 		filterModality = sqlc.NullModalitytype{Valid: false}
-	} else if filterModalityTmp == "Online" {
+	case "Online":
 		filterModality = sqlc.NullModalitytype{Modalitytype: sqlc.ModalitytypeOnline, Valid: true}
-	} else if filterModalityTmp == "Face-to-Face" {
+	case "Face-to-Face":
 		filterModality = sqlc.NullModalitytype{Modalitytype: sqlc.ModalitytypeFaceToFace, Valid: true}
-	} else if filterModalityTmp == "Online and Face-to-Face" {
+	case "Online and Face-to-Face":
 		filterModality = sqlc.NullModalitytype{Modalitytype: sqlc.ModalitytypeOnlineandFaceToFace, Valid: true}
-	} else {
+	default:
 		return nil, fmt.Errorf("list events: error converting filterModality parameter")
 	}
 

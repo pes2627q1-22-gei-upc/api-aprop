@@ -155,7 +155,7 @@ func (r *UserRepository) UpdateProfile(ctx context.Context, id pgtype.UUID, name
 		return user_model.User{}, user_repository.ErrUserNotFound
 	}
 	if err != nil {
-		return user_model.User{}, fmt.Errorf("update profile of user %d: %w", id, err)
+		return user_model.User{}, fmt.Errorf("update profile of user %s: %w", uuidToString(id), err)
 	}
 
 	u := user_model.User{

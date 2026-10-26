@@ -19,7 +19,7 @@ El client mòbil Flutter és a `../frontend-aprop` (amb el seu propi `AGENTS.md`
 
 ## Stack del backend
 
-- **Go 1.25** amb la biblioteca estàndard `net/http` (`http.ServeMux` amb patrons `MÈTODE /ruta/{param}`). Sense framework web extern (ADR-0001).
+- **Go 1.26** amb la biblioteca estàndard `net/http` (`http.ServeMux` amb patrons `MÈTODE /ruta/{param}`). Sense framework web extern (ADR-0001).
 - **Base de dades:** Supabase (PostgreSQL 15+ gestionat al cloud) amb Row Level Security (RLS) habilitat (ADR-0004). Driver `pgx/v5` (`internal/drivers/postgres_driver`).
 - **Consultes SQL:** `sqlc` v1.31.1 (`sqlc.yaml`, `internal/repositories/postgres/queries/*.sql` → `internal/repositories/postgres/sqlc/`).
 - **Migracions:** `migrations/` incrustades amb `embed.FS` per al binari i `supabase/migrations/` per al cicle de vida de Supabase CLI.
