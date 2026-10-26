@@ -301,6 +301,10 @@ func (r *EventRepository) Get(id int) (event_model.Event, error) {
 	if err != nil {
 		return event_model.Event{}, fmt.Errorf("get event %d: %w", id, err)
 	}
+	// GetEvent returns one row per category, so a missing event is an empty result, not pgx.ErrNoRows
+	if len(rows) == 0 {
+		return event_model.Event{}, fmt.Errorf("get event %d: %w", id, event_repository.ErrEventNotFound)
+	}
 
 	cats := []string{}
 	for _, r := range rows {
