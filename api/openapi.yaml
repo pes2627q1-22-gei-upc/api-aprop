@@ -1,0 +1,1957 @@
+openapi: 3.0.3
+info:
+  title: API Aprop
+  version: 0.1.0
+  description: |
+    API HTTP del backend d'Aprop (`cmd/app`). El contracte real és el codi
+    (`internal/handlers/*`): si hi ha discrepància, mana el codi.
+
+    - Totes les claus JSON de peticions i respostes són en **kebab-case**.
+    - Tots els endpoints passen pel middleware d'autenticació (`internal/middleware/auth_middleware`):
+      cal la capçalera `Authorization: Bearer <Firebase ID token>`. Sense token o amb un token
+      invàlid, revocat, d'un usuari desactivat o inexistent es respon `401`.
+    - L'usuari autenticat s'identifica pel seu UID de Firebase, que el backend tradueix al seu
+      ID de base de dades (UUID). Si l'usuari encara no s'ha sincronitzat amb `POST /auth/sync`,
+      els endpoints que necessiten el seu ID responen `401 user not registered`.
+    - Els errors tenen sempre el format `{"error": "<missatge>"}`.
+
+    Fora d'abast: el servidor MCP del catàleg (`cmd/mcp`, `POST /mcp`) és un altre binari que parla
+    el protocol MCP (JSON-RPC sobre Streamable HTTP) i només el fa servir l'API per al xatbot.
+servers:
+  - url: http://localhost:8080
+    description: Local (variable d'entorn `PORT`)
+security:
+  - firebaseAuth: []
+tags:
+  - name: auth
+    description: Sincronització dels usuaris de Firebase amb la base de dades
+  - name: events
+    description: Esdeveniments oficials (Dades Obertes de la Generalitat) i no oficials (creats pels usuaris)
+  - name: categories
+    description: Categories del catàleg d'esdeveniments
+  - name: signups
+    description: Inscripcions a esdeveniments i agenda de l'usuari
+  - name: users
+    description: Perfils d'usuari
+  - name: notifications
+    description: Notificacions dels usuaris
+  - name: preferences
+    description: Test d'interessos i preferències per categoria
+  - name: assistant
+    description: Xatbot que recomana esdeveniments del catàleg (Groq AI + servidor MCP)
+
+paths:
+  /auth/sync:
+    post:
+      tags: [auth]
+      operationId: syncUser
+      summary: Sincronitza l'usuari de Firebase amb la base de dades
+      description: |
+        El frontend la crida després d'iniciar sessió amb Firebase. Si l'usuari ja existeix es
+        retorna (i se n'actualitza el correu) amb `200`; si no, es crea amb el `username` del cos i
+        es respon `201`. El cos és opcional per als usuaris que ja existeixen.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyncRequest'
+      responses:
+        '200':
+          description: L'usuari ja existia
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncResult'
+        '201':
+          description: Usuari creat (primer inici de sessió)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: El nom d'usuari ja està agafat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: username already taken
+        '422':
+          description: Nom d'usuari invàlid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: 'invalid username: must have between 3 and 30 characters'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /events:
+    get:
+      tags: [events]
+      operationId: listEvents
+      summary: Llista esdeveniments amb paginació i filtres
+      description: |
+        Ordenats per data de fi ascendent (els que no en tenen, al final).
+        Un filtre amb un format invàlid respon `500` (el repositori no distingeix l'error).
+      parameters:
+        - name: pageSize
+          in: query
+          description: Nombre d'esdeveniments per pàgina. Si no s'envia val 0 i la llista és buida.
+          schema:
+            type: integer
+            minimum: 1
+          example: 20
+        - name: pageNum
+          in: query
+          description: Número de pàgina, començant per 0
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: filterCategory
+          in: query
+          description: ID de categoria (`GET /categories`). 0 o absent, sense filtre.
+          schema:
+            type: integer
+        - name: filterRegion
+          in: query
+          description: Regió en format `<a>_<b>`, que es compara amb `agenda:ubicacions/<a>/<b>`.
+          schema:
+            type: string
+        - name: startBefore
+          in: query
+          description: Data d'inici com a màxim aquest dia. Format `2006-01-02T15:04:05.000`.
+          schema:
+            type: string
+          example: '2026-11-30T00:00:00.000'
+        - name: startAfter
+          in: query
+          description: Data d'inici com a mínim aquest dia. Format `2006-01-02T15:04:05.000`.
+          schema:
+            type: string
+        - name: endBefore
+          in: query
+          description: Data de fi com a màxim aquest dia. Format `2006-01-02T15:04:05.000`.
+          schema:
+            type: string
+        - name: endAfter
+          in: query
+          description: Data de fi com a mínim aquest dia. Format `2006-01-02T15:04:05.000`.
+          schema:
+            type: string
+        - name: filterPermanent
+          in: query
+          schema:
+            type: boolean
+        - name: filterFree
+          in: query
+          schema:
+            type: boolean
+        - name: filterOfficial
+          in: query
+          description: '`true` només oficials, `false` només no oficials'
+          schema:
+            type: boolean
+        - name: filterModality
+          in: query
+          schema:
+            $ref: '#/components/schemas/Modality'
+      responses:
+        '200':
+          description: Llista d'esdeveniments (pot ser buida)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Event'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags: [events]
+      operationId: createEvent
+      summary: Crea un esdeveniment no oficial
+      description: |
+        El creador és l'usuari autenticat. `id`, `code`, `is-official`, `creator` i `date-created`
+        els assigna el servidor. Cos de com a màxim 1 MiB.
+        R5: la data d'inici no pot ser anterior a la de creació (marge de 2 minuts) i la de fi no
+        pot ser anterior a la d'inici.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventInput'
+      responses:
+        '201':
+          description: Esdeveniment creat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        '400':
+          $ref: '#/components/responses/InvalidEvent'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /events/search:
+    get:
+      tags: [events]
+      operationId: searchEvents
+      summary: Cerca ponderada per paraules clau
+      description: Cerca al títol, l'espai, el municipi i la descripció. Amb una cerca buida es retorna un resultat buit.
+      parameters:
+        - name: q
+          in: query
+          description: Text a cercar (també s'accepta `search`)
+          schema:
+            type: string
+          example: concert jazz
+        - name: search
+          in: query
+          description: Àlies de `q`; només es llegeix si `q` no hi és
+          schema:
+            type: string
+        - name: pageNum
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 20
+      responses:
+        '200':
+          description: Resultat de la cerca
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /events/map:
+    get:
+      tags: [events]
+      operationId: listMapEvents
+      summary: Esdeveniments dins la zona visible del mapa
+      description: |
+        Sense cap coordenada es retorna tot el món. Si se n'envia alguna, calen les quatre.
+        També disponible a `GET /event/map`.
+      parameters:
+        - $ref: '#/components/parameters/MinLat'
+        - $ref: '#/components/parameters/MaxLat'
+        - $ref: '#/components/parameters/MinLng'
+        - $ref: '#/components/parameters/MaxLng'
+        - $ref: '#/components/parameters/MinLon'
+        - $ref: '#/components/parameters/MaxLon'
+        - $ref: '#/components/parameters/MapUserIdHeader'
+        - $ref: '#/components/parameters/MapUserIdQuery'
+      responses:
+        '200':
+          $ref: '#/components/responses/MapEvents'
+        '400':
+          $ref: '#/components/responses/InvalidBoundingBox'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /event/map:
+    get:
+      tags: [events]
+      operationId: listMapEventsLegacy
+      summary: Àlies de GET /events/map
+      parameters:
+        - $ref: '#/components/parameters/MinLat'
+        - $ref: '#/components/parameters/MaxLat'
+        - $ref: '#/components/parameters/MinLng'
+        - $ref: '#/components/parameters/MaxLng'
+        - $ref: '#/components/parameters/MinLon'
+        - $ref: '#/components/parameters/MaxLon'
+        - $ref: '#/components/parameters/MapUserIdHeader'
+        - $ref: '#/components/parameters/MapUserIdQuery'
+      responses:
+        '200':
+          $ref: '#/components/responses/MapEvents'
+        '400':
+          $ref: '#/components/responses/InvalidBoundingBox'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /events/{id}:
+    parameters:
+      - $ref: '#/components/parameters/EventId'
+    get:
+      tags: [events]
+      operationId: getEvent
+      summary: Detall d'un esdeveniment
+      responses:
+        '200':
+          description: Esdeveniment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        '400':
+          $ref: '#/components/responses/InvalidEventId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/EventNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags: [events]
+      operationId: updateEvent
+      summary: Modifica un esdeveniment no oficial
+      description: |
+        Només el creador. Els esdeveniments oficials no es poden modificar (`403`).
+        Substitueix tots els camps editables i aplica les mateixes validacions que la creació
+        (la data d'inici es compara amb la data de creació original).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventInput'
+      responses:
+        '200':
+          description: Esdeveniment modificat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        '400':
+          $ref: '#/components/responses/InvalidEvent'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/NotCreator'
+        '404':
+          $ref: '#/components/responses/EventNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [events]
+      operationId: deleteEvent
+      summary: Esborra un esdeveniment no oficial
+      description: Només el creador. També s'esborren les dades que en depenen (inscripcions, etc.).
+      responses:
+        '204':
+          description: Esdeveniment esborrat
+        '400':
+          $ref: '#/components/responses/InvalidEventId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/NotCreator'
+        '404':
+          $ref: '#/components/responses/EventNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /events/{id}/image:
+    parameters:
+      - $ref: '#/components/parameters/EventId'
+    post:
+      tags: [events]
+      operationId: uploadEventImage
+      summary: Puja la imatge d'un esdeveniment no oficial
+      description: Només el creador. Es desa a S3 i substitueix el camp `images` de l'esdeveniment. Màxim 5 MB.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: Fitxer d'imatge (també s'accepta el camp `file`)
+                file:
+                  type: string
+                  format: binary
+                  description: Àlies de `image`
+      responses:
+        '201':
+          description: Imatge pujada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventImage'
+        '400':
+          description: Id, formulari, fitxer o tipus de contingut invàlid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                tooLarge:
+                  value:
+                    error: file too large or invalid multipart form
+                missingFile:
+                  value:
+                    error: missing image file in multipart form
+                contentType:
+                  value:
+                    error: invalid content type
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/NotCreator'
+        '404':
+          $ref: '#/components/responses/EventNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /events/{id}/signup:
+    parameters:
+      - $ref: '#/components/parameters/EventId'
+    post:
+      tags: [signups]
+      operationId: signUp
+      summary: Inscriu l'usuari a l'esdeveniment
+      description: Inscriure's dues vegades no és un error. També disponible a `POST /events/{id}/enroll`.
+      responses:
+        '200':
+          $ref: '#/components/responses/AlreadySignedUp'
+        '201':
+          $ref: '#/components/responses/SignedUp'
+        '400':
+          $ref: '#/components/responses/InvalidSignUp'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/EventNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [signups]
+      operationId: unenroll
+      summary: Desapunta l'usuari de l'esdeveniment
+      description: També disponible a `DELETE /events/{id}/enroll`.
+      responses:
+        '200':
+          $ref: '#/components/responses/Unenrolled'
+        '400':
+          $ref: '#/components/responses/InvalidSignUp'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/EventNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    get:
+      tags: [signups]
+      operationId: getEnrollmentStatus
+      summary: Estat d'inscripció i nombre d'inscrits
+      description: També disponible a `GET /events/{id}/enrollment`.
+      responses:
+        '200':
+          $ref: '#/components/responses/EnrollmentStatus'
+        '400':
+          $ref: '#/components/responses/InvalidSignUp'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/EventNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /events/{id}/enroll:
+    parameters:
+      - $ref: '#/components/parameters/EventId'
+    post:
+      tags: [signups]
+      operationId: enroll
+      summary: Àlies de POST /events/{id}/signup
+      responses:
+        '200':
+          $ref: '#/components/responses/AlreadySignedUp'
+        '201':
+          $ref: '#/components/responses/SignedUp'
+        '400':
+          $ref: '#/components/responses/InvalidSignUp'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/EventNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [signups]
+      operationId: unenrollAlias
+      summary: Àlies de DELETE /events/{id}/signup
+      responses:
+        '200':
+          $ref: '#/components/responses/Unenrolled'
+        '400':
+          $ref: '#/components/responses/InvalidSignUp'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/EventNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /events/{id}/enrollment:
+    parameters:
+      - $ref: '#/components/parameters/EventId'
+    get:
+      tags: [signups]
+      operationId: getEnrollmentStatusAlias
+      summary: Àlies de GET /events/{id}/signup
+      responses:
+        '200':
+          $ref: '#/components/responses/EnrollmentStatus'
+        '400':
+          $ref: '#/components/responses/InvalidSignUp'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/EventNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /categories:
+    get:
+      tags: [categories]
+      operationId: listCategories
+      summary: Llista totes les categories
+      responses:
+        '200':
+          description: Categories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Category'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /categories/{id}:
+    get:
+      tags: [categories]
+      operationId: getCategory
+      summary: Detall d'una categoria
+      description: Una categoria inexistent respon `500` (el repositori no distingeix l'error).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Categoria
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+        '400':
+          description: Id de categoria invàlid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: invalid category id
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /users/me:
+    get:
+      tags: [users]
+      operationId: getMyProfile
+      summary: Perfil propi
+      description: Inclou el correu i `plans-visible` sempre és `true`.
+      responses:
+        '200':
+          $ref: '#/components/responses/UserProfile'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    patch:
+      tags: [users]
+      operationId: updateMyProfile
+      summary: Modifica el perfil propi
+      description: Només s'actualitzen els camps enviats (R1).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/UserProfile'
+        '400':
+          description: Cos o camps invàlids
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: 'invalid input: username must be 3-30 characters long and contain only letters, numbers and underscores'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '409':
+          description: El nom d'usuari ja està agafat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: username already taken
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /users/me/avatar:
+    post:
+      tags: [users]
+      operationId: uploadAvatar
+      summary: Puja la foto de perfil
+      description: Es desa a S3 i actualitza `profile-picture`. Màxim 5 MB.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                avatar:
+                  type: string
+                  format: binary
+                  description: Fitxer d'imatge (també s'accepta el camp `file`)
+                file:
+                  type: string
+                  format: binary
+                  description: Àlies de `avatar`
+      responses:
+        '200':
+          $ref: '#/components/responses/UserProfile'
+        '400':
+          description: Fitxer massa gran, camp absent o error en pujar-lo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                tooLarge:
+                  value:
+                    error: 'file too large: maximum size is 5MB'
+                missingFile:
+                  value:
+                    error: missing 'avatar' or 'file' multipart field
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /users/{id}:
+    get:
+      tags: [users]
+      operationId: getUserProfile
+      summary: Perfil d'un usuari
+      description: |
+        Perfil públic: sense correu. `is-friend` indica si és amic de l'usuari autenticat i
+        `plans-visible` és `true` només si són amics i l'usuari mostra els seus plans.
+      parameters:
+        - $ref: '#/components/parameters/UserIdentifier'
+      responses:
+        '200':
+          $ref: '#/components/responses/UserProfile'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /users/{id}/created-events:
+    get:
+      tags: [users]
+      operationId: listCreatedEvents
+      summary: Esdeveniments no oficials creats per un usuari
+      parameters:
+        - $ref: '#/components/parameters/UserIdentifier'
+      responses:
+        '200':
+          description: Esdeveniments creats (pot ser buida)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Event'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /users/{userId}/events:
+    get:
+      tags: [signups]
+      operationId: listUserEvents
+      summary: Agenda de l'usuari
+      description: |
+        Esdeveniments als quals l'usuari està inscrit que se solapen amb el rang de dates
+        (inclusiu; cada límit és opcional).
+        TODO(DP-011): no es comprova que l'usuari autenticat sigui el que es consulta.
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          description: ID de l'usuari (UUID)
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+          example: '2026-11-01'
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+          example: '2026-11-30'
+      responses:
+        '200':
+          description: Esdeveniments (pot ser buida)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Event'
+        '400':
+          description: UUID, data o rang de dates invàlid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                userId:
+                  value:
+                    error: invalid user id
+                date:
+                  value:
+                    error: invalid from date, expected YYYY-MM-DD
+                range:
+                  value:
+                    error: 'invalid date range: from must not be after to'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /notifications:
+    post:
+      tags: [notifications]
+      operationId: createNotification
+      summary: Crea una notificació
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateNotificationRequest'
+      responses:
+        '201':
+          description: Notificació creada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+        '400':
+          description: Cos invàlid (també si `user-id` o `friend` no són UUID)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: invalid request body
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /notifications/{id}:
+    get:
+      tags: [notifications]
+      operationId: getNotification
+      summary: Detall d'una notificació
+      parameters:
+        - $ref: '#/components/parameters/NotificationId'
+      responses:
+        '200':
+          description: Notificació
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+        '400':
+          $ref: '#/components/responses/InvalidNotificationId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotificationNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /notifications/{id}/read:
+    post:
+      tags: [notifications]
+      operationId: readNotification
+      summary: Marca una notificació com a llegida
+      parameters:
+        - $ref: '#/components/parameters/NotificationId'
+      responses:
+        '200':
+          description: Notificació marcada com a llegida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              example:
+                message: notification 12 read
+        '400':
+          $ref: '#/components/responses/InvalidNotificationId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotificationNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /notifications/user/{id}:
+    get:
+      tags: [notifications]
+      operationId: listUserNotifications
+      summary: Notificacions d'un usuari
+      parameters:
+        - $ref: '#/components/parameters/NotificationUserId'
+        - name: filterType
+          in: query
+          description: ID del tipus de notificació (`GET /notificationtypes`). Absent, tots.
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Notificacions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Notification'
+        '400':
+          $ref: '#/components/responses/InvalidUserId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /notifications/user/{id}/read:
+    post:
+      tags: [notifications]
+      operationId: readUserNotifications
+      summary: Marca totes les notificacions d'un usuari com a llegides
+      parameters:
+        - $ref: '#/components/parameters/NotificationUserId'
+      responses:
+        '200':
+          description: Notificacions marcades com a llegides
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          $ref: '#/components/responses/InvalidUserId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /notificationtypes:
+    get:
+      tags: [notifications]
+      operationId: listNotificationTypes
+      summary: Tipus de notificació
+      responses:
+        '200':
+          description: Tipus de notificació
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/NotificationType'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /preferences/test:
+    get:
+      tags: [preferences]
+      operationId: getPreferenceTest
+      summary: Esdeveniments representatius per al test d'interessos
+      responses:
+        '200':
+          description: Preguntes del test (com a màxim 25)
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 25
+                items:
+                  $ref: '#/components/schemas/TestQuestion'
+        '400':
+          $ref: '#/components/responses/InvalidPreference'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags: [preferences]
+      operationId: submitPreferenceTest
+      summary: Envia les respostes del test i calcula els pesos per categoria
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitTestRequest'
+      responses:
+        '200':
+          description: Preferències calculades
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmitTestResponse'
+        '400':
+          $ref: '#/components/responses/InvalidPreference'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /preferences:
+    get:
+      tags: [preferences]
+      operationId: getUserPreferences
+      summary: Preferències de l'usuari per categoria
+      responses:
+        '200':
+          description: Preferències (pot ser buida si no ha fet el test)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserPreference'
+        '400':
+          $ref: '#/components/responses/InvalidPreference'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /assistant/messages:
+    post:
+      tags: [assistant]
+      operationId: sendAssistantMessage
+      summary: Envia un missatge al xatbot
+      description: |
+        El missatge s'afegeix a la conversa més recent de l'usuari (o en crea una). El xatbot
+        només recomana esdeveniments reals del catàleg. Temps màxim de resposta: 8 s.
+        Si el xatbot falla no es desa res, així que es pot reintentar el mateix missatge.
+        Cos de com a màxim 16 KiB.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageRequest'
+      responses:
+        '201':
+          description: Missatge de l'usuari i resposta del xatbot (tots dos desats)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Exchange'
+        '400':
+          description: Cos o text invàlid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                body:
+                  value:
+                    error: invalid request body
+                text:
+                  value:
+                    error: 'invalid message: the text must have between 1 and 1000 characters'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          description: Groq AI o el servidor MCP no responen correctament
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: the assistant is not available right now, try again
+        '504':
+          description: El xatbot no ha respost en 8 s
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: the assistant took too long to answer, try again
+
+  /assistant/conversation:
+    get:
+      tags: [assistant]
+      operationId: getAssistantConversation
+      summary: Conversa més recent de l'usuari
+      responses:
+        '200':
+          description: Conversa
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: L'usuari encara no té cap conversa
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: conversation not found
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  securitySchemes:
+    firebaseAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 'Firebase ID token de l''usuari (`Authorization: Bearer <token>`)'
+
+  parameters:
+    EventId:
+      name: id
+      in: path
+      required: true
+      description: ID de l'esdeveniment
+      schema:
+        type: integer
+        minimum: 1
+    NotificationId:
+      name: id
+      in: path
+      required: true
+      description: ID de la notificació
+      schema:
+        type: integer
+    NotificationUserId:
+      name: id
+      in: path
+      required: true
+      description: ID de l'usuari (UUID)
+      schema:
+        type: string
+        format: uuid
+    UserIdentifier:
+      name: id
+      in: path
+      required: true
+      description: ID (UUID), UID de Firebase o nom d'usuari. `me` és l'usuari autenticat.
+      schema:
+        type: string
+      example: me
+    MinLat:
+      name: minLat
+      in: query
+      schema:
+        type: number
+        format: float
+        minimum: -90
+        maximum: 90
+    MaxLat:
+      name: maxLat
+      in: query
+      schema:
+        type: number
+        format: float
+        minimum: -90
+        maximum: 90
+    MinLng:
+      name: minLng
+      in: query
+      schema:
+        type: number
+        format: float
+        minimum: -180
+        maximum: 180
+    MaxLng:
+      name: maxLng
+      in: query
+      schema:
+        type: number
+        format: float
+        minimum: -180
+        maximum: 180
+    MinLon:
+      name: minLon
+      in: query
+      description: Àlies de `minLng`
+      schema:
+        type: number
+        format: float
+    MaxLon:
+      name: maxLon
+      in: query
+      description: Àlies de `maxLng`
+      schema:
+        type: number
+        format: float
+    MapUserIdHeader:
+      name: X-User-ID
+      in: header
+      description: UUID de l'usuari per calcular `has-friends`. Opcional.
+      schema:
+        type: string
+        format: uuid
+    MapUserIdQuery:
+      name: userId
+      in: query
+      description: Com `X-User-ID`; només es llegeix si la capçalera no hi és.
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: Petició invàlida
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: invalid request body
+    Unauthorized:
+      description: Sense token, token invàlid o usuari no registrat
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            missingToken:
+              value:
+                error: missing bearer token
+            invalidToken:
+              value:
+                error: invalid token
+            notRegistered:
+              value:
+                error: user not registered
+    InternalError:
+      description: Error intern
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: internal server error
+    InvalidEventId:
+      description: Id d'esdeveniment invàlid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: invalid event id
+    EventNotFound:
+      description: L'esdeveniment no existeix
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: event not found
+    NotCreator:
+      description: L'usuari no és el creador o l'esdeveniment és oficial
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: only the creator can modify this event
+    InvalidEvent:
+      description: Id, cos o camps de l'esdeveniment invàlids
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            body:
+              value:
+                error: invalid request body
+            title:
+              value:
+                error: title is required
+            description:
+              value:
+                error: description is required
+            category:
+              value:
+                error: at least one category is required
+            dates:
+              value:
+                error: 'invalid event dates: start date must not be before the creation date'
+            coordinates:
+              value:
+                error: invalid coordinates
+    InvalidBoundingBox:
+      description: Coordenades absents o fora de rang
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            missing:
+              value:
+                error: missing bounding box parameters, expected minLat, maxLat, minLng, maxLng
+            coordinate:
+              value:
+                error: invalid minLat coordinate
+            box:
+              value:
+                error: invalid bounding box
+            userId:
+              value:
+                error: invalid user id
+    MapEvents:
+      description: Esdeveniments dins la zona (pot ser buida)
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/MapEvent'
+    SignedUp:
+      description: Inscripció creada
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SignUp'
+    AlreadySignedUp:
+      description: L'usuari ja hi estava inscrit (`created` és `false`)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SignUp'
+    Unenrolled:
+      description: Resultat de desapuntar-se (`deleted` és `false` si no hi estava inscrit)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Unenroll'
+    EnrollmentStatus:
+      description: Estat d'inscripció. Si no hi ha usuari identificat, `is-enrolled` és `false`.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/EnrollmentStatus'
+    InvalidSignUp:
+      description: Id d'esdeveniment o d'usuari invàlid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            eventId:
+              value:
+                error: invalid event id
+            userId:
+              value:
+                error: invalid user id
+    UserProfile:
+      description: Perfil d'usuari
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/UserProfile'
+    UserNotFound:
+      description: L'usuari no existeix
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: user not found
+    InvalidUserId:
+      description: Id d'usuari invàlid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: invalid user id
+    InvalidNotificationId:
+      description: Id de notificació invàlid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: invalid notification id
+    NotificationNotFound:
+      description: La notificació no existeix
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: notification not found
+    InvalidPreference:
+      description: Usuari, respostes o esdeveniment invàlids
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            userId:
+              value:
+                error: invalid user id
+            empty:
+              value:
+                error: answers cannot be empty
+            tooMany:
+              value:
+                error: too many answers
+            eventId:
+              value:
+                error: 'invalid event id: 0'
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: event not found
+
+    Message:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+
+    Modality:
+      type: string
+      enum: [Online, Face-to-Face, Online and Face-to-Face]
+
+    EventInput:
+      type: object
+      description: Camps editables d'un esdeveniment no oficial
+      required: [title, description, categories, start-date]
+      properties:
+        title:
+          type: string
+          example: Concert de jazz a la plaça
+        subtitle:
+          type: string
+        schedule:
+          type: string
+          description: Horari en text lliure
+        tickets:
+          type: string
+          description: Informació sobre les entrades en text lliure
+        url:
+          type: string
+          description: URL de la publicació de l'esdeveniment
+        tickets-url:
+          type: string
+          description: URL per comprar entrades
+        description:
+          type: string
+        free:
+          type: boolean
+          nullable: true
+        permanent:
+          type: boolean
+          nullable: true
+        related-urls:
+          type: string
+          description: URLs relacionades amb més informació
+        url-names:
+          type: string
+          description: Nom de cada URL relacionada
+        modality:
+          type: string
+          description: Modalitat (vegeu `Modality`)
+          example: Face-to-Face
+        images:
+          type: string
+          description: URL de la imatge
+        videos:
+          type: string
+        email:
+          type: string
+        place:
+          type: string
+          description: Nom de l'espai
+        latitude:
+          type: number
+          format: float
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          format: float
+          minimum: -180
+          maximum: 180
+        postal-code:
+          type: string
+        municipality:
+          type: string
+        region:
+          type: string
+        address:
+          type: string
+        phone:
+          type: string
+        activity-url:
+          type: string
+          description: URL on es fa l'activitat (esdeveniments en línia)
+        start-date:
+          type: string
+          format: date-time
+          description: No pot ser anterior a la data de creació (R5)
+        end-date:
+          type: string
+          format: date-time
+          description: No pot ser anterior a la data d'inici (R5)
+        categories:
+          type: array
+          minItems: 1
+          description: Noms de les categories (`GET /categories`)
+          items:
+            type: string
+          example: [concerts]
+
+    Event:
+      allOf:
+        - type: object
+          required: [id, code, is-official, creator, date-created]
+          properties:
+            id:
+              type: integer
+              readOnly: true
+              example: 7
+            code:
+              type: integer
+              format: int64
+              readOnly: true
+              description: Codi de l'esdeveniment a les Dades Obertes. No és únic. 0 als no oficials.
+            is-official:
+              type: boolean
+              readOnly: true
+            creator:
+              type: string
+              format: uuid
+              nullable: true
+              readOnly: true
+              description: ID del creador. `null` als esdeveniments oficials.
+            date-created:
+              type: string
+              format: date-time
+              readOnly: true
+              description: Data de creació (als oficials és `0001-01-01T00:00:00Z`)
+        - $ref: '#/components/schemas/EventInput'
+
+    MapEvent:
+      allOf:
+        - $ref: '#/components/schemas/Event'
+        - type: object
+          required: [has-friends]
+          properties:
+            has-friends:
+              type: boolean
+              description: Algun amic de l'usuari indicat hi està inscrit
+
+    EventImage:
+      type: object
+      required: [event-id, image-url]
+      properties:
+        event-id:
+          type: integer
+        image-url:
+          type: string
+
+    SearchResult:
+      type: object
+      required: [query, total, page-num, page-size, events]
+      properties:
+        query:
+          type: string
+        total:
+          type: integer
+          format: int64
+          description: Nombre total de resultats
+        page-num:
+          type: integer
+        page-size:
+          type: integer
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/Event'
+
+    Category:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+          example: concerts
+
+    SignUp:
+      type: object
+      required: [user-id, event-id, created]
+      properties:
+        user-id:
+          type: string
+          format: uuid
+        event-id:
+          type: integer
+        created:
+          type: boolean
+          description: '`false` si ja hi estava inscrit'
+
+    Unenroll:
+      type: object
+      required: [user-id, event-id, enrolled, deleted]
+      properties:
+        user-id:
+          type: string
+          format: uuid
+        event-id:
+          type: integer
+        enrolled:
+          type: boolean
+          description: '`false` quan ja no hi està inscrit'
+        deleted:
+          type: boolean
+          description: '`false` si no hi estava inscrit'
+
+    EnrollmentStatus:
+      type: object
+      required: [event-id, is-enrolled, enrolled-count]
+      properties:
+        event-id:
+          type: integer
+        is-enrolled:
+          type: boolean
+        enrolled-count:
+          type: integer
+
+    SyncRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 30
+          description: Només cal el primer cop (quan es crea l'usuari)
+
+    User:
+      type: object
+      required: [id, firebase-uid, username, email, profile-picture, biography, date-registered, account-state, experience, level, rating, settings]
+      properties:
+        id:
+          type: string
+          format: uuid
+        firebase-uid:
+          type: string
+        username:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+        profile-picture:
+          type: string
+        biography:
+          type: string
+        date-registered:
+          type: string
+          format: date-time
+        account-state:
+          type: integer
+        experience:
+          type: integer
+        level:
+          type: integer
+          nullable: true
+          description: '`null` fins que arriba al primer nivell'
+        rating:
+          type: number
+          format: float
+          nullable: true
+          description: '`null` fins que el valoren'
+        settings:
+          type: integer
+
+    SyncResult:
+      type: object
+      required: [user, created]
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        created:
+          type: boolean
+          description: '`true` el primer inici de sessió'
+
+    UserProfile:
+      type: object
+      required: [id, username, name, profile-picture, biography, date-registered, account-state, experience, level, rating, reliability, friends-count, plans-count, completed-plans-count, show-plans, plans-visible]
+      properties:
+        id:
+          type: string
+          format: uuid
+        firebase-uid:
+          type: string
+        username:
+          type: string
+        name:
+          type: string
+          description: Nom visible (el nom d'usuari si no n'hi ha)
+        email:
+          type: string
+          description: Només al perfil propi
+        profile-picture:
+          type: string
+          description: URL de la foto (una generada si no n'hi ha)
+        biography:
+          type: string
+        date-registered:
+          type: string
+          format: date-time
+        account-state:
+          type: integer
+        experience:
+          type: integer
+        level:
+          type: integer
+          nullable: true
+        rating:
+          type: number
+          format: float
+          nullable: true
+        reliability:
+          type: number
+          format: float
+          nullable: true
+        friends-count:
+          type: integer
+        plans-count:
+          type: integer
+        completed-plans-count:
+          type: integer
+        show-plans:
+          type: boolean
+          description: Preferència de privacitat de l'usuari
+        is-friend:
+          type: boolean
+          description: Només al perfil d'un altre usuari
+        plans-visible:
+          type: boolean
+
+    UpdateProfileRequest:
+      type: object
+      description: Tots els camps són opcionals; només s'actualitzen els enviats.
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        username:
+          type: string
+          pattern: '^[a-zA-Z0-9_]{3,30}$'
+        biography:
+          type: string
+          maxLength: 500
+        profile-picture:
+          type: string
+        show-plans:
+          type: boolean
+
+    Notification:
+      type: object
+      required: [id, user-id, notification-date, friend-id, request-date, event, type, read]
+      properties:
+        id:
+          type: integer
+        user-id:
+          type: string
+          format: uuid
+        notification-date:
+          type: string
+          description: Data sense zona horària (`2006-01-02T15:04:05.999999999`)
+          example: '2026-10-26T18:30:00'
+        friend-id:
+          type: string
+          format: uuid
+          nullable: true
+        request-date:
+          type: string
+          nullable: true
+          description: Data sense zona horària
+        event:
+          type: integer
+          nullable: true
+        type:
+          type: integer
+          description: ID del tipus (`GET /notificationtypes`)
+        read:
+          type: boolean
+
+    CreateNotificationRequest:
+      type: object
+      required: [user-id, notification-date, type]
+      properties:
+        user-id:
+          type: string
+          format: uuid
+        notification-date:
+          type: string
+          format: date-time
+        friend:
+          type: string
+          format: uuid
+          description: UUID de l'amic relacionat (opcional)
+        request-date:
+          type: string
+          format: date-time
+          nullable: true
+        event:
+          type: integer
+          nullable: true
+        type:
+          type: integer
+
+    NotificationType:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+
+    TestQuestion:
+      type: object
+      required: [event-id, title, description, images, categories]
+      properties:
+        event-id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
+        images:
+          type: string
+        categories:
+          type: array
+          items:
+            type: string
+
+    TestAnswer:
+      type: object
+      required: [event-id, likes]
+      properties:
+        event-id:
+          type: integer
+          minimum: 1
+        likes:
+          type: boolean
+
+    SubmitTestRequest:
+      type: object
+      required: [answers]
+      properties:
+        answers:
+          type: array
+          minItems: 1
+          maxItems: 25
+          items:
+            $ref: '#/components/schemas/TestAnswer'
+
+    UserPreference:
+      type: object
+      required: [category-id, category-name, weight]
+      properties:
+        category-id:
+          type: integer
+        category-name:
+          type: string
+        weight:
+          type: number
+          format: float
+
+    SubmitTestResponse:
+      type: object
+      required: [user-id, date-taken, preferences]
+      properties:
+        user-id:
+          type: string
+          format: uuid
+        date-taken:
+          type: string
+          format: date-time
+        preferences:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserPreference'
+
+    SendMessageRequest:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: Es retallen els espais; ha de tenir entre 1 i 1000 caràcters
+          example: concerts a Girona aquest cap de setmana
+        by-voice:
+          type: boolean
+          default: false
+
+    Interpretation:
+      type: object
+      description: Criteris de cerca que ha entès el xatbot. Els que no s'han donat no hi són.
+      properties:
+        category:
+          type: string
+          example: concert
+        municipality:
+          type: string
+          example: Girona
+        date-from:
+          type: string
+          format: date
+          example: '2026-10-24'
+        date-to:
+          type: string
+          format: date
+          example: '2026-10-25'
+        date-range:
+          type: string
+          description: Rang de dates en català
+          example: del 24/10/2026 al 25/10/2026
+
+    ChatMessage:
+      type: object
+      required: [sent-at, sender, text, by-voice]
+      properties:
+        sent-at:
+          type: string
+          format: date-time
+        sender:
+          type: string
+          enum: [user, assistant]
+        text:
+          type: string
+        by-voice:
+          type: boolean
+          description: Només els missatges de l'usuari poden ser per veu (R12)
+        interpretation:
+          $ref: '#/components/schemas/Interpretation'
+        recommended-events:
+          type: array
+          description: Només als missatges del xatbot (R12)
+          items:
+            $ref: '#/components/schemas/Event'
+
+    Exchange:
+      type: object
+      required: [conversation-started-at, user-message, assistant-message]
+      properties:
+        conversation-started-at:
+          type: string
+          format: date-time
+        user-message:
+          $ref: '#/components/schemas/ChatMessage'
+        assistant-message:
+          $ref: '#/components/schemas/ChatMessage'
+
+    Conversation:
+      type: object
+      required: [started-at, messages]
+      properties:
+        started-at:
+          type: string
+          format: date-time
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatMessage'
