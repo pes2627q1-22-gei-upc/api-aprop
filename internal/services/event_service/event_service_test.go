@@ -33,6 +33,8 @@ type fakeEventRepository struct {
 	updated      event_model.Event
 	updateErr    error
 	updateCalls  int
+	deleteErr    error
+	deleteCalls  int
 }
 
 func (f *fakeEventRepository) Create(e event_model.Event, _ bool) (event_model.Event, error) {
@@ -48,6 +50,11 @@ func (f *fakeEventRepository) Update(_ int, e event_model.Event, _ bool) (event_
 	f.updateCalls++
 	f.updated = e
 	return e, f.updateErr
+}
+
+func (f *fakeEventRepository) Delete(_ context.Context, _ int) error {
+	f.deleteCalls++
+	return f.deleteErr
 }
 
 func (f *fakeEventRepository) UpdateImage(_ context.Context, _ int, img string) error {
@@ -505,6 +512,60 @@ func TestUpdateUnofficialEvent(t *testing.T) {
 			}
 			if repo.updated.Creator != creator || !repo.updated.DateCreated.Equal(createdAt) {
 				t.Errorf("creator or creation date changed: %v %v", repo.updated.Creator, repo.updated.DateCreated)
+			}
+		})
+	}
+}
+
+func TestDeleteUnofficialEvent(t *testing.T) {
+	var creator pgtype.UUID
+	if err := creator.Scan(validUserID); err != nil {
+		t.Fatal(err)
+	}
+	stored := event_model.Event{ID: 7, Title: "Taller", Creator: creator, DateCreated: time.Now().UTC()}
+
+	tests := []struct {
+		name        string
+		stored      event_model.Event
+		getErr      error
+		deleteErr   error
+		wantErr     error
+		wantDeletes int
+	}{
+		{
+			name:        "unofficial event is deleted",
+			stored:      stored,
+			wantDeletes: 1,
+		},
+		{
+			name:    "official event",
+			stored:  event_model.Event{ID: 7, Title: "Festa Major", Code: 1, IsOfficial: true},
+			wantErr: ErrInvalidEvent,
+		},
+		{
+			name:    "event not found",
+			getErr:  event_repository.ErrEventNotFound,
+			wantErr: ErrEventNotFound,
+		},
+		{
+			name:        "event already deleted",
+			stored:      stored,
+			deleteErr:   event_repository.ErrEventNotFound,
+			wantErr:     ErrEventNotFound,
+			wantDeletes: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := fakeEventRepository{getEvent: tt.stored, getErr: tt.getErr, deleteErr: tt.deleteErr}
+			svc := NewEventService(&repo, nil, nil, nil)
+			err := svc.DeleteUnofficialEvent(context.Background(), 7)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("error = %v, want %v", err, tt.wantErr)
+			}
+			if repo.deleteCalls != tt.wantDeletes {
+				t.Errorf("repository deletes = %d, want %d", repo.deleteCalls, tt.wantDeletes)
 			}
 		})
 	}

@@ -43,6 +43,7 @@ type fakeEventService struct {
 	event               event_model.Event
 	getErr              error
 	updateErr           error
+	deleteErr           error
 	mapEvents           []event_model.MapEvent
 	mapErr              error
 	createdUnofficial   event_model.Event
@@ -53,12 +54,18 @@ type fakeEventService struct {
 	mapCalls        int
 	unofficialCalls int
 	updateCalls     int
+	deleteCalls     int
 	uploadCalls     int
 	gotFilter       event_model.MapFilter
 }
 
 func (f *fakeEventService) GetEvent(_ int) (event_model.Event, error) {
 	return f.event, f.getErr
+}
+
+func (f *fakeEventService) DeleteUnofficialEvent(_ context.Context, _ int) error {
+	f.deleteCalls++
+	return f.deleteErr
 }
 
 func (f *fakeEventService) UpdateUnofficialEvent(_ context.Context, id int, e event_model.Event) (event_model.Event, error) {
@@ -569,6 +576,82 @@ func TestUpdateEventHandler(t *testing.T) {
 			}
 			if s.updateCalls != tt.wantCalls {
 				t.Errorf("service update calls = %d, want %d", s.updateCalls, tt.wantCalls)
+			}
+		})
+	}
+}
+
+func TestDeleteEventHandler(t *testing.T) {
+	tests := []struct {
+		name       string
+		path       string
+		userID     string
+		service    fakeEventService
+		wantStatus int
+		wantCalls  int
+	}{
+		{
+			name:       "creator deletes the event",
+			path:       "/events/7",
+			userID:     validUserID,
+			service:    fakeEventService{event: unofficialEvent(t, 7, validUserID)},
+			wantStatus: http.StatusNoContent,
+			wantCalls:  1,
+		},
+		{
+			name:       "another user cannot delete the event",
+			path:       "/events/7",
+			userID:     otherUserID,
+			service:    fakeEventService{event: unofficialEvent(t, 7, validUserID)},
+			wantStatus: http.StatusForbidden,
+			wantCalls:  0,
+		},
+		{
+			name:       "official events cannot be deleted",
+			path:       "/events/7",
+			userID:     validUserID,
+			service:    fakeEventService{event: officialEvent(7)},
+			wantStatus: http.StatusForbidden,
+			wantCalls:  0,
+		},
+		{
+			name:       "missing user",
+			path:       "/events/7",
+			service:    fakeEventService{event: unofficialEvent(t, 7, validUserID)},
+			wantStatus: http.StatusUnauthorized,
+			wantCalls:  0,
+		},
+		{
+			name:       "event not found",
+			path:       "/events/99",
+			userID:     validUserID,
+			service:    fakeEventService{getErr: event_service.ErrEventNotFound},
+			wantStatus: http.StatusNotFound,
+			wantCalls:  0,
+		},
+		{
+			name:       "invalid event id",
+			path:       "/events/abc",
+			userID:     validUserID,
+			wantStatus: http.StatusBadRequest,
+			wantCalls:  0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := tt.service
+			req := httptest.NewRequest(http.MethodDelete, tt.path, nil)
+			if tt.userID != "" {
+				req.Header.Set(UserIDHeader, tt.userID)
+			}
+
+			rec := serve(&s, req)
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d (body %s)", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+			if s.deleteCalls != tt.wantCalls {
+				t.Errorf("service delete calls = %d, want %d", s.deleteCalls, tt.wantCalls)
 			}
 		})
 	}

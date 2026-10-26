@@ -46,6 +46,10 @@ func (s *stubEventService) UpdateUnofficialEvent(_ context.Context, id int, e ev
 	return e, nil
 }
 
+func (s *stubEventService) DeleteUnofficialEvent(_ context.Context, _ int) error {
+	return nil
+}
+
 func (s *stubEventService) ResolveUserID(_ context.Context, identifier string) (string, error) {
 	return identifier, nil
 }

@@ -174,6 +174,93 @@ func (q *Queries) CreateUnofficialEvent(ctx context.Context, arg CreateUnofficia
 	return id, err
 }
 
+const deleteEvent = `-- name: DeleteEvent :execrows
+DELETE FROM events WHERE id = $1
+`
+
+func (q *Queries) DeleteEvent(ctx context.Context, id int32) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteEvent, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteEventChatbotRecommendations = `-- name: DeleteEventChatbotRecommendations :exec
+DELETE FROM chatbotrecommendations WHERE event = $1
+`
+
+func (q *Queries) DeleteEventChatbotRecommendations(ctx context.Context, event int32) error {
+	_, err := q.db.Exec(ctx, deleteEventChatbotRecommendations, event)
+	return err
+}
+
+const deleteEventMessages = `-- name: DeleteEventMessages :exec
+DELETE FROM messages WHERE event = $1
+`
+
+func (q *Queries) DeleteEventMessages(ctx context.Context, event int32) error {
+	_, err := q.db.Exec(ctx, deleteEventMessages, event)
+	return err
+}
+
+const deleteEventNotifications = `-- name: DeleteEventNotifications :exec
+DELETE FROM notifications WHERE event = $1::int
+`
+
+func (q *Queries) DeleteEventNotifications(ctx context.Context, event int32) error {
+	_, err := q.db.Exec(ctx, deleteEventNotifications, event)
+	return err
+}
+
+const deleteEventPreferenceTestChoices = `-- name: DeleteEventPreferenceTestChoices :exec
+DELETE FROM preferencetestchoices WHERE event = $1
+`
+
+func (q *Queries) DeleteEventPreferenceTestChoices(ctx context.Context, event int32) error {
+	_, err := q.db.Exec(ctx, deleteEventPreferenceTestChoices, event)
+	return err
+}
+
+const deleteEventRatings = `-- name: DeleteEventRatings :exec
+DELETE FROM eventratings WHERE event = $1
+`
+
+func (q *Queries) DeleteEventRatings(ctx context.Context, event int32) error {
+	_, err := q.db.Exec(ctx, deleteEventRatings, event)
+	return err
+}
+
+const deleteEventSignUps = `-- name: DeleteEventSignUps :exec
+
+DELETE FROM signup WHERE event = $1
+`
+
+// Deleting an event: the tables that reference events have no ON DELETE CASCADE,
+// so the dependent rows are deleted first (in one transaction, see EventRepository.Delete).
+func (q *Queries) DeleteEventSignUps(ctx context.Context, event int32) error {
+	_, err := q.db.Exec(ctx, deleteEventSignUps, event)
+	return err
+}
+
+const deleteEventUserRatings = `-- name: DeleteEventUserRatings :exec
+DELETE FROM userratings WHERE event = $1
+`
+
+func (q *Queries) DeleteEventUserRatings(ctx context.Context, event int32) error {
+	_, err := q.db.Exec(ctx, deleteEventUserRatings, event)
+	return err
+}
+
+const deleteUnofficialEvent = `-- name: DeleteUnofficialEvent :exec
+DELETE FROM unofficialevents WHERE id = $1
+`
+
+func (q *Queries) DeleteUnofficialEvent(ctx context.Context, id int32) error {
+	_, err := q.db.Exec(ctx, deleteUnofficialEvent, id)
+	return err
+}
+
 const equalEventExists = `-- name: EqualEventExists :one
 SELECT id FROM events WHERE title IS NOT DISTINCT FROM $1 
 and subtitle IS NOT DISTINCT FROM $2

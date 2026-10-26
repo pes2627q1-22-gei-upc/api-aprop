@@ -179,6 +179,24 @@ func (s *EventService) UpdateUnofficialEvent(ctx context.Context, id int, e even
 	return updated, nil
 }
 
+// DeleteUnofficialEvent deletes an unofficial event and everything that references it.
+// The handler checks that the requester is the creator.
+func (s *EventService) DeleteUnofficialEvent(ctx context.Context, id int) error {
+	stored, err := s.GetEvent(id)
+	if err != nil {
+		return err
+	}
+	if stored.IsOfficial || !stored.Creator.Valid {
+		return fmt.Errorf("delete event %d: %w: official events cannot be deleted", id, ErrInvalidEvent)
+	}
+
+	err = s.eventRepository.Delete(ctx, id)
+	if errors.Is(err, event_repository.ErrEventNotFound) {
+		return fmt.Errorf("%w: %w", ErrEventNotFound, err)
+	}
+	return err
+}
+
 // UploadEventImage uploads an event poster/image to S3 storage and associates it with the event.
 func (s *EventService) UploadEventImage(ctx context.Context, eventID int, filename string, contentType string, reader io.Reader) (string, error) {
 	if eventID <= 0 {

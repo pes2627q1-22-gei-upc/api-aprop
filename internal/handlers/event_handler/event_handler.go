@@ -36,6 +36,7 @@ func (h *EventHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /events/{id}", h.GetEvent)
 	mux.HandleFunc("POST /events", h.CreateEvent)
 	mux.HandleFunc("PUT /events/{id}", h.UpdateEvent)
+	mux.HandleFunc("DELETE /events/{id}", h.DeleteEvent)
 	mux.HandleFunc("POST /events/{id}/image", h.UploadEventImage)
 	mux.HandleFunc("GET /categories", h.GetCategories)
 	mux.HandleFunc("GET /categories/{id}", h.GetCategory)
@@ -168,6 +169,25 @@ func (h *EventHandler) UpdateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.WriteJSON(w, http.StatusOK, updated)
+}
+
+// DeleteEvent handles DELETE /events/{id}. Only the creator of an unofficial event can delete it.
+func (h *EventHandler) DeleteEvent(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil {
+		response.WriteError(w, http.StatusBadRequest, "invalid event id")
+		return
+	}
+
+	if !h.authorizeCreator(w, r, id) {
+		return
+	}
+
+	if err := h.eventService.DeleteUnofficialEvent(r.Context(), id); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // UploadEventImage handles POST /events/{id}/image. Only the creator of an unofficial event can change its image.

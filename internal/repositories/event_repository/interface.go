@@ -12,6 +12,8 @@ type Repository interface {
 	CreateOrReplace(e event_model.Event) (event_model.Event, error)
 	Update(id int, e event_model.Event, official bool) (event_model.Event, error)
 	UpdateImage(ctx context.Context, id int, imageURL string) error
+	// Delete removes the event and every row that references it.
+	Delete(ctx context.Context, id int) error
 	SetCategories(id int, cats []string, official bool) error
 	Get(id int) (event_model.Event, error)
 	List(params map[string]any) ([]event_model.Event, error)
