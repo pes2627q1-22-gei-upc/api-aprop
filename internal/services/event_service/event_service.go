@@ -15,21 +15,46 @@ import (
 	"api-aprop/internal/clients/gencat_client"
 	"api-aprop/internal/clients/s3_client"
 	"api-aprop/internal/models/event_model"
+	"api-aprop/internal/repositories/auth_repository"
 	"api-aprop/internal/repositories/event_repository"
 )
 
 type EventService struct {
 	eventRepository event_repository.Repository
+	authRepository  auth_repository.Repository
 	gencatClient    gencat_client.Client
 	s3Client        s3_client.Client
 }
 
-func NewEventService(eventRepository event_repository.Repository, gencatClient gencat_client.Client, s3Client s3_client.Client) *EventService {
+func NewEventService(eventRepository event_repository.Repository, authRepository auth_repository.Repository, gencatClient gencat_client.Client, s3Client s3_client.Client) *EventService {
 	return &EventService{
 		eventRepository: eventRepository,
+		authRepository:  authRepository,
 		gencatClient:    gencatClient,
 		s3Client:        s3Client,
 	}
+}
+
+// ResolveUserID returns the database ID (UUID) of the requester. The identifier is the Firebase UID set by
+// the auth middleware, or directly a UUID when the API runs without authentication (local development and tests).
+func (s *EventService) ResolveUserID(ctx context.Context, identifier string) (string, error) {
+	if identifier == "" {
+		return "", ErrUserNotRegistered
+	}
+	if uid, err := normalizeUserID(identifier); err == nil {
+		return uid, nil
+	}
+	if s.authRepository == nil {
+		return "", ErrUserNotRegistered
+	}
+	user, err := s.authRepository.GetByFirebaseUID(ctx, identifier)
+	if errors.Is(err, auth_repository.ErrUserNotFound) {
+		return "", fmt.Errorf("%w: %w", ErrUserNotRegistered, err)
+	}
+	if err != nil {
+		return "", fmt.Errorf("resolve user: %w", err)
+	}
+	return user.ID.String(), nil
 }
 
 func (s *EventService) GetEvent(id int) (event_model.Event, error) {
@@ -97,15 +122,6 @@ func (s *EventService) ListMapEvents(ctx context.Context, filter event_model.Map
 	return events, nil
 }
 
-func (s *EventService) CreateEvent(e event_model.Event) (event_model.Event, error) {
-	if strings.TrimSpace(e.Title) == "" {
-		return event_model.Event{}, fmt.Errorf("create event: %w: title is required", ErrInvalidEvent)
-	}
-	// The ID is always assigned by the repository
-	e.ID = 0
-	return s.eventRepository.Create(e, false)
-}
-
 // CreateUnofficialEvent validates and publishes a user-created unofficial event adhering to rule R5.
 func (s *EventService) CreateUnofficialEvent(ctx context.Context, userID string, e event_model.Event) (event_model.Event, error) {
 	uid, err := normalizeUserID(userID)
@@ -113,31 +129,9 @@ func (s *EventService) CreateUnofficialEvent(ctx context.Context, userID string,
 		return event_model.Event{}, err
 	}
 
-	if strings.TrimSpace(e.Title) == "" {
-		return event_model.Event{}, ErrInvalidEventTitle
-	}
-	if strings.TrimSpace(e.Description) == "" {
-		return event_model.Event{}, ErrInvalidEventDescription
-	}
-	if len(e.Categories) == 0 {
-		return event_model.Event{}, ErrInvalidEventCategory
-	}
-
 	now := time.Now().UTC()
-	// R5: dataInici >= dataCreacio (allowing 2-minute clock skew)
-	if e.StartDate.IsZero() || e.StartDate.Before(now.Add(-2*time.Minute)) {
-		return event_model.Event{}, fmt.Errorf("%w: start date must be today or in the future", ErrInvalidEventDates)
-	}
-	// R5: dataFi >= dataInici
-	if !e.EndDate.IsZero() && e.EndDate.Before(e.StartDate) {
-		return event_model.Event{}, fmt.Errorf("%w: end date must not be before start date", ErrInvalidEventDates)
-	}
-
-	// Validate coordinates if provided
-	if e.Latitude != 0 || e.Longitude != 0 {
-		if e.Latitude < -90 || e.Latitude > 90 || e.Longitude < -180 || e.Longitude > 180 {
-			return event_model.Event{}, ErrInvalidCoordinates
-		}
+	if err := validateUnofficialEvent(e, now); err != nil {
+		return event_model.Event{}, err
 	}
 
 	var creatorUUID pgtype.UUID
@@ -152,6 +146,55 @@ func (s *EventService) CreateUnofficialEvent(ctx context.Context, userID string,
 	e.DateCreated = now
 
 	return s.eventRepository.Create(e, false)
+}
+
+// UpdateUnofficialEvent replaces the fields of an unofficial event. The creator and the creation date are kept,
+// and rule R5 is checked against the original creation date. The handler checks that the requester is the creator.
+func (s *EventService) UpdateUnofficialEvent(ctx context.Context, id int, e event_model.Event) (event_model.Event, error) {
+	stored, err := s.GetEvent(id)
+	if err != nil {
+		return event_model.Event{}, err
+	}
+	if stored.IsOfficial || !stored.Creator.Valid {
+		return event_model.Event{}, fmt.Errorf("update event %d: %w: official events cannot be modified", id, ErrInvalidEvent)
+	}
+
+	if err := validateUnofficialEvent(e, stored.DateCreated); err != nil {
+		return event_model.Event{}, err
+	}
+
+	e.ID = id
+	e.Code = 0
+	e.IsOfficial = false
+	e.Creator = stored.Creator
+	e.DateCreated = stored.DateCreated
+
+	updated, err := s.eventRepository.Update(id, e, false)
+	if errors.Is(err, event_repository.ErrEventNotFound) {
+		return event_model.Event{}, fmt.Errorf("%w: %w", ErrEventNotFound, err)
+	}
+	if err != nil {
+		return event_model.Event{}, err
+	}
+	return updated, nil
+}
+
+// DeleteUnofficialEvent deletes an unofficial event and everything that references it.
+// The handler checks that the requester is the creator.
+func (s *EventService) DeleteUnofficialEvent(ctx context.Context, id int) error {
+	stored, err := s.GetEvent(id)
+	if err != nil {
+		return err
+	}
+	if stored.IsOfficial || !stored.Creator.Valid {
+		return fmt.Errorf("delete event %d: %w: official events cannot be deleted", id, ErrInvalidEvent)
+	}
+
+	err = s.eventRepository.Delete(ctx, id)
+	if errors.Is(err, event_repository.ErrEventNotFound) {
+		return fmt.Errorf("%w: %w", ErrEventNotFound, err)
+	}
+	return err
 }
 
 // UploadEventImage uploads an event poster/image to S3 storage and associates it with the event.
@@ -220,6 +263,37 @@ func (s *EventService) GetCategories() ([]event_model.Category, error) {
 
 func (s *EventService) GetCategory(id int) (event_model.Category, error) {
 	return s.eventRepository.GetCategory(id)
+}
+
+// validateUnofficialEvent checks the fields required to publish an unofficial event and rule R5
+// against the date the event was created.
+func validateUnofficialEvent(e event_model.Event, createdAt time.Time) error {
+	if strings.TrimSpace(e.Title) == "" {
+		return ErrInvalidEventTitle
+	}
+	if strings.TrimSpace(e.Description) == "" {
+		return ErrInvalidEventDescription
+	}
+	if len(e.Categories) == 0 {
+		return ErrInvalidEventCategory
+	}
+
+	// R5: dataInici >= dataCreacio (allowing 2-minute clock skew)
+	if e.StartDate.IsZero() || e.StartDate.Before(createdAt.Add(-2*time.Minute)) {
+		return fmt.Errorf("%w: start date must not be before the creation date", ErrInvalidEventDates)
+	}
+	// R5: dataFi >= dataInici
+	if !e.EndDate.IsZero() && e.EndDate.Before(e.StartDate) {
+		return fmt.Errorf("%w: end date must not be before start date", ErrInvalidEventDates)
+	}
+
+	// Validate coordinates if provided
+	if e.Latitude != 0 || e.Longitude != 0 {
+		if e.Latitude < -90 || e.Latitude > 90 || e.Longitude < -180 || e.Longitude > 180 {
+			return ErrInvalidCoordinates
+		}
+	}
+	return nil
 }
 
 func validateBoundingBox(minLat, maxLat, minLng, maxLng float32) error {

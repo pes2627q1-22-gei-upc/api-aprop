@@ -109,3 +109,33 @@ RETURNING id;
 
 -- name: UpdateEventImage :exec
 UPDATE events SET images = $2 WHERE id = $1;
+
+-- Deleting an event: the tables that reference events have no ON DELETE CASCADE,
+-- so the dependent rows are deleted first (in one transaction, see EventRepository.Delete).
+
+-- name: DeleteEventSignUps :exec
+DELETE FROM signup WHERE event = $1;
+
+-- name: DeleteEventRatings :exec
+DELETE FROM eventratings WHERE event = $1;
+
+-- name: DeleteEventUserRatings :exec
+DELETE FROM userratings WHERE event = $1;
+
+-- name: DeleteEventMessages :exec
+DELETE FROM messages WHERE event = $1;
+
+-- name: DeleteEventNotifications :exec
+DELETE FROM notifications WHERE event = @event::int;
+
+-- name: DeleteEventPreferenceTestChoices :exec
+DELETE FROM preferencetestchoices WHERE event = $1;
+
+-- name: DeleteEventChatbotRecommendations :exec
+DELETE FROM chatbotrecommendations WHERE event = $1;
+
+-- name: DeleteUnofficialEvent :exec
+DELETE FROM unofficialevents WHERE id = $1;
+
+-- name: DeleteEvent :execrows
+DELETE FROM events WHERE id = $1;

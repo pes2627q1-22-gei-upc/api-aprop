@@ -32,6 +32,8 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		response.WriteError(w, http.StatusBadRequest, "invalid bounding box")
 	case errors.Is(err, event_service.ErrInvalidUserID):
 		response.WriteError(w, http.StatusBadRequest, "invalid user id")
+	case errors.Is(err, event_service.ErrUserNotRegistered):
+		response.WriteError(w, http.StatusUnauthorized, "user not registered")
 	default:
 		log.Printf("internal error: %v", err)
 		response.WriteError(w, http.StatusInternalServerError, "internal server error")
