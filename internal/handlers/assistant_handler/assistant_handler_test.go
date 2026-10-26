@@ -10,9 +10,13 @@ import (
 	"testing"
 	"time"
 
+	"api-aprop/internal/clients/firebase_client"
+	"api-aprop/internal/handlers/requester"
+	"api-aprop/internal/middleware/auth_middleware"
 	"api-aprop/internal/models/chatbot_model"
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/services/assistant_service"
+	"api-aprop/internal/services/event_service"
 )
 
 const validUserID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
@@ -46,10 +50,10 @@ func sendMessage(t *testing.T, service *fakeService, userID, body string) *httpt
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/assistant/messages", strings.NewReader(body))
 	if userID != "" {
-		req.Header.Set(UserIDHeader, userID)
+		req.Header.Set(requester.UserIDHeader, userID)
 	}
 	rec := httptest.NewRecorder()
-	NewAssistantHandler(service).SendMessage(rec, req)
+	NewAssistantHandler(service, nil).SendMessage(rec, req)
 	return rec
 }
 
@@ -149,9 +153,9 @@ func TestGetConversation(t *testing.T) {
 		{SentAt: startedAt.Add(time.Second), Sender: chatbot_model.SenderAssistant, Text: "Hola!", Interpretation: &chatbot_model.Interpretation{}},
 	}}}
 	req := httptest.NewRequest(http.MethodGet, "/assistant/conversation", nil)
-	req.Header.Set(UserIDHeader, validUserID)
+	req.Header.Set(requester.UserIDHeader, validUserID)
 	rec := httptest.NewRecorder()
-	NewAssistantHandler(service).GetConversation(rec, req)
+	NewAssistantHandler(service, nil).GetConversation(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
@@ -166,7 +170,7 @@ func TestGetConversation(t *testing.T) {
 
 	service = &fakeService{err: assistant_service.ErrConversationNotFound}
 	rec = httptest.NewRecorder()
-	NewAssistantHandler(service).GetConversation(rec, req)
+	NewAssistantHandler(service, nil).GetConversation(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("no conversation: status = %d", rec.Code)
 	}
@@ -188,5 +192,35 @@ func TestDateRangeLabel(t *testing.T) {
 		if got := dateRangeLabel(tt.from, tt.to); got != tt.want {
 			t.Errorf("dateRangeLabel = %q, want %q", got, tt.want)
 		}
+	}
+}
+
+type fakeResolver struct {
+	id  string
+	err error
+}
+
+func (f fakeResolver) ResolveUserID(context.Context, string) (string, error) { return f.id, f.err }
+
+func withFirebaseUser(req *http.Request) *http.Request {
+	return req.WithContext(auth_middleware.ContextWithUser(req.Context(), firebase_client.User{UID: "Vw3kU1pZ8rQ2hXyT6mN9aB4cD7e1"}))
+}
+
+// A Firebase user is translated to its database UUID and the header is ignored.
+func TestGetConversation_TranslatesFirebaseUID(t *testing.T) {
+	service := &fakeService{}
+	req := withFirebaseUser(httptest.NewRequest(http.MethodGet, "/assistant/conversation", nil))
+	req.Header.Set(requester.UserIDHeader, "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d")
+	rec := httptest.NewRecorder()
+	NewAssistantHandler(service, fakeResolver{id: validUserID}).GetConversation(rec, req)
+
+	if service.gotUserID != validUserID {
+		t.Fatalf("user passed to service = %q, want %q", service.gotUserID, validUserID)
+	}
+
+	rec = httptest.NewRecorder()
+	NewAssistantHandler(service, fakeResolver{err: event_service.ErrUserNotRegistered}).GetConversation(rec, withFirebaseUser(httptest.NewRequest(http.MethodGet, "/assistant/conversation", nil)))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("not registered: status = %d, want 401", rec.Code)
 	}
 }

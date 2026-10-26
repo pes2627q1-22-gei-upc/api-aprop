@@ -4,21 +4,20 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"api-aprop/internal/handlers/requester"
 	"api-aprop/internal/handlers/response"
 	"api-aprop/internal/services/assistant_service"
 )
-
-// UserIDHeader carries the user identity until authentication exists.
-const UserIDHeader = "X-User-ID"
 
 const maxBodyBytes = 16 << 10
 
 type AssistantHandler struct {
 	assistantService assistant_service.Service
+	resolver         requester.Resolver
 }
 
-func NewAssistantHandler(assistantService assistant_service.Service) *AssistantHandler {
-	return &AssistantHandler{assistantService: assistantService}
+func NewAssistantHandler(assistantService assistant_service.Service, resolver requester.Resolver) *AssistantHandler {
+	return &AssistantHandler{assistantService: assistantService, resolver: resolver}
 }
 
 // RegisterRoutes registers the assistant endpoints.
@@ -30,7 +29,7 @@ func (h *AssistantHandler) RegisterRoutes(mux *http.ServeMux) {
 
 // SendMessage handles POST /assistant/messages
 func (h *AssistantHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
-	userID, ok := userIDFromHeader(w, r)
+	userID, ok := requester.ID(w, r, h.resolver)
 	if !ok {
 		return
 	}
@@ -50,7 +49,7 @@ func (h *AssistantHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 
 // GetConversation handles GET /assistant/conversation
 func (h *AssistantHandler) GetConversation(w http.ResponseWriter, r *http.Request) {
-	userID, ok := userIDFromHeader(w, r)
+	userID, ok := requester.ID(w, r, h.resolver)
 	if !ok {
 		return
 	}
@@ -60,14 +59,4 @@ func (h *AssistantHandler) GetConversation(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	response.WriteJSON(w, http.StatusOK, toConversationResponse(conversation))
-}
-
-// TODO(DP-011): replace X-User-ID with the authenticated Firebase identity.
-func userIDFromHeader(w http.ResponseWriter, r *http.Request) (string, bool) {
-	userID := r.Header.Get(UserIDHeader)
-	if userID == "" {
-		response.WriteError(w, http.StatusBadRequest, "missing "+UserIDHeader+" header")
-		return "", false
-	}
-	return userID, true
 }

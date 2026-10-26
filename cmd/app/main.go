@@ -200,12 +200,12 @@ func main() {
 
 	// Handlers
 	eventHandler := event_handler.NewEventHandler(eventService)
-	assistantHandler := assistant_handler.NewAssistantHandler(assistantService)
-	signUpHandler := signup_handler.NewSignUpHandler(signUpService)
+	assistantHandler := assistant_handler.NewAssistantHandler(assistantService, eventService)
+	signUpHandler := signup_handler.NewSignUpHandler(signUpService, eventService)
 	authHandler := auth_handler.NewAuthHandler(authService)
 	userHandler := user_handler.NewUserHandler(userService)
 	notificationHandler := notification_handler.NewNotificationHandler(notificationService)
-	preferenceHandler := preference_handler.NewPreferenceHandler(preferenceService)
+	preferenceHandler := preference_handler.NewPreferenceHandler(preferenceService, eventService)
 
 	// Initial data
 	go func() {

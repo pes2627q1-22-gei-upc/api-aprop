@@ -11,8 +11,12 @@ import (
 	"testing"
 	"time"
 
+	"api-aprop/internal/clients/firebase_client"
+	"api-aprop/internal/handlers/requester"
+	"api-aprop/internal/middleware/auth_middleware"
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/models/signup_model"
+	"api-aprop/internal/services/event_service"
 	"api-aprop/internal/services/signup_service"
 )
 
@@ -66,7 +70,7 @@ func (f *fakeService) ListUserEvents(_ context.Context, userID string, dateRange
 
 // newMux registers the handler with the same patterns as the router so path values are set.
 func newMux(s signup_service.Service) *http.ServeMux {
-	h := NewSignUpHandler(s)
+	h := NewSignUpHandler(s, nil)
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
 	return mux
@@ -170,7 +174,7 @@ func TestSignUp(t *testing.T) {
 			s := tt.service
 			req := httptest.NewRequest(http.MethodPost, tt.path, nil)
 			if tt.userID != "" {
-				req.Header.Set(UserIDHeader, tt.userID)
+				req.Header.Set(requester.UserIDHeader, tt.userID)
 			}
 
 			rec := serve(&s, req)
@@ -409,7 +413,7 @@ func TestUnenroll(t *testing.T) {
 			s := tt.service
 			req := httptest.NewRequest(tt.method, tt.path, nil)
 			if tt.userID != "" {
-				req.Header.Set(UserIDHeader, tt.userID)
+				req.Header.Set(requester.UserIDHeader, tt.userID)
 			}
 
 			rec := serve(&s, req)
@@ -477,7 +481,7 @@ func TestGetEnrollmentStatus(t *testing.T) {
 			s := tt.service
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
 			if tt.userID != "" {
-				req.Header.Set(UserIDHeader, tt.userID)
+				req.Header.Set(requester.UserIDHeader, tt.userID)
 			}
 
 			rec := serve(&s, req)
@@ -504,5 +508,39 @@ func TestGetEnrollmentStatus(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+type fakeResolver struct {
+	id  string
+	err error
+}
+
+func (f fakeResolver) ResolveUserID(context.Context, string) (string, error) { return f.id, f.err }
+
+func withFirebaseUser(req *http.Request) *http.Request {
+	return req.WithContext(auth_middleware.ContextWithUser(req.Context(), firebase_client.User{UID: "Vw3kU1pZ8rQ2hXyT6mN9aB4cD7e1"}))
+}
+
+// A Firebase user is translated to its database UUID before the service is called.
+func TestSignUp_TranslatesFirebaseUID(t *testing.T) {
+	s := &fakeService{signUp: signup_model.SignUp{UserID: validUserID, EventID: 7, Created: true}}
+	mux := http.NewServeMux()
+	NewSignUpHandler(s, fakeResolver{id: validUserID}).RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, withFirebaseUser(httptest.NewRequest(http.MethodPost, "/events/7/signup", nil)))
+
+	if rec.Code != http.StatusCreated || s.gotUserID != validUserID {
+		t.Fatalf("status = %d, user passed to service = %q; want 201 and %q", rec.Code, s.gotUserID, validUserID)
+	}
+
+	rec = httptest.NewRecorder()
+	h := NewSignUpHandler(s, fakeResolver{err: event_service.ErrUserNotRegistered})
+	mux = http.NewServeMux()
+	h.RegisterRoutes(mux)
+	mux.ServeHTTP(rec, withFirebaseUser(httptest.NewRequest(http.MethodDelete, "/events/7/signup", nil)))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("not registered: status = %d, want 401", rec.Code)
 	}
 }
