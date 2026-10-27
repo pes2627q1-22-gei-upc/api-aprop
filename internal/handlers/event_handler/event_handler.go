@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"api-aprop/internal/handlers/requester"
 	"api-aprop/internal/handlers/response"
 	"api-aprop/internal/middleware/auth_middleware"
 	"api-aprop/internal/models/event_model"
@@ -305,10 +306,16 @@ func (h *EventHandler) GetCategories(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListMapEvents handles GET /event/map?minLat=...&maxLat=...&minLng=...&maxLng=...
+// The friends indicator is computed for the signed in user, so it cannot be asked for another user.
 func (h *EventHandler) ListMapEvents(w http.ResponseWriter, r *http.Request) {
 	filter, ok := parseMapFilter(w, r)
 	if !ok {
 		return
+	}
+	if requester.Present(r) {
+		if filter.UserID, ok = requester.ID(w, r, h.eventService); !ok {
+			return
+		}
 	}
 
 	events, err := h.eventService.ListMapEvents(r.Context(), filter)
@@ -368,18 +375,12 @@ func parseMapFilter(w http.ResponseWriter, r *http.Request) (event_model.MapFilt
 		maxLngStr = q.Get("maxLon")
 	}
 
-	userID := r.Header.Get(UserIDHeader)
-	if userID == "" {
-		userID = q.Get("userId")
-	}
-
 	if minLatStr == "" && maxLatStr == "" && minLngStr == "" && maxLngStr == "" {
 		return event_model.MapFilter{
 			MinLat: -90,
 			MaxLat: 90,
 			MinLng: -180,
 			MaxLng: 180,
-			UserID: userID,
 		}, true
 	}
 
@@ -410,7 +411,6 @@ func parseMapFilter(w http.ResponseWriter, r *http.Request) (event_model.MapFilt
 		MaxLat: maxLat,
 		MinLng: minLng,
 		MaxLng: maxLng,
-		UserID: userID,
 	}, true
 }
 

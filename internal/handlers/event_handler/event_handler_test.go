@@ -16,6 +16,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"api-aprop/internal/clients/firebase_client"
+	"api-aprop/internal/middleware/auth_middleware"
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/services/event_service"
 )
@@ -23,6 +25,8 @@ import (
 const (
 	validUserID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
 	otherUserID = "9b2e6c1a-1d3f-4c5e-8a7b-6f0e2d4c8a19"
+	// firebaseUID is the Firebase UID of the user validUserID
+	firebaseUID = "Vw3kU1pZ8rQ2hXyT6mN9aB4cD7e1"
 )
 
 // unofficialEvent returns an event created by the given user.
@@ -102,6 +106,9 @@ func (f *fakeEventService) ListMapEvents(_ context.Context, filter event_model.M
 func (f *fakeEventService) ResolveUserID(_ context.Context, identifier string) (string, error) {
 	if identifier == "" {
 		return "", event_service.ErrUserNotRegistered
+	}
+	if identifier == firebaseUID {
+		return validUserID, nil
 	}
 	return identifier, nil
 }
@@ -209,11 +216,21 @@ func TestListMapEvents(t *testing.T) {
 		},
 		{
 			name:       "events/map alias and minLon/maxLon aliases",
-			path:       "/events/map?minLat=41.3&maxLat=41.5&minLon=2.1&maxLon=2.3&userId=" + validUserID,
+			path:       "/events/map?minLat=41.3&maxLat=41.5&minLon=2.1&maxLon=2.3",
+			userHeader: validUserID,
 			service:    fakeEventService{mapEvents: sample},
 			wantStatus: http.StatusOK,
 			wantCalls:  1,
 			wantFilter: event_model.MapFilter{MinLat: 41.3, MaxLat: 41.5, MinLng: 2.1, MaxLng: 2.3, UserID: validUserID},
+			wantIDs:    []int{10, 20},
+		},
+		{
+			name:       "userId query parameter is ignored",
+			path:       "/event/map?userId=" + otherUserID,
+			service:    fakeEventService{mapEvents: sample},
+			wantStatus: http.StatusOK,
+			wantCalls:  1,
+			wantFilter: event_model.MapFilter{MinLat: -90, MaxLat: 90, MinLng: -180, MaxLng: 180},
 			wantIDs:    []int{10, 20},
 		},
 		{
@@ -731,5 +748,21 @@ func TestGetCategory_NotFound(t *testing.T) {
 	rec := serve(&s, httptest.NewRequest(http.MethodGet, "/categories/99", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestListMapEvents_SignedInUser(t *testing.T) {
+	s := fakeEventService{mapEvents: []event_model.MapEvent{}}
+	req := httptest.NewRequest(http.MethodGet, "/events/map", nil)
+	// A signed in user cannot ask for the friends of another user with the header
+	req.Header.Set(UserIDHeader, otherUserID)
+	req = req.WithContext(auth_middleware.ContextWithUser(req.Context(), firebase_client.User{UID: firebaseUID}))
+
+	rec := serve(&s, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if s.gotFilter.UserID != validUserID {
+		t.Errorf("user id = %q, want %q", s.gotFilter.UserID, validUserID)
 	}
 }
