@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"api-aprop/internal/clients/firebase_client"
 	"api-aprop/internal/middleware/auth_middleware"
 	"api-aprop/internal/models/user_model"
@@ -41,7 +43,7 @@ func sync(t *testing.T, service *fakeService, body string, authenticated bool) *
 }
 
 func TestSync_Created(t *testing.T) {
-	service := &fakeService{result: user_model.SyncResult{User: user_model.User{ID: 1, Username: "anna"}, Created: true}}
+	service := &fakeService{result: user_model.SyncResult{User: user_model.User{ID: testID(1), Username: "anna"}, Created: true}}
 
 	rec := sync(t, service, `{"username": "anna"}`, true)
 
@@ -61,7 +63,7 @@ func TestSync_Created(t *testing.T) {
 }
 
 func TestSync_ExistingUserWithoutBody(t *testing.T) {
-	service := &fakeService{result: user_model.SyncResult{User: user_model.User{ID: 1}}}
+	service := &fakeService{result: user_model.SyncResult{User: user_model.User{ID: testID(1)}}}
 
 	rec := sync(t, service, "", true)
 
@@ -91,4 +93,9 @@ func TestSync_Errors(t *testing.T) {
 			}
 		})
 	}
+}
+
+// testID builds a deterministic user UUID for the fakes.
+func testID(n byte) pgtype.UUID {
+	return pgtype.UUID{Bytes: [16]byte{15: n}, Valid: true}
 }

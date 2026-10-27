@@ -69,10 +69,10 @@ func (r *AuthRepository) Create(ctx context.Context, firebaseUID, username, emai
 func (r *AuthRepository) UpdateEmail(ctx context.Context, id pgtype.UUID, email string) (user_model.User, error) {
 	row, err := r.queries.UpdateUserEmail(ctx, sqlc.UpdateUserEmailParams{ID: id, Email: toText(email)})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return user_model.User{}, fmt.Errorf("update email of user %d: %w", id, auth_repository.ErrUserNotFound)
+		return user_model.User{}, fmt.Errorf("update email of user %s: %w", uuidToString(id), auth_repository.ErrUserNotFound)
 	}
 	if err != nil {
-		return user_model.User{}, fmt.Errorf("update email of user %d: %w", id, err)
+		return user_model.User{}, fmt.Errorf("update email of user %s: %w", uuidToString(id), err)
 	}
 	return toUserModel(row), nil
 }

@@ -5,23 +5,21 @@ import (
 	"strconv"
 	"time"
 
+	"api-aprop/internal/handlers/requester"
 	"api-aprop/internal/handlers/response"
-	"api-aprop/internal/middleware/auth_middleware"
 	"api-aprop/internal/models/signup_model"
 	"api-aprop/internal/services/signup_service"
 )
-
-// UserIDHeader carries the user identity until authentication exists.
-const UserIDHeader = "X-User-ID"
 
 const dateLayout = "2006-01-02"
 
 type SignUpHandler struct {
 	signUpService signup_service.Service
+	resolver      requester.Resolver
 }
 
-func NewSignUpHandler(signUpService signup_service.Service) *SignUpHandler {
-	return &SignUpHandler{signUpService: signUpService}
+func NewSignUpHandler(signUpService signup_service.Service, resolver requester.Resolver) *SignUpHandler {
+	return &SignUpHandler{signUpService: signUpService, resolver: resolver}
 }
 
 // RegisterRoutes registers the sign up endpoints.
@@ -38,13 +36,6 @@ func (h *SignUpHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /users/{userId}/events", h.ListUserEvents)
 }
 
-func getUserID(r *http.Request) string {
-	if u, ok := auth_middleware.UserFromContext(r.Context()); ok && u.UID != "" {
-		return u.UID
-	}
-	return r.Header.Get(UserIDHeader)
-}
-
 // SignUp handles POST /events/{id}/signup and POST /events/{id}/enroll
 func (h *SignUpHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 	eventID, err := strconv.Atoi(r.PathValue("id"))
@@ -52,9 +43,8 @@ func (h *SignUpHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 		response.WriteError(w, http.StatusBadRequest, "invalid event id")
 		return
 	}
-	userID := getUserID(r)
-	if userID == "" {
-		response.WriteError(w, http.StatusBadRequest, "missing "+UserIDHeader+" header")
+	userID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
 		return
 	}
 
@@ -77,9 +67,8 @@ func (h *SignUpHandler) Unenroll(w http.ResponseWriter, r *http.Request) {
 		response.WriteError(w, http.StatusBadRequest, "invalid event id")
 		return
 	}
-	userID := getUserID(r)
-	if userID == "" {
-		response.WriteError(w, http.StatusBadRequest, "missing "+UserIDHeader+" header")
+	userID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
 		return
 	}
 
@@ -98,7 +87,14 @@ func (h *SignUpHandler) GetEnrollmentStatus(w http.ResponseWriter, r *http.Reque
 		response.WriteError(w, http.StatusBadRequest, "invalid event id")
 		return
 	}
-	userID := getUserID(r)
+	// The enrollment status can be asked without a user; then the event is shown as not enrolled
+	var userID string
+	if requester.Present(r) {
+		var ok bool
+		if userID, ok = requester.ID(w, r, h.resolver); !ok {
+			return
+		}
+	}
 
 	status, err := h.signUpService.GetEnrollmentStatus(r.Context(), userID, eventID)
 	if err != nil {

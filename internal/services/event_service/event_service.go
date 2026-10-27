@@ -203,6 +203,10 @@ func (s *EventService) ListMapEvents(ctx context.Context, filter event_model.Map
 	return events, nil
 }
 
+func (s *EventService) GetPopularEvents(pageSize int, pageNum int) ([]event_model.Event, error){
+	return s.eventRepository.GetPopular(pageSize, pageNum)
+}
+
 // CreateUnofficialEvent validates and publishes a user-created unofficial event adhering to rule R5.
 func (s *EventService) CreateUnofficialEvent(ctx context.Context, userID string, e event_model.Event) (event_model.Event, error) {
 	uid, err := normalizeUserID(userID)

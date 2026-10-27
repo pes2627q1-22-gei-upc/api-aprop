@@ -10,7 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"api-aprop/internal/clients/firebase_client"
+	"api-aprop/internal/handlers/requester"
+	"api-aprop/internal/middleware/auth_middleware"
 	"api-aprop/internal/models/preference_model"
+	"api-aprop/internal/services/event_service"
 	"api-aprop/internal/services/preference_service"
 )
 
@@ -49,7 +53,7 @@ func (f *fakePreferenceService) GetUserPreferences(_ context.Context, userID str
 }
 
 func newMux(s preference_service.Service) *http.ServeMux {
-	h := NewPreferenceHandler(s)
+	h := NewPreferenceHandler(s, nil)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /preferences/test", h.GetQuestions)
 	mux.HandleFunc("POST /preferences/test", h.SubmitTest)
@@ -130,7 +134,7 @@ func TestGetQuestions(t *testing.T) {
 			s := tt.service
 			req := httptest.NewRequest(http.MethodGet, "/preferences/test", nil)
 			if tt.userHeader != "" {
-				req.Header.Set(UserIDHeader, tt.userHeader)
+				req.Header.Set(requester.UserIDHeader, tt.userHeader)
 			}
 
 			rec := serve(&s, req)
@@ -225,7 +229,7 @@ func TestSubmitTest(t *testing.T) {
 			s := tt.service
 			req := httptest.NewRequest(http.MethodPost, "/preferences/test", bytes.NewBufferString(tt.body))
 			if tt.userHeader != "" {
-				req.Header.Set(UserIDHeader, tt.userHeader)
+				req.Header.Set(requester.UserIDHeader, tt.userHeader)
 			}
 
 			rec := serve(&s, req)
@@ -288,7 +292,7 @@ func TestGetUserPreferences(t *testing.T) {
 			s := tt.service
 			req := httptest.NewRequest(http.MethodGet, "/preferences", nil)
 			if tt.userHeader != "" {
-				req.Header.Set(UserIDHeader, tt.userHeader)
+				req.Header.Set(requester.UserIDHeader, tt.userHeader)
 			}
 
 			rec := serve(&s, req)
@@ -313,5 +317,32 @@ func TestGetUserPreferences(t *testing.T) {
 				t.Errorf("got %d preferences, want %d", len(prefs), tt.wantCount)
 			}
 		})
+	}
+}
+
+type fakeResolver struct {
+	id  string
+	err error
+}
+
+func (f fakeResolver) ResolveUserID(context.Context, string) (string, error) { return f.id, f.err }
+
+func withFirebaseUser(req *http.Request) *http.Request {
+	return req.WithContext(auth_middleware.ContextWithUser(req.Context(), firebase_client.User{UID: "Vw3kU1pZ8rQ2hXyT6mN9aB4cD7e1"}))
+}
+
+// A Firebase user is translated to its database UUID before the service is called.
+func TestGetUserPreferences_TranslatesFirebaseUID(t *testing.T) {
+	s := &fakePreferenceService{}
+	rec := httptest.NewRecorder()
+	NewPreferenceHandler(s, fakeResolver{id: validUserID}).GetUserPreferences(rec, withFirebaseUser(httptest.NewRequest(http.MethodGet, "/preferences", nil)))
+	if rec.Code != http.StatusOK || s.gotUserID != validUserID {
+		t.Fatalf("status = %d, user passed to service = %q; want 200 and %q", rec.Code, s.gotUserID, validUserID)
+	}
+
+	rec = httptest.NewRecorder()
+	NewPreferenceHandler(s, fakeResolver{err: event_service.ErrUserNotRegistered}).GetUserPreferences(rec, withFirebaseUser(httptest.NewRequest(http.MethodGet, "/preferences", nil)))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("not registered: status = %d, want 401", rec.Code)
 	}
 }

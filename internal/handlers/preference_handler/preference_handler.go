@@ -4,19 +4,19 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"api-aprop/internal/handlers/requester"
 	"api-aprop/internal/handlers/response"
 	"api-aprop/internal/models/preference_model"
 	"api-aprop/internal/services/preference_service"
 )
 
-const UserIDHeader = "X-User-ID"
-
 type PreferenceHandler struct {
-	svc preference_service.Service
+	svc      preference_service.Service
+	resolver requester.Resolver
 }
 
-func NewPreferenceHandler(svc preference_service.Service) *PreferenceHandler {
-	return &PreferenceHandler{svc: svc}
+func NewPreferenceHandler(svc preference_service.Service, resolver requester.Resolver) *PreferenceHandler {
+	return &PreferenceHandler{svc: svc, resolver: resolver}
 }
 
 func (h *PreferenceHandler) RegisterRoutes(mux *http.ServeMux) {
@@ -26,9 +26,8 @@ func (h *PreferenceHandler) RegisterRoutes(mux *http.ServeMux) {
 }
 
 func (h *PreferenceHandler) GetQuestions(w http.ResponseWriter, r *http.Request) {
-	userID := r.Header.Get(UserIDHeader)
-	if userID == "" {
-		response.WriteError(w, http.StatusBadRequest, "missing "+UserIDHeader+" header")
+	userID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
 		return
 	}
 
@@ -41,9 +40,8 @@ func (h *PreferenceHandler) GetQuestions(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *PreferenceHandler) SubmitTest(w http.ResponseWriter, r *http.Request) {
-	userID := r.Header.Get(UserIDHeader)
-	if userID == "" {
-		response.WriteError(w, http.StatusBadRequest, "missing "+UserIDHeader+" header")
+	userID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
 		return
 	}
 
@@ -62,9 +60,8 @@ func (h *PreferenceHandler) SubmitTest(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *PreferenceHandler) GetUserPreferences(w http.ResponseWriter, r *http.Request) {
-	userID := r.Header.Get(UserIDHeader)
-	if userID == "" {
-		response.WriteError(w, http.StatusBadRequest, "missing "+UserIDHeader+" header")
+	userID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
 		return
 	}
 
