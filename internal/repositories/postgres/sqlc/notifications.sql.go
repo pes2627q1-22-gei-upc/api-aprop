@@ -38,6 +38,35 @@ func (q *Queries) CreateNotification(ctx context.Context, arg CreateNotification
 	return id, err
 }
 
+const createReminders = `-- name: CreateReminders :many
+INSERT INTO notifications (userid, notificationdate, type, event)
+SELECT su.userid, now(), (SELECT id from notificationtypes where name='Recordatori'), e.id
+from signup su join events e on e.id=su.event join users u on u.id=su.userid join settings st on st.id=u.settings
+left join notifications n on (n.event=e.id and n.userid=su.userid)
+where n.id is null and e.startdate - now() > '0 seconds'::interval and e.startdate - now() < st.notificationbefore
+returning id
+`
+
+func (q *Queries) CreateReminders(ctx context.Context) ([]int32, error) {
+	rows, err := q.db.Query(ctx, createReminders)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int32
+	for rows.Next() {
+		var id int32
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getNotification = `-- name: GetNotification :one
 SELECT notificationdate, requestdate, event, type, id, read, userid, friend FROM notifications where id = $1
 `

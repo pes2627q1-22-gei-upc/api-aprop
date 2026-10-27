@@ -90,6 +90,21 @@ func runDaily(task func()) {
 	}()
 }
 
+func checkForReminders(minute_interval int, handle_notifs func()) {
+	go func() {
+		handle_notifs()
+		for {
+			now := time.Now()
+			next := now.Add(time.Minute * time.Duration(minute_interval))
+			log.Printf("next reminder load: %s", next.String())
+			timer := time.NewTimer(time.Until(next))
+			<-timer.C
+			log.Printf("loading reminders")
+			handle_notifs()
+		}
+	}()
+}
+
 func main() {
 	// Configuration
 	if err := godotenv.Load(".env", ".env.example"); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -239,10 +254,17 @@ func main() {
 			log.Printf("could not load official events: %v", err)
 		}
 	}()
-	// Start goroutine
+	// Start goroutines
 	runDaily(func() {
 		if err := eventService.LoadOfficialEvents(context.Background(), gencatPageSize); err != nil {
 			log.Printf("could not load official events: %v", err)
+		}
+	})
+	checkForReminders(5, func(){
+		if nots, err := notificationService.CreateReminders(); err!=nil{
+			log.Printf("could not load reminders: %v", err)
+		} else {
+			log.Printf("loaded %d new reminders", len(nots))
 		}
 	})
 

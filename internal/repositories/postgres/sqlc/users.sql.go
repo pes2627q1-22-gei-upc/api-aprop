@@ -373,7 +373,7 @@ const updateUserSettings = `-- name: UpdateUserSettings :one
 UPDATE Settings SET
     ShowPlans = $1::boolean
 WHERE ID = $2::integer
-RETURNING id, showplans
+RETURNING id, showplans, notificationbefore
 `
 
 type UpdateUserSettingsParams struct {
@@ -384,6 +384,6 @@ type UpdateUserSettingsParams struct {
 func (q *Queries) UpdateUserSettings(ctx context.Context, arg UpdateUserSettingsParams) (Setting, error) {
 	row := q.db.QueryRow(ctx, updateUserSettings, arg.ShowPlans, arg.ID)
 	var i Setting
-	err := row.Scan(&i.ID, &i.Showplans)
+	err := row.Scan(&i.ID, &i.Showplans, &i.Notificationbefore)
 	return i, err
 }

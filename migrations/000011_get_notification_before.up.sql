@@ -1,0 +1,1 @@
+alter table settings add column notificationbefore interval not null default '3 days';
