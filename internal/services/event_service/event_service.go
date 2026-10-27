@@ -133,11 +133,10 @@ func (s *EventService) GetRecommendedEvents(ctx context.Context, userid string, 
 	for _, ev := range(events){
 		prio := float32(1.0)
 		for _, cat := range(ev.Categories){
+			// A category without preference has weight 1, the default weight of UserPreferences
 			ind := slices.IndexFunc(prefs, func (p preference_model.UserPreference) bool {return p.CategoryName==cat})
 			if ind!=-1{
 				prio *= prefs[ind].Weight
-			} else {
-				return []event_model.Event{}, fmt.Errorf("insufficient preference data")
 			}
 		}
 		heap.Push(ordered_events, &Item{Value: ev, Priority: prio})

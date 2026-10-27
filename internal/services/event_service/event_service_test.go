@@ -13,9 +13,11 @@ import (
 
 	"api-aprop/internal/clients/s3_client"
 	"api-aprop/internal/models/event_model"
+	"api-aprop/internal/models/preference_model"
 	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/repositories/auth_repository"
 	"api-aprop/internal/repositories/event_repository"
+	"api-aprop/internal/repositories/preference_repository"
 )
 
 const validUserID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
@@ -663,5 +665,66 @@ func TestListErrorsAreTranslated(t *testing.T) {
 	}
 	if _, err := svc.GetCategory(9); !errors.Is(err, ErrCategoryNotFound) {
 		t.Errorf("GetCategory error = %v, want %v", err, ErrCategoryNotFound)
+	}
+}
+
+// fakePreferenceRepository only implements the preferences used to recommend events.
+type fakePreferenceRepository struct {
+	preference_repository.Repository
+	prefs []preference_model.UserPreference
+}
+
+func (f *fakePreferenceRepository) GetUserPreferences(_ context.Context, _ string) ([]preference_model.UserPreference, error) {
+	return f.prefs, nil
+}
+
+func TestGetRecommendedEvents(t *testing.T) {
+	events := []event_model.Event{
+		{ID: 1, Title: "Exposició", Categories: []string{"Exposicions"}},
+		{ID: 2, Title: "Concert", Categories: []string{"Música"}},
+		{ID: 3, Title: "Sense categoria"},
+	}
+
+	// Events with the same weight have no order, so only the first and last events are checked
+	tests := []struct {
+		name      string
+		prefs     []preference_model.UserPreference
+		wantFirst int
+		wantLast  int
+	}{
+		{
+			name:      "categories are ordered by weight",
+			prefs:     []preference_model.UserPreference{{CategoryName: "Música", Weight: 3}, {CategoryName: "Exposicions", Weight: 0.5}},
+			wantFirst: 2,
+			wantLast:  1,
+		},
+		{
+			name: "user without preferences gets every event",
+		},
+		{
+			name:     "category without preference has weight 1",
+			prefs:    []preference_model.UserPreference{{CategoryName: "Música", Weight: 0.5}},
+			wantLast: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := fakeEventRepository{listEvents: events}
+			svc := NewEventService(&repo, nil, &fakePreferenceRepository{prefs: tt.prefs}, nil, nil)
+			got, err := svc.GetRecommendedEvents(context.Background(), validUserID, 20, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != len(events) {
+				t.Fatalf("got %d events, want %d", len(got), len(events))
+			}
+			if tt.wantFirst != 0 && got[0].ID != tt.wantFirst {
+				t.Errorf("first event = %d, want %d", got[0].ID, tt.wantFirst)
+			}
+			if tt.wantLast != 0 && got[len(got)-1].ID != tt.wantLast {
+				t.Errorf("last event = %d, want %d", got[len(got)-1].ID, tt.wantLast)
+			}
+		})
 	}
 }
