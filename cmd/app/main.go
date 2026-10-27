@@ -228,7 +228,7 @@ func main() {
 	preferenceRepository := postgres_repository.NewPreferenceRepository(postgresDriver.Pool())
 
 	// Services
-	eventService := event_service.NewEventService(eventRepository, authRepository, gencatClient, s3Client)
+	eventService := event_service.NewEventService(eventRepository, authRepository, preferenceRepository, gencatClient, s3Client)
 	assistantService := assistant_service.NewAssistantService(
 		chatbotRepository, catalogueRepository, groqClient, mcpClient,
 		func() time.Time { return time.Now().In(location) }, assistant_service.ReplyTimeout,
