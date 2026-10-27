@@ -72,3 +72,11 @@ func (s *NotificationService) ReadUserNotifications(id pgtype.UUID) (error) {
 	}
 	return nil
 }
+
+func (s *NotificationService) CreateReminders() ([]int32, error){
+	ids, err := s.notificationRepository.CreateReminders()
+	if err!=nil{
+		return []int32{}, err
+	}
+	return ids, nil
+}

@@ -149,3 +149,12 @@ func toNotification(row sqlc.Notification) (notification_model.Notification){
 		Friend: row.Friend,
 	}
 }
+
+func (r *NotificationRepository) CreateReminders() ([]int32, error){
+	ids, err := r.queries.CreateReminders(context.Background())
+	if err!=nil{
+		return []int32{}, fmt.Errorf("create reminders: %w", err)
+	}
+
+	return ids, nil
+}

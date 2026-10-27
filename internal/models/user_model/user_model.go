@@ -43,6 +43,7 @@ type UserProfile struct {
 	ShowPlans           bool      `json:"show-plans"`
 	IsFriend            *bool     `json:"is-friend,omitempty"`
 	PlansVisible        bool      `json:"plans-visible"`
+	NotificationBefore	string	  `json:"notification-before"`
 }
 
 // SyncResult is the result of syncing a Firebase user with the database.
