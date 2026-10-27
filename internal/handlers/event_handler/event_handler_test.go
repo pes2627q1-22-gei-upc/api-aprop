@@ -78,6 +78,14 @@ func (f *fakeEventService) ListEvents(_ map[string]any) ([]event_model.Event, er
 	return nil, nil
 }
 
+func (f *fakeEventService) GetRecommendedEvents(_ context.Context, _ string, _ int, _ int) ([]event_model.Event, error) {
+	return nil, nil
+}
+
+func (f *fakeEventService) GetPopularEvents(_ int, _ int) ([]event_model.Event, error) {
+	return nil, nil
+}
+
 func (f *fakeEventService) ListMapEvents(_ context.Context, filter event_model.MapFilter) ([]event_model.MapEvent, error) {
 	f.mapCalls++
 	f.gotFilter = filter

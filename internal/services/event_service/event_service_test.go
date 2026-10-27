@@ -74,6 +74,10 @@ func (f *fakeEventRepository) List(_ map[string]any) ([]event_model.Event, error
 	return nil, nil
 }
 
+func (f *fakeEventRepository) GetPopular(_ int, _ int) ([]event_model.Event, error) {
+	return nil, nil
+}
+
 func (f *fakeEventRepository) GetCategories() ([]event_model.Category, error) {
 	return nil, nil
 }
