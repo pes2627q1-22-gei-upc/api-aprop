@@ -129,15 +129,17 @@ func mapEvent(val map[string]any) event_model.Event {
 	e.TicketsURL, _ = val["linkbotoentrades"].(string)
 	e.Description, _ = val["descripcio"].(string)
 	tmp, _ = val["gratuita"].(string)
-	if tmp == "Sí" {
+	switch tmp {
+	case "Sí":
 		e.Free = pgtype.Bool{Bool: true, Valid: true}
-	} else if tmp == "No" {
+	case "No":
 		e.Free = pgtype.Bool{Bool: false, Valid: true}
 	}
 	tmp, _ = val["permanent"].(string)
-	if tmp == "Sí" {
+	switch tmp {
+	case "Sí":
 		e.Permanent = pgtype.Bool{Bool: true, Valid: true}
-	} else if tmp == "No" {
+	case "No":
 		e.Permanent = pgtype.Bool{Bool: false, Valid: true}
 	}
 	e.RelatedURLs, _ = val["enlla_os"].(string)
@@ -157,11 +159,12 @@ func mapEvent(val map[string]any) event_model.Event {
 	}
 
 	e.Modality, _ = val["modalitat"].(string)
-	if e.Modality == "Presencial" {
+	switch e.Modality {
+	case "Presencial":
 		e.Modality = "Face-to-Face"
-	} else if e.Modality == "Virtual" {
+	case "Virtual":
 		e.Modality = "Online"
-	} else if e.Modality == "Presencial i virtual" {
+	case "Presencial i virtual":
 		e.Modality = "Online and Face-to-Face"
 	}
 	e.Place, _ = val["espai"].(string)

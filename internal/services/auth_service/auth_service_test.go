@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/repositories/auth_repository"
 )
@@ -48,12 +50,12 @@ func (f *fakeRepository) Create(_ context.Context, uid, username, email string) 
 	if f.createErr != nil {
 		return user_model.User{}, f.createErr
 	}
-	user := user_model.User{ID: len(f.users) + 1, FirebaseUID: uid, Username: username, Email: email}
+	user := user_model.User{ID: testID(byte(len(f.users) + 1)), FirebaseUID: uid, Username: username, Email: email}
 	f.users[uid] = user
 	return user, nil
 }
 
-func (f *fakeRepository) UpdateEmail(_ context.Context, id int, email string) (user_model.User, error) {
+func (f *fakeRepository) UpdateEmail(_ context.Context, id pgtype.UUID, email string) (user_model.User, error) {
 	f.updateEmailCalls++
 	for uid, u := range f.users {
 		if u.ID == id {
@@ -84,7 +86,7 @@ func TestSync_CreatesNewUser(t *testing.T) {
 }
 
 func TestSync_ExistingUserIsNotCreated(t *testing.T) {
-	existing := user_model.User{ID: 7, FirebaseUID: firebaseUID, Username: "anna", Email: "anna@example.com"}
+	existing := user_model.User{ID: testID(7), FirebaseUID: firebaseUID, Username: "anna", Email: "anna@example.com"}
 	repo := newFakeRepository(existing)
 
 	// The username is ignored for existing users, even if it is empty
@@ -98,13 +100,13 @@ func TestSync_ExistingUserIsNotCreated(t *testing.T) {
 	if repo.updateEmailCalls != 0 {
 		t.Errorf("updateEmailCalls = %d, want 0 when the email did not change", repo.updateEmailCalls)
 	}
-	if result.User.ID != 7 {
-		t.Errorf("user id = %d, want 7", result.User.ID)
+	if result.User.ID != testID(7) {
+		t.Errorf("user id = %v, want 7", result.User.ID)
 	}
 }
 
 func TestSync_UpdatesEmailChangedInFirebase(t *testing.T) {
-	repo := newFakeRepository(user_model.User{ID: 7, FirebaseUID: firebaseUID, Username: "anna", Email: "old@example.com"})
+	repo := newFakeRepository(user_model.User{ID: testID(7), FirebaseUID: firebaseUID, Username: "anna", Email: "old@example.com"})
 
 	result, err := NewAuthService(repo).Sync(context.Background(), firebaseUID, "new@example.com", "")
 	if err != nil {
@@ -140,13 +142,18 @@ func TestSync_UsernameTaken(t *testing.T) {
 
 func TestSync_ConcurrentFirstSignIn(t *testing.T) {
 	repo := newFakeRepository()
-	repo.createdBySomeoneElse = &user_model.User{ID: 3, FirebaseUID: firebaseUID, Username: "anna"}
+	repo.createdBySomeoneElse = &user_model.User{ID: testID(3), FirebaseUID: firebaseUID, Username: "anna"}
 
 	result, err := NewAuthService(repo).Sync(context.Background(), firebaseUID, "", "anna")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Created || result.User.ID != 3 {
-		t.Errorf("Created = %v, id = %d; want the user created by the other request", result.Created, result.User.ID)
+	if result.Created || result.User.ID != testID(3) {
+		t.Errorf("Created = %v, id = %v; want the user created by the other request", result.Created, result.User.ID)
 	}
+}
+
+// testID builds a deterministic user UUID for the fakes.
+func testID(n byte) pgtype.UUID {
+	return pgtype.UUID{Bytes: [16]byte{15: n}, Valid: true}
 }

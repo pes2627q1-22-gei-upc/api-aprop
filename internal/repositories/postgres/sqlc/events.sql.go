@@ -505,6 +505,111 @@ func (q *Queries) GetEvent(ctx context.Context, id int32) ([]GetEventRow, error)
 	return items, nil
 }
 
+const getPopularEvents = `-- name: GetPopularEvents :many
+SELECT evlst.id, evlst.title, evlst.subtitle, evlst.description, evlst.schedule, evlst.tickets, evlst.url, evlst.ticketsurl, evlst.free, evlst.permanent, evlst.modality, evlst.relatedurls, evlst.urlnames, evlst.images, evlst.videos, evlst.email, evlst.phone, evlst.activityurl, evlst.startdate, evlst.enddate, evlst.place, evlst.latitude, evlst.longitude, evlst.postalcode, evlst.municipality, evlst.region, evlst.address, evlst.code, evlst.creator, evlst.datecreated, evlst.num_signups, c.name as category FROM (
+    SELECT e.id, e.title, e.subtitle, e.description, e.schedule, e.tickets, e.url, e.ticketsurl,
+    e.free, e.permanent, e.modality, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone,
+    e.activityurl, e.startdate, e.enddate, e.place, e.latitude, e.longitude, e.postalcode, e.municipality,
+    e.region, e.address, oe.code, ue.creator, ue.datecreated, count(s.userid) as num_signups FROM events e left join officialevents oe on e.id=oe.id
+    left join unofficialevents ue on e.id=ue.id left join signup s on s.event=e.id
+    GROUP BY e.id, oe.id, ue.id ORDER BY num_signups DESC, e.enddate ASC NULLS LAST
+    LIMIT $1 OFFSET $2
+) evlst left join eventcategories ec on evlst.id = ec.event left join categories c on ec.category = c.id ORDER BY evlst.num_signups DESC, evlst.enddate ASC NULLS LAST, evlst.id ASC
+`
+
+type GetPopularEventsParams struct {
+	Limit  int32
+	Offset int32
+}
+
+type GetPopularEventsRow struct {
+	ID           int32
+	Title        string
+	Subtitle     pgtype.Text
+	Description  pgtype.Text
+	Schedule     pgtype.Text
+	Tickets      pgtype.Text
+	Url          pgtype.Text
+	Ticketsurl   pgtype.Text
+	Free         pgtype.Bool
+	Permanent    pgtype.Bool
+	Modality     pgtype.Text
+	Relatedurls  pgtype.Text
+	Urlnames     pgtype.Text
+	Images       pgtype.Text
+	Videos       pgtype.Text
+	Email        pgtype.Text
+	Phone        pgtype.Text
+	Activityurl  pgtype.Text
+	Startdate    pgtype.Date
+	Enddate      pgtype.Date
+	Place        pgtype.Text
+	Latitude     pgtype.Float4
+	Longitude    pgtype.Float4
+	PostalCode   pgtype.Text
+	Municipality pgtype.Text
+	Region       pgtype.Text
+	Address      pgtype.Text
+	Code         pgtype.Int8
+	Creator      pgtype.UUID
+	Datecreated  pgtype.Timestamp
+	NumSignups   int64
+	Category     pgtype.Text
+}
+
+func (q *Queries) GetPopularEvents(ctx context.Context, arg GetPopularEventsParams) ([]GetPopularEventsRow, error) {
+	rows, err := q.db.Query(ctx, getPopularEvents, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetPopularEventsRow
+	for rows.Next() {
+		var i GetPopularEventsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Subtitle,
+			&i.Description,
+			&i.Schedule,
+			&i.Tickets,
+			&i.Url,
+			&i.Ticketsurl,
+			&i.Free,
+			&i.Permanent,
+			&i.Modality,
+			&i.Relatedurls,
+			&i.Urlnames,
+			&i.Images,
+			&i.Videos,
+			&i.Email,
+			&i.Phone,
+			&i.Activityurl,
+			&i.Startdate,
+			&i.Enddate,
+			&i.Place,
+			&i.Latitude,
+			&i.Longitude,
+			&i.PostalCode,
+			&i.Municipality,
+			&i.Region,
+			&i.Address,
+			&i.Code,
+			&i.Creator,
+			&i.Datecreated,
+			&i.NumSignups,
+			&i.Category,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEvents = `-- name: ListEvents :many
 SELECT evlst.id, evlst.title, evlst.subtitle, evlst.description, evlst.schedule, evlst.tickets, evlst.url, evlst.ticketsurl, evlst.free, evlst.permanent, evlst.modality, evlst.relatedurls, evlst.urlnames, evlst.images, evlst.videos, evlst.email, evlst.phone, evlst.activityurl, evlst.startdate, evlst.enddate, evlst.place, evlst.latitude, evlst.longitude, evlst.postalcode, evlst.municipality, evlst.region, evlst.address, evlst.code, evlst.creator, evlst.datecreated, c.name as category FROM (
     SELECT e.id, e.title, e.subtitle, e.description, e.schedule, e.tickets, e.url, e.ticketsurl,

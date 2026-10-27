@@ -1,0 +1,1 @@
+ALTER TABLE signup ALTER COLUMN signupdate DROP DEFAULT;

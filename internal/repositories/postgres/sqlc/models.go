@@ -241,8 +241,9 @@ type Preferencetestchoice struct {
 }
 
 type Setting struct {
-	ID        int32
-	Showplans bool
+	ID                 int32
+	Showplans          bool
+	Notificationbefore pgtype.Interval
 }
 
 type Signup struct {

@@ -9,6 +9,8 @@ import (
 	"math"
 	"strings"
 	"time"
+	"slices"
+	"container/heap"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -17,21 +19,65 @@ import (
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/repositories/auth_repository"
 	"api-aprop/internal/repositories/event_repository"
+	"api-aprop/internal/repositories/preference_repository"
+	"api-aprop/internal/models/preference_model"
 )
 
-type EventService struct {
-	eventRepository event_repository.Repository
-	authRepository  auth_repository.Repository
-	gencatClient    gencat_client.Client
-	s3Client        s3_client.Client
+type Item struct {
+	Value    event_model.Event
+	Priority float32
+	Index    int
 }
 
-func NewEventService(eventRepository event_repository.Repository, authRepository auth_repository.Repository, gencatClient gencat_client.Client, s3Client s3_client.Client) *EventService {
+type PriorityQueue []*Item
+
+// heap.Interface implementation
+
+func (pq PriorityQueue) Len() int {
+	return len(pq)
+}
+
+func (pq PriorityQueue) Less(i, j int) bool {
+	return pq[i].Priority > pq[j].Priority
+}
+
+func (pq PriorityQueue) Swap(i, j int) {
+	pq[i], pq[j] = pq[j], pq[i]
+	pq[i].Index = i
+	pq[j].Index = j
+}
+
+func (pq *PriorityQueue) Push(x any) {
+	item := x.(*Item)
+	item.Index = len(*pq)
+	*pq = append(*pq, item)
+}
+
+func (pq *PriorityQueue) Pop() any {
+	old := *pq
+	n := len(old)
+	item := old[n-1]
+	old[n-1] = nil // Avoid retaining the item in memory
+	item.Index = -1
+	*pq = old[:n-1]
+	return item
+}
+
+type EventService struct {
+	eventRepository 		event_repository.Repository
+	authRepository  		auth_repository.Repository
+	gencatClient    		gencat_client.Client
+	preferenceRepository	preference_repository.Repository
+	s3Client        		s3_client.Client
+}
+
+func NewEventService(eventRepository event_repository.Repository, authRepository auth_repository.Repository, preferenceRepository preference_repository.Repository, gencatClient gencat_client.Client, s3Client s3_client.Client) *EventService {
 	return &EventService{
-		eventRepository: eventRepository,
-		authRepository:  authRepository,
-		gencatClient:    gencatClient,
-		s3Client:        s3Client,
+		eventRepository: 		eventRepository,
+		authRepository:  		authRepository,
+		preferenceRepository:	preferenceRepository,
+		gencatClient:    		gencatClient,
+		s3Client:        		s3Client,
 	}
 }
 
@@ -66,6 +112,41 @@ func (s *EventService) GetEvent(id int) (event_model.Event, error) {
 		return event_model.Event{}, err
 	}
 	return e, nil
+}
+
+func (s *EventService) GetRecommendedEvents(ctx context.Context, userid string, pageSize int, pageNum int) ([]event_model.Event, error){
+	events, err := s.eventRepository.List(map[string]any{"pageSize":pageSize, "pageNum":pageNum, "filterCategory":0})
+	if err!=nil{
+		return []event_model.Event{}, err
+	}
+
+	prefs, err := s.preferenceRepository.GetUserPreferences(ctx, userid)
+	if err!=nil{
+		return []event_model.Event{}, err
+	}
+
+	ordered_events := &PriorityQueue{}
+	heap.Init(ordered_events)
+	for _, ev := range(events){
+		prio := float32(1.0)
+		for _, cat := range(ev.Categories){
+			ind := slices.IndexFunc(prefs, func (p preference_model.UserPreference) bool {return p.CategoryName==cat})
+			if ind!=-1{
+				prio *= prefs[ind].Weight
+			} else {
+				return []event_model.Event{}, fmt.Errorf("insufficient preference data")
+			}
+		}
+		heap.Push(ordered_events, &Item{Value: ev, Priority: prio})
+	}
+
+	ret := []event_model.Event{}
+	for ordered_events.Len() > 0 {
+		tmp, _ := heap.Pop(ordered_events).(*Item)
+		ret = append(ret, tmp.Value)
+	}
+
+	return ret, nil
 }
 
 func (s *EventService) ListEvents(params map[string]any) ([]event_model.Event, error) {
@@ -120,6 +201,10 @@ func (s *EventService) ListMapEvents(ctx context.Context, filter event_model.Map
 		events = []event_model.MapEvent{}
 	}
 	return events, nil
+}
+
+func (s *EventService) GetPopularEvents(pageSize int, pageNum int) ([]event_model.Event, error){
+	return s.eventRepository.GetPopular(pageSize, pageNum)
 }
 
 // CreateUnofficialEvent validates and publishes a user-created unofficial event adhering to rule R5.

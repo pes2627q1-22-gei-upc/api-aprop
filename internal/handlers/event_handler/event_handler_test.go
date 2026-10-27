@@ -397,7 +397,7 @@ func TestUploadEventImageHandler(t *testing.T) {
 	body := new(bytes.Buffer)
 	writer := multipart.NewWriter(body)
 	part, _ := writer.CreateFormFile("image", "poster.jpg")
-	part.Write([]byte("fake-jpeg-content"))
+	_, _ = part.Write([]byte("fake-jpeg-content"))
 	writer.Close()
 
 	tests := []struct {

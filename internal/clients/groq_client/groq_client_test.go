@@ -22,7 +22,7 @@ func newTestServer(t *testing.T, status int, response string, inspect func(*http
 			inspect(r, decoded)
 		}
 		w.WriteHeader(status)
-		io.WriteString(w, response)
+		_, _ = io.WriteString(w, response)
 	}))
 	t.Cleanup(ts.Close)
 	return NewGroqClient(ts.Client(), ts.URL, "test-groq-key", "groq-test-model")

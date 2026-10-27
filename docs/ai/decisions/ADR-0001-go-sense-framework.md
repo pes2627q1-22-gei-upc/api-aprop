@@ -25,4 +25,4 @@ Sense framework web. Dependències externes només quan siguin imprescindibles i
 - (+) Control total de les rutes, pocs mòduls a auditar, imatge Docker petita.
 - (−) Middleware, validació i serialització d'errors es fan a mà. Mitigació: un paquet `handlers/response`
   comú i la skill `endpoint-go`.
-- Nota: `go.mod` declara `go 1.25.11` (la memòria diu 1.25.5) i depèn de `github.com/joho/godotenv`.
+- Nota: `go.mod` declara `go 1.26.10` (la memòria diu 1.25.5; pujat perquè la 1.25 ja no rep correccions de seguretat) i depèn de `github.com/joho/godotenv`.

@@ -12,10 +12,11 @@ type Handler interface {
 
 // NewRouter registers the endpoints of every handler.
 // Every endpoint goes through authMiddleware, so only signed in users can use the API.
-func NewRouter(authMiddleware func(http.Handler) http.Handler, handlers ...Handler) http.Handler {
+// corsMiddleware wraps it because browsers send the CORS preflight request without the token.
+func NewRouter(corsMiddleware, authMiddleware func(http.Handler) http.Handler, handlers ...Handler) http.Handler {
 	mux := http.NewServeMux()
 	for _, handler := range handlers {
 		handler.RegisterRoutes(mux)
 	}
-	return authMiddleware(mux)
+	return corsMiddleware(authMiddleware(mux))
 }
