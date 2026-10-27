@@ -626,9 +626,10 @@ SELECT evlst.id, evlst.title, evlst.subtitle, evlst.description, evlst.schedule,
     and ($10::boolean is null or e.free = $10::boolean) -- free filter
     and ($11::boolean is null or $11::boolean = true and oe.id is not null or $11::boolean = false and oe.id is null)   -- official filter
     and ($12::modalitytype is null or e.modality = $12::modalitytype)
-    ORDER BY e.enddate ASC NULLS LAST
+    ORDER BY e.enddate ASC NULLS LAST, e.id ASC
     LIMIT $1 OFFSET $2
 ) evlst left join eventcategories ec on evlst.id = ec.event left join categories c on ec.category = c.id
+ORDER BY evlst.enddate ASC NULLS LAST, evlst.id ASC
 `
 
 type ListEventsParams struct {

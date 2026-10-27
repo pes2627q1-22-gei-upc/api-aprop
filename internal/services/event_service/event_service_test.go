@@ -3,6 +3,7 @@ package event_service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -12,9 +13,11 @@ import (
 
 	"api-aprop/internal/clients/s3_client"
 	"api-aprop/internal/models/event_model"
+	"api-aprop/internal/models/preference_model"
 	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/repositories/auth_repository"
 	"api-aprop/internal/repositories/event_repository"
+	"api-aprop/internal/repositories/preference_repository"
 )
 
 const validUserID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
@@ -35,6 +38,10 @@ type fakeEventRepository struct {
 	updateCalls  int
 	deleteErr    error
 	deleteCalls  int
+	listEvents   []event_model.Event
+	listErr      error
+	popularErr   error
+	categoryErr  error
 }
 
 func (f *fakeEventRepository) Create(e event_model.Event, _ bool) (event_model.Event, error) {
@@ -71,7 +78,11 @@ func (f *fakeEventRepository) Get(_ int) (event_model.Event, error) {
 }
 
 func (f *fakeEventRepository) List(_ map[string]any) ([]event_model.Event, error) {
-	return nil, nil
+	return f.listEvents, f.listErr
+}
+
+func (f *fakeEventRepository) GetPopular(_ int, _ int) ([]event_model.Event, error) {
+	return nil, f.popularErr
 }
 
 func (f *fakeEventRepository) GetCategories() ([]event_model.Category, error) {
@@ -79,7 +90,7 @@ func (f *fakeEventRepository) GetCategories() ([]event_model.Category, error) {
 }
 
 func (f *fakeEventRepository) GetCategory(_ int) (event_model.Category, error) {
-	return event_model.Category{}, nil
+	return event_model.Category{}, f.categoryErr
 }
 
 func (f *fakeEventRepository) ListMapEvents(_ context.Context, filter event_model.MapFilter) ([]event_model.MapEvent, error) {
@@ -215,8 +226,24 @@ func TestCreateUnofficialEvent(t *testing.T) {
 		{
 			name:    "end date before start date violates R5",
 			userID:  validUserID,
-			event:   event_model.Event{Title: "Title", Description: "Desc", Categories: []string{"C"}, StartDate: futureStart, EndDate: futureStart.Add(-1 * time.Hour)},
+			event:   event_model.Event{Title: "Title", Description: "Desc", Categories: []string{"C"}, StartDate: futureStart, EndDate: futureStart.AddDate(0, 0, -1)},
 			wantErr: ErrInvalidEventDates,
+		},
+		{
+			name:   "start date today at midnight is allowed",
+			userID: validUserID,
+			event: event_model.Event{
+				Title: "Title", Description: "Desc", Categories: []string{"C"},
+				StartDate: day(time.Now().UTC()),
+			},
+		},
+		{
+			name:   "end date on the start day but earlier is allowed",
+			userID: validUserID,
+			event: event_model.Event{
+				Title: "Title", Description: "Desc", Categories: []string{"C"},
+				StartDate: day(futureStart).Add(20 * time.Hour), EndDate: day(futureStart).Add(10 * time.Hour),
+			},
 		},
 		{
 			name:    "invalid coordinates",
@@ -423,6 +450,7 @@ func TestUpdateUnofficialEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 	createdAt := time.Now().UTC().Add(-48 * time.Hour)
+	createdToday := day(time.Now().UTC()).Add(23*time.Hour + 59*time.Minute)
 	stored := event_model.Event{ID: 7, Title: "Taller", Creator: creator, DateCreated: createdAt}
 
 	changes := event_model.Event{
@@ -464,6 +492,18 @@ func TestUpdateUnofficialEvent(t *testing.T) {
 				StartDate: createdAt.Add(-24 * time.Hour),
 			},
 			wantErr: ErrInvalidEventDates,
+		},
+		{
+			// The database returns the start date at midnight, so an event created today keeps being editable
+			name: "event created today that starts today",
+			stored: event_model.Event{
+				ID: 7, Title: "Taller", Creator: creator, DateCreated: createdToday,
+			},
+			changes: event_model.Event{
+				Title: "Taller", Description: "Desc", Categories: []string{"C"},
+				StartDate: day(createdToday),
+			},
+			wantUpdates: 1,
 		},
 		{
 			name:    "blank title",
@@ -510,8 +550,45 @@ func TestUpdateUnofficialEvent(t *testing.T) {
 			if updated.ID != 7 || updated.IsOfficial {
 				t.Errorf("updated event id/official = %d/%v, want 7/false", updated.ID, updated.IsOfficial)
 			}
-			if repo.updated.Creator != creator || !repo.updated.DateCreated.Equal(createdAt) {
+			if repo.updated.Creator != creator || !repo.updated.DateCreated.Equal(tt.stored.DateCreated) {
 				t.Errorf("creator or creation date changed: %v %v", repo.updated.Creator, repo.updated.DateCreated)
+			}
+		})
+	}
+}
+
+func TestUpdateUnofficialEventImage(t *testing.T) {
+	var creator pgtype.UUID
+	if err := creator.Scan(validUserID); err != nil {
+		t.Fatal(err)
+	}
+	stored := event_model.Event{
+		ID: 7, Title: "Taller", Creator: creator, DateCreated: time.Now().UTC(),
+		Images: "https://s3/events/7/poster.jpg",
+	}
+
+	tests := []struct {
+		name      string
+		images    string
+		wantImage string
+	}{
+		{name: "body without image keeps the uploaded one", images: "", wantImage: stored.Images},
+		{name: "body with image replaces it", images: "https://s3/events/7/new.jpg", wantImage: "https://s3/events/7/new.jpg"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := fakeEventRepository{getEvent: stored}
+			svc := NewEventService(&repo, nil, nil, nil, nil)
+			changes := event_model.Event{
+				Title: "Taller", Description: "Desc", Categories: []string{"C"},
+				StartDate: time.Now().UTC().Add(24 * time.Hour), Images: tt.images,
+			}
+			if _, err := svc.UpdateUnofficialEvent(context.Background(), 7, changes); err != nil {
+				t.Fatal(err)
+			}
+			if repo.updated.Images != tt.wantImage {
+				t.Errorf("images = %q, want %q", repo.updated.Images, tt.wantImage)
 			}
 		})
 	}
@@ -566,6 +643,87 @@ func TestDeleteUnofficialEvent(t *testing.T) {
 			}
 			if repo.deleteCalls != tt.wantDeletes {
 				t.Errorf("repository deletes = %d, want %d", repo.deleteCalls, tt.wantDeletes)
+			}
+		})
+	}
+}
+
+func TestListErrorsAreTranslated(t *testing.T) {
+	invalid := fmt.Errorf("list events: %w: pageNum", event_repository.ErrInvalidFilter)
+	repo := fakeEventRepository{
+		listErr:     invalid,
+		popularErr:  invalid,
+		categoryErr: fmt.Errorf("get category 9: %w", event_repository.ErrCategoryNotFound),
+	}
+	svc := NewEventService(&repo, nil, nil, nil, nil)
+
+	if _, err := svc.ListEvents(map[string]any{}); !errors.Is(err, ErrInvalidFilter) {
+		t.Errorf("ListEvents error = %v, want %v", err, ErrInvalidFilter)
+	}
+	if _, err := svc.GetPopularEvents(-1, 0); !errors.Is(err, ErrInvalidFilter) {
+		t.Errorf("GetPopularEvents error = %v, want %v", err, ErrInvalidFilter)
+	}
+	if _, err := svc.GetCategory(9); !errors.Is(err, ErrCategoryNotFound) {
+		t.Errorf("GetCategory error = %v, want %v", err, ErrCategoryNotFound)
+	}
+}
+
+// fakePreferenceRepository only implements the preferences used to recommend events.
+type fakePreferenceRepository struct {
+	preference_repository.Repository
+	prefs []preference_model.UserPreference
+}
+
+func (f *fakePreferenceRepository) GetUserPreferences(_ context.Context, _ string) ([]preference_model.UserPreference, error) {
+	return f.prefs, nil
+}
+
+func TestGetRecommendedEvents(t *testing.T) {
+	events := []event_model.Event{
+		{ID: 1, Title: "Exposició", Categories: []string{"Exposicions"}},
+		{ID: 2, Title: "Concert", Categories: []string{"Música"}},
+		{ID: 3, Title: "Sense categoria"},
+	}
+
+	// Events with the same weight have no order, so only the first and last events are checked
+	tests := []struct {
+		name      string
+		prefs     []preference_model.UserPreference
+		wantFirst int
+		wantLast  int
+	}{
+		{
+			name:      "categories are ordered by weight",
+			prefs:     []preference_model.UserPreference{{CategoryName: "Música", Weight: 3}, {CategoryName: "Exposicions", Weight: 0.5}},
+			wantFirst: 2,
+			wantLast:  1,
+		},
+		{
+			name: "user without preferences gets every event",
+		},
+		{
+			name:     "category without preference has weight 1",
+			prefs:    []preference_model.UserPreference{{CategoryName: "Música", Weight: 0.5}},
+			wantLast: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := fakeEventRepository{listEvents: events}
+			svc := NewEventService(&repo, nil, &fakePreferenceRepository{prefs: tt.prefs}, nil, nil)
+			got, err := svc.GetRecommendedEvents(context.Background(), validUserID, 20, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != len(events) {
+				t.Fatalf("got %d events, want %d", len(got), len(events))
+			}
+			if tt.wantFirst != 0 && got[0].ID != tt.wantFirst {
+				t.Errorf("first event = %d, want %d", got[0].ID, tt.wantFirst)
+			}
+			if tt.wantLast != 0 && got[len(got)-1].ID != tt.wantLast {
+				t.Errorf("last event = %d, want %d", got[len(got)-1].ID, tt.wantLast)
 			}
 		})
 	}

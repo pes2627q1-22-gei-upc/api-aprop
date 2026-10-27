@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"api-aprop/internal/handlers/requester"
 	"api-aprop/internal/handlers/response"
 	"api-aprop/internal/middleware/auth_middleware"
 	"api-aprop/internal/models/event_model"
@@ -14,6 +15,9 @@ import (
 )
 
 const maxBodyBytes = 1 << 20
+
+// maxImageBytes is the largest event image. The request can be a bit larger because of the multipart form.
+const maxImageBytes = 5 << 20
 
 // UserIDHeader carries the user identity until authentication exists.
 const UserIDHeader = "X-User-ID"
@@ -78,17 +82,45 @@ func (h *EventHandler) authorizeCreator(w http.ResponseWriter, r *http.Request, 
 	return true
 }
 
+// defaultPageSize is used when a list request does not ask for a page size, like GET /events/search.
+const defaultPageSize = 20
+
+// intParam reads an optional integer query parameter, returning def when it is missing.
+// It writes the error response and returns false when the value is not a number.
+func intParam(w http.ResponseWriter, r *http.Request, name string, def int) (int, bool) {
+	value := r.URL.Query().Get(name)
+	if value == "" {
+		return def, true
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil {
+		response.WriteError(w, http.StatusBadRequest, "invalid "+name)
+		return 0, false
+	}
+	return n, true
+}
+
 // ListEvents handles GET /events
 func (h *EventHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 	params := make(map[string]any)
-	params["pageSize"], _ = strconv.Atoi(r.URL.Query().Get("pageSize"))
-	params["pageNum"], _ = strconv.Atoi(r.URL.Query().Get("pageNum"))
-	tmp := r.URL.Query().Get("filterCategory")
-	if tmp != "" {
-		params["filterCategory"], _ = strconv.Atoi(tmp)
-	} else {
-		params["filterCategory"] = 0
+	pageSize, ok := intParam(w, r, "pageSize", defaultPageSize)
+	if !ok {
+		return
 	}
+	if pageSize == 0 {
+		pageSize = defaultPageSize
+	}
+	pageNum, ok := intParam(w, r, "pageNum", 0)
+	if !ok {
+		return
+	}
+	filterCategory, ok := intParam(w, r, "filterCategory", 0)
+	if !ok {
+		return
+	}
+	params["pageSize"] = pageSize
+	params["pageNum"] = pageNum
+	params["filterCategory"] = filterCategory
 	params["filterRegion"] = r.URL.Query().Get("filterRegion")
 	params["startBefore"] = r.URL.Query().Get("startBefore")
 	params["startAfter"] = r.URL.Query().Get("startAfter")
@@ -229,7 +261,9 @@ func (h *EventHandler) UploadEventImage(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := r.ParseMultipartForm(5 << 20); err != nil {
+	// ParseMultipartForm only limits the memory it uses (the rest goes to disk), so the body is limited here
+	r.Body = http.MaxBytesReader(w, r.Body, maxImageBytes+(64<<10))
+	if err := r.ParseMultipartForm(maxImageBytes); err != nil {
 		response.WriteError(w, http.StatusBadRequest, "file too large or invalid multipart form")
 		return
 	}
@@ -243,6 +277,10 @@ func (h *EventHandler) UploadEventImage(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	defer file.Close()
+	if header.Size > maxImageBytes {
+		response.WriteError(w, http.StatusBadRequest, "file too large or invalid multipart form")
+		return
+	}
 
 	contentType := header.Header.Get("Content-Type")
 	if contentType == "" || contentType == "application/octet-stream" {
@@ -277,10 +315,16 @@ func (h *EventHandler) GetCategories(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListMapEvents handles GET /event/map?minLat=...&maxLat=...&minLng=...&maxLng=...
+// The friends indicator is computed for the signed in user, so it cannot be asked for another user.
 func (h *EventHandler) ListMapEvents(w http.ResponseWriter, r *http.Request) {
 	filter, ok := parseMapFilter(w, r)
 	if !ok {
 		return
+	}
+	if requester.Present(r) {
+		if filter.UserID, ok = requester.ID(w, r, h.eventService); !ok {
+			return
+		}
 	}
 
 	events, err := h.eventService.ListMapEvents(r.Context(), filter)
@@ -340,18 +384,12 @@ func parseMapFilter(w http.ResponseWriter, r *http.Request) (event_model.MapFilt
 		maxLngStr = q.Get("maxLon")
 	}
 
-	userID := r.Header.Get(UserIDHeader)
-	if userID == "" {
-		userID = q.Get("userId")
-	}
-
 	if minLatStr == "" && maxLatStr == "" && minLngStr == "" && maxLngStr == "" {
 		return event_model.MapFilter{
 			MinLat: -90,
 			MaxLat: 90,
 			MinLng: -180,
 			MaxLng: 180,
-			UserID: userID,
 		}, true
 	}
 
@@ -382,7 +420,6 @@ func parseMapFilter(w http.ResponseWriter, r *http.Request) (event_model.MapFilt
 		MaxLat: maxLat,
 		MinLng: minLng,
 		MaxLng: maxLng,
-		UserID: userID,
 	}, true
 }
 

@@ -308,16 +308,24 @@ func (r *EventRepository) Get(id int) (event_model.Event, error) {
 
 	cats := []string{}
 	for _, r := range rows {
-		cats = append(cats, r.Category.String)
+		cats = appendCategory(cats, r.Category)
 	}
 
 	return toModelExtended(rows[0], cats), nil
 }
 
+// appendCategory adds the category of a row. Events without categories have a single row with a NULL category.
+func appendCategory(cats []string, category pgtype.Text) []string {
+	if category.Valid && category.String != "" {
+		return append(cats, category.String)
+	}
+	return cats
+}
+
 func regionFilterToDBEntry(s string) (string, error) {
 	tmp := strings.Split(s, "_")
 	if len(tmp) != 2 {
-		return "", fmt.Errorf("list events: error converting filterRegion parameter")
+		return "", fmt.Errorf("list events: %w: filterRegion must be <type>_<name>", event_repository.ErrInvalidFilter)
 	}
 	return fmt.Sprintf("agenda:ubicacions/%s/%s", tmp[0], tmp[1]), nil
 }
@@ -327,16 +335,19 @@ func (r *EventRepository) List(params map[string]any) ([]event_model.Event, erro
 
 	pageSize, ok := params["pageSize"].(int)
 	if !ok {
-		return nil, fmt.Errorf("list events: error converting pageSize parameter")
+		return nil, fmt.Errorf("list events: %w: pageSize", event_repository.ErrInvalidFilter)
 	}
 	pageNum, ok := params["pageNum"].(int)
 	if !ok {
-		return nil, fmt.Errorf("list events: error converting pageNum parameter")
+		return nil, fmt.Errorf("list events: %w: pageNum", event_repository.ErrInvalidFilter)
+	}
+	if pageSize < 0 || pageNum < 0 {
+		return nil, fmt.Errorf("list events: %w: pageSize and pageNum must not be negative", event_repository.ErrInvalidFilter)
 	}
 
 	filterCategory, ok := params["filterCategory"].(int)
 	if !ok {
-		return nil, fmt.Errorf("list events: error converting filterCategory parameter")
+		return nil, fmt.Errorf("list events: %w: filterCategory", event_repository.ErrInvalidFilter)
 	}
 
 	filterRegion, _ := params["filterRegion"].(string)
@@ -362,7 +373,7 @@ func (r *EventRepository) List(params map[string]any) ([]event_model.Event, erro
 	} else {
 		startBefore, err = time.Parse("2006-01-02T15:04:05.000", startBeforeTmp)
 		if err != nil {
-			return nil, fmt.Errorf("list events: error converting startBefore parameter: %w", err)
+			return nil, fmt.Errorf("list events: %w: startBefore: %v", event_repository.ErrInvalidFilter, err)
 		}
 	}
 	startAfterTmp, _ := params["startAfter"].(string)
@@ -371,7 +382,7 @@ func (r *EventRepository) List(params map[string]any) ([]event_model.Event, erro
 	} else {
 		startAfter, err = time.Parse("2006-01-02T15:04:05.000", startAfterTmp)
 		if err != nil {
-			return nil, fmt.Errorf("list events: error converting startAfter parameter: %w", err)
+			return nil, fmt.Errorf("list events: %w: startAfter: %v", event_repository.ErrInvalidFilter, err)
 		}
 	}
 	endBeforeTmp, _ := params["endBefore"].(string)
@@ -380,7 +391,7 @@ func (r *EventRepository) List(params map[string]any) ([]event_model.Event, erro
 	} else {
 		endBefore, err = time.Parse("2006-01-02T15:04:05.000", endBeforeTmp)
 		if err != nil {
-			return nil, fmt.Errorf("list events: error converting endBefore parameter: %w", err)
+			return nil, fmt.Errorf("list events: %w: endBefore: %v", event_repository.ErrInvalidFilter, err)
 		}
 	}
 	endAfterTmp, _ := params["endAfter"].(string)
@@ -389,7 +400,7 @@ func (r *EventRepository) List(params map[string]any) ([]event_model.Event, erro
 	} else {
 		endAfter, err = time.Parse("2006-01-02T15:04:05.000", endAfterTmp)
 		if err != nil {
-			return nil, fmt.Errorf("list events: error converting endAfter parameter: %w", err)
+			return nil, fmt.Errorf("list events: %w: endAfter: %v", event_repository.ErrInvalidFilter, err)
 		}
 	}
 
@@ -399,7 +410,7 @@ func (r *EventRepository) List(params map[string]any) ([]event_model.Event, erro
 	} else {
 		filterPermanent.Bool, err = strconv.ParseBool(filterPermanentTmp)
 		if err != nil {
-			return nil, fmt.Errorf("list events: error converting filterPermanent parameter: %w", err)
+			return nil, fmt.Errorf("list events: %w: filterPermanent: %v", event_repository.ErrInvalidFilter, err)
 		}
 		filterPermanent.Valid = true
 	}
@@ -409,7 +420,7 @@ func (r *EventRepository) List(params map[string]any) ([]event_model.Event, erro
 	} else {
 		filterFree.Bool, err = strconv.ParseBool(filterFreeTmp)
 		if err != nil {
-			return nil, fmt.Errorf("list events: error converting filterFree parameter: %w", err)
+			return nil, fmt.Errorf("list events: %w: filterFree: %v", event_repository.ErrInvalidFilter, err)
 		}
 		filterFree.Valid = true
 	}
@@ -419,7 +430,7 @@ func (r *EventRepository) List(params map[string]any) ([]event_model.Event, erro
 	} else {
 		filterOfficial.Bool, err = strconv.ParseBool(filterOfficialTmp)
 		if err != nil {
-			return nil, fmt.Errorf("list events: error converting filterOfficial parameter: %w", err)
+			return nil, fmt.Errorf("list events: %w: filterOfficial: %v", event_repository.ErrInvalidFilter, err)
 		}
 		filterOfficial.Valid = true
 	}
@@ -434,7 +445,7 @@ func (r *EventRepository) List(params map[string]any) ([]event_model.Event, erro
 	case "Online and Face-to-Face":
 		filterModality = sqlc.NullModalitytype{Modalitytype: sqlc.ModalitytypeOnlineandFaceToFace, Valid: true}
 	default:
-		return nil, fmt.Errorf("list events: error converting filterModality parameter")
+		return nil, fmt.Errorf("list events: %w: filterModality", event_repository.ErrInvalidFilter)
 	}
 
 	rows, err := r.queries.ListEvents(context.Background(), sqlc.ListEventsParams{
@@ -468,7 +479,7 @@ func (r *EventRepository) List(params map[string]any) ([]event_model.Event, erro
 			cats = []string{}
 			currentevent = row
 		}
-		cats = append(cats, row.Category.String)
+		cats = appendCategory(cats, row.Category)
 	}
 	events = append(events, toModelExtended(sqlc.GetEventRow(currentevent), cats))
 	return events, nil
@@ -483,7 +494,7 @@ func toGetEventRow (r sqlc.SearchEventsWithRelevanceRow) sqlc.GetEventRow {
 		Schedule:     r.Schedule,
 		Tickets:      r.Tickets,
 		Url:          r.Url,
-		Ticketsurl:   r.Url,
+		Ticketsurl:   r.Ticketsurl,
 		Free:         r.Free,
 		Permanent:    r.Permanent,
 		Modality:     r.Modality,
@@ -551,9 +562,7 @@ func (r *EventRepository) Search(ctx context.Context, query string, pageNum, pag
 			cats = []string{}
 			currentevent = row
 		}
-		if row.Category.Valid && row.Category.String != "" {
-			cats = append(cats, row.Category.String)
-		}
+		cats = appendCategory(cats, row.Category)
 	}
 	events = append(events, toModelExtended(toGetEventRow(currentevent), cats))
 
@@ -582,6 +591,9 @@ func (r *EventRepository) GetCategories() ([]event_model.Category, error) {
 
 func (r *EventRepository) GetCategory(id int) (event_model.Category, error) {
 	row, err := r.queries.GetCategory(context.Background(), int32(id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return event_model.Category{}, fmt.Errorf("get category %d: %w", id, event_repository.ErrCategoryNotFound)
+	}
 	if err != nil {
 		return event_model.Category{}, fmt.Errorf("get category %d: %w", id, err)
 	}
@@ -654,6 +666,9 @@ func getPopularToGetEventRow(row sqlc.GetPopularEventsRow) sqlc.GetEventRow{
 }
 
 func (r *EventRepository) GetPopular(pageSize int, pageNum int) ([]event_model.Event, error){
+	if pageSize < 0 || pageNum < 0 {
+		return nil, fmt.Errorf("popular events: %w: pageSize and pageNum must not be negative", event_repository.ErrInvalidFilter)
+	}
 	rows, err := r.queries.GetPopularEvents(context.Background(), sqlc.GetPopularEventsParams{Limit: int32(pageSize), Offset: int32(pageSize*pageNum)})
 	if err!=nil{
 		return []event_model.Event{}, err
@@ -670,7 +685,7 @@ func (r *EventRepository) GetPopular(pageSize int, pageNum int) ([]event_model.E
 			cats = []string{}
 			currentevent = row
 		}
-		cats = append(cats, row.Category.String)
+		cats = appendCategory(cats, row.Category)
 	}
 	events = append(events, toModelExtended(getPopularToGetEventRow(currentevent), cats))
 	return events, nil

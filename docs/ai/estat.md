@@ -13,6 +13,7 @@
 
 | Taiga | Història / Tasca | Repo | Branca | Responsable | Estat |
 |---|---|---|---|---|---|
+| **#236** | Correccions dels endpoints d'esdeveniments (llistat, mapa, modificació, imatge, recomanats) | `api-aprop` | `Fix-esdeveniments` | Arnau Serra | PR oberta a `develop`, pendent de revisió (DP-026 oberta) |
 | **#228** | Adaptar i estructurar la documentació al backend | `api-aprop` | `documentation` | Wenqiang He | Documentació sincronitzada, adaptada a Go/Supabase i en revisió |
 | **#226** | Endpoints test d'interessos (US #27) | `api-aprop` | `feature/interest-test` | Wenqiang He | Branca creada, taules llestes al model de Supabase |
 | **#186** | Endpoint `DELETE /events/{id}/enroll` (US #49) | `api-aprop` | `develop` | Wenqiang He | Assignada al Sprint 1 per completar el cicle d'inscripcions |

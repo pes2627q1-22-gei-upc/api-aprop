@@ -116,6 +116,9 @@ func (s *EventService) GetEvent(id int) (event_model.Event, error) {
 
 func (s *EventService) GetRecommendedEvents(ctx context.Context, userid string, pageSize int, pageNum int) ([]event_model.Event, error){
 	events, err := s.eventRepository.List(map[string]any{"pageSize":pageSize, "pageNum":pageNum, "filterCategory":0})
+	if errors.Is(err, event_repository.ErrInvalidFilter) {
+		return []event_model.Event{}, fmt.Errorf("%w: %w", ErrInvalidFilter, err)
+	}
 	if err!=nil{
 		return []event_model.Event{}, err
 	}
@@ -130,11 +133,10 @@ func (s *EventService) GetRecommendedEvents(ctx context.Context, userid string, 
 	for _, ev := range(events){
 		prio := float32(1.0)
 		for _, cat := range(ev.Categories){
+			// A category without preference has weight 1, the default weight of UserPreferences
 			ind := slices.IndexFunc(prefs, func (p preference_model.UserPreference) bool {return p.CategoryName==cat})
 			if ind!=-1{
 				prio *= prefs[ind].Weight
-			} else {
-				return []event_model.Event{}, fmt.Errorf("insufficient preference data")
 			}
 		}
 		heap.Push(ordered_events, &Item{Value: ev, Priority: prio})
@@ -165,7 +167,11 @@ func (s *EventService) ListEvents(params map[string]any) ([]event_model.Event, e
 		}
 		return res.Events, nil
 	}
-	return s.eventRepository.List(params)
+	events, err := s.eventRepository.List(params)
+	if errors.Is(err, event_repository.ErrInvalidFilter) {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidFilter, err)
+	}
+	return events, err
 }
 
 func (s *EventService) SearchEvents(ctx context.Context, query string, pageNum, pageSize int) (event_model.SearchResult, error) {
@@ -204,7 +210,11 @@ func (s *EventService) ListMapEvents(ctx context.Context, filter event_model.Map
 }
 
 func (s *EventService) GetPopularEvents(pageSize int, pageNum int) ([]event_model.Event, error){
-	return s.eventRepository.GetPopular(pageSize, pageNum)
+	events, err := s.eventRepository.GetPopular(pageSize, pageNum)
+	if errors.Is(err, event_repository.ErrInvalidFilter) {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidFilter, err)
+	}
+	return events, err
 }
 
 // CreateUnofficialEvent validates and publishes a user-created unofficial event adhering to rule R5.
@@ -253,6 +263,11 @@ func (s *EventService) UpdateUnofficialEvent(ctx context.Context, id int, e even
 	e.IsOfficial = false
 	e.Creator = stored.Creator
 	e.DateCreated = stored.DateCreated
+	// The image is uploaded with POST /events/{id}/image, so a body without it keeps the current one
+	// TODO(DP-026): there is no way to remove the image of an event.
+	if e.Images == "" {
+		e.Images = stored.Images
+	}
 
 	updated, err := s.eventRepository.Update(id, e, false)
 	if errors.Is(err, event_repository.ErrEventNotFound) {
@@ -347,7 +362,11 @@ func (s *EventService) GetCategories() ([]event_model.Category, error) {
 }
 
 func (s *EventService) GetCategory(id int) (event_model.Category, error) {
-	return s.eventRepository.GetCategory(id)
+	cat, err := s.eventRepository.GetCategory(id)
+	if errors.Is(err, event_repository.ErrCategoryNotFound) {
+		return event_model.Category{}, fmt.Errorf("%w: %w", ErrCategoryNotFound, err)
+	}
+	return cat, err
 }
 
 // validateUnofficialEvent checks the fields required to publish an unofficial event and rule R5
@@ -363,12 +382,13 @@ func validateUnofficialEvent(e event_model.Event, createdAt time.Time) error {
 		return ErrInvalidEventCategory
 	}
 
-	// R5: dataInici >= dataCreacio (allowing 2-minute clock skew)
-	if e.StartDate.IsZero() || e.StartDate.Before(createdAt.Add(-2*time.Minute)) {
+	// The dates are stored without the time of day, so R5 compares days
+	// R5: dataInici >= dataCreacio
+	if e.StartDate.IsZero() || day(e.StartDate).Before(day(createdAt.UTC())) {
 		return fmt.Errorf("%w: start date must not be before the creation date", ErrInvalidEventDates)
 	}
 	// R5: dataFi >= dataInici
-	if !e.EndDate.IsZero() && e.EndDate.Before(e.StartDate) {
+	if !e.EndDate.IsZero() && day(e.EndDate).Before(day(e.StartDate)) {
 		return fmt.Errorf("%w: end date must not be before start date", ErrInvalidEventDates)
 	}
 
@@ -379,6 +399,11 @@ func validateUnofficialEvent(e event_model.Event, createdAt time.Time) error {
 		}
 	}
 	return nil
+}
+
+// day returns the date of t without the time of day, the same date the database stores for it.
+func day(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 }
 
 func validateBoundingBox(minLat, maxLat, minLng, maxLng float32) error {

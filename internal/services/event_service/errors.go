@@ -4,6 +4,8 @@ import "errors"
 
 var (
 	ErrEventNotFound           = errors.New("event not found")
+	ErrCategoryNotFound        = errors.New("category not found")
+	ErrInvalidFilter           = errors.New("invalid filter or page parameters")
 	ErrInvalidEvent            = errors.New("invalid event")
 	ErrInvalidEventTitle       = errors.New("event title is required")
 	ErrInvalidEventDescription = errors.New("event description is required")
