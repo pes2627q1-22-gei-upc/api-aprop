@@ -22,4 +22,5 @@ type Repository interface {
 	GetCategories() ([]event_model.Category, error)
 	GetCategory(id int) (event_model.Category, error)
 	ListMapEvents(ctx context.Context, filter event_model.MapFilter) ([]event_model.MapEvent, error)
+	EventExists(id int) (bool, error)
 }

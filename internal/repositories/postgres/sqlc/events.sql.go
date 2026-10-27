@@ -512,6 +512,7 @@ SELECT evlst.id, evlst.title, evlst.subtitle, evlst.description, evlst.schedule,
     e.activityurl, e.startdate, e.enddate, e.place, e.latitude, e.longitude, e.postalcode, e.municipality,
     e.region, e.address, oe.code, ue.creator, ue.datecreated, count(s.userid) as num_signups FROM events e left join officialevents oe on e.id=oe.id
     left join unofficialevents ue on e.id=ue.id left join signup s on s.event=e.id
+    WHERE e.enddate > now()
     GROUP BY e.id, oe.id, ue.id ORDER BY num_signups DESC, e.enddate ASC NULLS LAST
     LIMIT $1 OFFSET $2
 ) evlst left join eventcategories ec on evlst.id = ec.event left join categories c on ec.category = c.id ORDER BY evlst.num_signups DESC, evlst.enddate ASC NULLS LAST, evlst.id ASC
@@ -621,7 +622,7 @@ SELECT evlst.id, evlst.title, evlst.subtitle, evlst.description, evlst.schedule,
     and ($5::date is null or e.startdate <= $5::date)   -- start-before filter
     and ($6::date is null or e.startdate >= $6::date)   -- start-after filter
     and ($7::date is null or e.enddate <= $7::date)   -- end-before filter
-    and ($8::date is null or e.enddate >= $8::date)   -- end-after filter
+    and (($8::date is null and e.enddate > now()) or e.enddate >= $8::date)   -- end-after filter
     and ($9::boolean is null or e.permanent = $9::boolean)  -- permanent filter
     and ($10::boolean is null or e.free = $10::boolean) -- free filter
     and ($11::boolean is null or $11::boolean = true and oe.id is not null or $11::boolean = false and oe.id is null)   -- official filter

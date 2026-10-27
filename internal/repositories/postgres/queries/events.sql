@@ -40,7 +40,7 @@ SELECT evlst.*, c.name as category FROM (
     and (@startbefore::date is null or e.startdate <= @startbefore::date)   -- start-before filter
     and (@startafter::date is null or e.startdate >= @startafter::date)   -- start-after filter
     and (@endbefore::date is null or e.enddate <= @endbefore::date)   -- end-before filter
-    and (@endafter::date is null or e.enddate >= @endafter::date)   -- end-after filter
+    and ((@endafter::date is null and e.enddate > now()) or e.enddate >= @endafter::date)   -- end-after filter
     and (sqlc.narg('permanent')::boolean is null or e.permanent = sqlc.narg('permanent')::boolean)  -- permanent filter
     and (sqlc.narg('free')::boolean is null or e.free = sqlc.narg('free')::boolean) -- free filter
     and (sqlc.narg('official')::boolean is null or sqlc.narg('official')::boolean = true and oe.id is not null or sqlc.narg('official')::boolean = false and oe.id is null)   -- official filter
@@ -56,6 +56,7 @@ SELECT evlst.*, c.name as category FROM (
     e.activityurl, e.startdate, e.enddate, e.place, e.latitude, e.longitude, e.postalcode, e.municipality,
     e.region, e.address, oe.code, ue.creator, ue.datecreated, count(s.userid) as num_signups FROM events e left join officialevents oe on e.id=oe.id
     left join unofficialevents ue on e.id=ue.id left join signup s on s.event=e.id
+    WHERE e.enddate > now()
     GROUP BY e.id, oe.id, ue.id ORDER BY num_signups DESC, e.enddate ASC NULLS LAST
     LIMIT $1 OFFSET $2
 ) evlst left join eventcategories ec on evlst.id = ec.event left join categories c on ec.category = c.id ORDER BY evlst.num_signups DESC, evlst.enddate ASC NULLS LAST, evlst.id ASC;

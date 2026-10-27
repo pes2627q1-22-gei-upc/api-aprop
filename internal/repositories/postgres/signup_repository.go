@@ -29,14 +29,6 @@ func NewSignUpRepository(pool *pgxpool.Pool) *SignUpRepository {
 	return &SignUpRepository{queries: sqlc.New(pool)}
 }
 
-func (r *SignUpRepository) EventExists(ctx context.Context, eventID int) (bool, error) {
-	exists, err := r.queries.EventExists(ctx, int32(eventID))
-	if err != nil {
-		return false, fmt.Errorf("check event %d: %w", eventID, err)
-	}
-	return exists, nil
-}
-
 // Create inserts the sign up unless the user is already signed up to the event.
 // TODO(DP-012): without a UNIQUE (UserID, Event) constraint concurrent requests can still duplicate the sign up.
 func (r *SignUpRepository) Create(ctx context.Context, userID string, eventID int) (bool, error) {

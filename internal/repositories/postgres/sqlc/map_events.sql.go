@@ -53,6 +53,7 @@ WHERE e.Latitude IS NOT NULL
   AND e.Latitude <= $3::real
   AND e.Longitude >= $4::real
   AND e.Longitude <= $5::real
+  AND e.EndDate > now()
 ORDER BY e.StartDate NULLS LAST, e.ID
 `
 
