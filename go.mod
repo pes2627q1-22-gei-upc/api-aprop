@@ -8,6 +8,7 @@ require (
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/joho/godotenv v1.5.1
 	github.com/modelcontextprotocol/go-sdk v1.8.0
+	github.com/rs/cors v1.11.1
 	google.golang.org/api v0.287.0
 )
 

@@ -9,10 +9,12 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 	_ "time/tzdata" // the runtime image has no time zone database
 
 	"github.com/joho/godotenv"
+	"github.com/rs/cors"
 
 	"api-aprop/internal/clients/firebase_client"
 	"api-aprop/internal/clients/gencat_client"
@@ -24,6 +26,7 @@ import (
 	"api-aprop/internal/handlers/auth_handler"
 	"api-aprop/internal/handlers/event_handler"
 	"api-aprop/internal/handlers/preference_handler"
+	"api-aprop/internal/handlers/requester"
 	"api-aprop/internal/handlers/signup_handler"
 	"api-aprop/internal/handlers/user_handler"
 	"api-aprop/internal/handlers/notification_handler"
@@ -55,6 +58,10 @@ const (
 	dbEnvSslMode   = "DB_SSLMODE"   // optional, defaults to defaultSslMode
 	dbEnvPoolSize  = "DB_POOL_SIZE" // optional, defaults to the pgxpool default
 	defaultSslMode = "disable"
+
+	// CORS environment variable: comma separated origins that can call the API from a browser
+	corsEnvAllowedOrigins = "CORS_ALLOWED_ORIGINS" // optional, defaults to defaultCORSOrigins
+	defaultCORSOrigins    = "*"                    // any origin
 )
 
 func runDaily(task func()) {
@@ -163,6 +170,23 @@ func main() {
 		PublicURL: os.Getenv("S3_PUBLIC_URL"),
 	})
 
+	// CORS: it wraps the auth middleware (see router.NewRouter) because browsers send the preflight without the token.
+	// Requests without an Origin header (mobile app, curl) are not affected.
+	corsOrigins := os.Getenv(corsEnvAllowedOrigins)
+	if corsOrigins == "" {
+		corsOrigins = defaultCORSOrigins
+	}
+	allowedOrigins := strings.Split(corsOrigins, ",")
+	for i, origin := range allowedOrigins {
+		allowedOrigins[i] = strings.TrimSpace(origin)
+	}
+	corsMiddleware := cors.New(cors.Options{
+		AllowedOrigins: allowedOrigins,
+		AllowedMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete},
+		AllowedHeaders: []string{"Authorization", "Content-Type", requester.UserIDHeader},
+		MaxAge:         600, // seconds the browser caches the preflight response
+	}).Handler
+
 	var authMiddleware func(http.Handler) http.Handler
 	if _, err := os.Stat(firebaseCredentialsFile); err == nil {
 		firebaseClient, err := firebase_client.NewFirebaseClient(context.Background(), firebaseCredentialsFile)
@@ -227,7 +251,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           router.NewRouter(authMiddleware, eventHandler, assistantHandler, signUpHandler, authHandler, notificationHandler, userHandler, preferenceHandler),
+		Handler:           router.NewRouter(corsMiddleware, authMiddleware, eventHandler, assistantHandler, signUpHandler, authHandler, notificationHandler, userHandler, preferenceHandler),
 		Protocols:         protocols,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
