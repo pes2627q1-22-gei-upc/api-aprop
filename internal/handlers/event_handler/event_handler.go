@@ -16,6 +16,9 @@ import (
 
 const maxBodyBytes = 1 << 20
 
+// maxImageBytes is the largest event image. The request can be a bit larger because of the multipart form.
+const maxImageBytes = 5 << 20
+
 // UserIDHeader carries the user identity until authentication exists.
 const UserIDHeader = "X-User-ID"
 
@@ -258,7 +261,9 @@ func (h *EventHandler) UploadEventImage(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := r.ParseMultipartForm(5 << 20); err != nil {
+	// ParseMultipartForm only limits the memory it uses (the rest goes to disk), so the body is limited here
+	r.Body = http.MaxBytesReader(w, r.Body, maxImageBytes+(64<<10))
+	if err := r.ParseMultipartForm(maxImageBytes); err != nil {
 		response.WriteError(w, http.StatusBadRequest, "file too large or invalid multipart form")
 		return
 	}
@@ -272,6 +277,10 @@ func (h *EventHandler) UploadEventImage(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	defer file.Close()
+	if header.Size > maxImageBytes {
+		response.WriteError(w, http.StatusBadRequest, "file too large or invalid multipart form")
+		return
+	}
 
 	contentType := header.Header.Get("Content-Type")
 	if contentType == "" || contentType == "application/octet-stream" {

@@ -485,6 +485,14 @@ func TestUploadEventImageHandler(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 			wantCalls:  0,
 		},
+		{
+			name:       "storage error returns 502",
+			path:       "/events/15/image",
+			userID:     validUserID,
+			service:    fakeEventService{event: unofficialEvent(t, 15, validUserID), uploadImageErr: event_service.ErrImageUploadFailed},
+			wantStatus: http.StatusBadGateway,
+			wantCalls:  1,
+		},
 	}
 
 	for _, tt := range tests {
@@ -764,5 +772,38 @@ func TestListMapEvents_SignedInUser(t *testing.T) {
 	}
 	if s.gotFilter.UserID != validUserID {
 		t.Errorf("user id = %q, want %q", s.gotFilter.UserID, validUserID)
+	}
+}
+
+func TestUploadEventImageHandler_TooLarge(t *testing.T) {
+	tests := []struct {
+		name string
+		size int
+	}{
+		{"image just over the limit", maxImageBytes + 1},
+		{"request body over the limit", maxImageBytes + 1<<20},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := new(bytes.Buffer)
+			writer := multipart.NewWriter(body)
+			part, _ := writer.CreateFormFile("image", "poster.jpg")
+			_, _ = part.Write(bytes.Repeat([]byte("x"), tt.size))
+			writer.Close()
+
+			s := fakeEventService{event: unofficialEvent(t, 15, validUserID)}
+			req := httptest.NewRequest(http.MethodPost, "/events/15/image", body)
+			req.Header.Set("Content-Type", writer.FormDataContentType())
+			req.Header.Set(UserIDHeader, validUserID)
+
+			rec := serve(&s, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d: %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+			}
+			if s.uploadCalls != 0 {
+				t.Errorf("upload calls = %d, want 0", s.uploadCalls)
+			}
+		})
 	}
 }
