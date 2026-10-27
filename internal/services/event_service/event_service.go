@@ -253,6 +253,11 @@ func (s *EventService) UpdateUnofficialEvent(ctx context.Context, id int, e even
 	e.IsOfficial = false
 	e.Creator = stored.Creator
 	e.DateCreated = stored.DateCreated
+	// The image is uploaded with POST /events/{id}/image, so a body without it keeps the current one
+	// TODO(DP-026): there is no way to remove the image of an event.
+	if e.Images == "" {
+		e.Images = stored.Images
+	}
 
 	updated, err := s.eventRepository.Update(id, e, false)
 	if errors.Is(err, event_repository.ErrEventNotFound) {
@@ -363,12 +368,13 @@ func validateUnofficialEvent(e event_model.Event, createdAt time.Time) error {
 		return ErrInvalidEventCategory
 	}
 
-	// R5: dataInici >= dataCreacio (allowing 2-minute clock skew)
-	if e.StartDate.IsZero() || e.StartDate.Before(createdAt.Add(-2*time.Minute)) {
+	// The dates are stored without the time of day, so R5 compares days
+	// R5: dataInici >= dataCreacio
+	if e.StartDate.IsZero() || day(e.StartDate).Before(day(createdAt.UTC())) {
 		return fmt.Errorf("%w: start date must not be before the creation date", ErrInvalidEventDates)
 	}
 	// R5: dataFi >= dataInici
-	if !e.EndDate.IsZero() && e.EndDate.Before(e.StartDate) {
+	if !e.EndDate.IsZero() && day(e.EndDate).Before(day(e.StartDate)) {
 		return fmt.Errorf("%w: end date must not be before start date", ErrInvalidEventDates)
 	}
 
@@ -379,6 +385,11 @@ func validateUnofficialEvent(e event_model.Event, createdAt time.Time) error {
 		}
 	}
 	return nil
+}
+
+// day returns the date of t without the time of day, the same date the database stores for it.
+func day(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 }
 
 func validateBoundingBox(minLat, maxLat, minLng, maxLng float32) error {

@@ -219,8 +219,24 @@ func TestCreateUnofficialEvent(t *testing.T) {
 		{
 			name:    "end date before start date violates R5",
 			userID:  validUserID,
-			event:   event_model.Event{Title: "Title", Description: "Desc", Categories: []string{"C"}, StartDate: futureStart, EndDate: futureStart.Add(-1 * time.Hour)},
+			event:   event_model.Event{Title: "Title", Description: "Desc", Categories: []string{"C"}, StartDate: futureStart, EndDate: futureStart.AddDate(0, 0, -1)},
 			wantErr: ErrInvalidEventDates,
+		},
+		{
+			name:   "start date today at midnight is allowed",
+			userID: validUserID,
+			event: event_model.Event{
+				Title: "Title", Description: "Desc", Categories: []string{"C"},
+				StartDate: day(time.Now().UTC()),
+			},
+		},
+		{
+			name:   "end date on the start day but earlier is allowed",
+			userID: validUserID,
+			event: event_model.Event{
+				Title: "Title", Description: "Desc", Categories: []string{"C"},
+				StartDate: day(futureStart).Add(20 * time.Hour), EndDate: day(futureStart).Add(10 * time.Hour),
+			},
 		},
 		{
 			name:    "invalid coordinates",
@@ -427,6 +443,7 @@ func TestUpdateUnofficialEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 	createdAt := time.Now().UTC().Add(-48 * time.Hour)
+	createdToday := day(time.Now().UTC()).Add(23*time.Hour + 59*time.Minute)
 	stored := event_model.Event{ID: 7, Title: "Taller", Creator: creator, DateCreated: createdAt}
 
 	changes := event_model.Event{
@@ -468,6 +485,18 @@ func TestUpdateUnofficialEvent(t *testing.T) {
 				StartDate: createdAt.Add(-24 * time.Hour),
 			},
 			wantErr: ErrInvalidEventDates,
+		},
+		{
+			// The database returns the start date at midnight, so an event created today keeps being editable
+			name: "event created today that starts today",
+			stored: event_model.Event{
+				ID: 7, Title: "Taller", Creator: creator, DateCreated: createdToday,
+			},
+			changes: event_model.Event{
+				Title: "Taller", Description: "Desc", Categories: []string{"C"},
+				StartDate: day(createdToday),
+			},
+			wantUpdates: 1,
 		},
 		{
 			name:    "blank title",
@@ -514,8 +543,45 @@ func TestUpdateUnofficialEvent(t *testing.T) {
 			if updated.ID != 7 || updated.IsOfficial {
 				t.Errorf("updated event id/official = %d/%v, want 7/false", updated.ID, updated.IsOfficial)
 			}
-			if repo.updated.Creator != creator || !repo.updated.DateCreated.Equal(createdAt) {
+			if repo.updated.Creator != creator || !repo.updated.DateCreated.Equal(tt.stored.DateCreated) {
 				t.Errorf("creator or creation date changed: %v %v", repo.updated.Creator, repo.updated.DateCreated)
+			}
+		})
+	}
+}
+
+func TestUpdateUnofficialEventImage(t *testing.T) {
+	var creator pgtype.UUID
+	if err := creator.Scan(validUserID); err != nil {
+		t.Fatal(err)
+	}
+	stored := event_model.Event{
+		ID: 7, Title: "Taller", Creator: creator, DateCreated: time.Now().UTC(),
+		Images: "https://s3/events/7/poster.jpg",
+	}
+
+	tests := []struct {
+		name      string
+		images    string
+		wantImage string
+	}{
+		{name: "body without image keeps the uploaded one", images: "", wantImage: stored.Images},
+		{name: "body with image replaces it", images: "https://s3/events/7/new.jpg", wantImage: "https://s3/events/7/new.jpg"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := fakeEventRepository{getEvent: stored}
+			svc := NewEventService(&repo, nil, nil, nil, nil)
+			changes := event_model.Event{
+				Title: "Taller", Description: "Desc", Categories: []string{"C"},
+				StartDate: time.Now().UTC().Add(24 * time.Hour), Images: tt.images,
+			}
+			if _, err := svc.UpdateUnofficialEvent(context.Background(), 7, changes); err != nil {
+				t.Fatal(err)
+			}
+			if repo.updated.Images != tt.wantImage {
+				t.Errorf("images = %q, want %q", repo.updated.Images, tt.wantImage)
 			}
 		})
 	}
