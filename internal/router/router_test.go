@@ -32,6 +32,14 @@ func (s *stubEventService) ListEvents(_ map[string]any) ([]event_model.Event, er
 	return []event_model.Event{}, nil
 }
 
+func (s *stubEventService) GetRecommendedEvents(_ context.Context, _ string, _ int, _ int) ([]event_model.Event, error) {
+	return []event_model.Event{}, nil
+}
+
+func (s *stubEventService) GetPopularEvents(_ int, _ int) ([]event_model.Event, error) {
+	return []event_model.Event{}, nil
+}
+
 func (s *stubEventService) ListMapEvents(_ context.Context, _ event_model.MapFilter) ([]event_model.MapEvent, error) {
 	s.mapCalled = true
 	return []event_model.MapEvent{

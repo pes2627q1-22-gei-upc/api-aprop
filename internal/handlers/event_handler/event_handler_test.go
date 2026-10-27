@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -15,6 +16,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"api-aprop/internal/clients/firebase_client"
+	"api-aprop/internal/middleware/auth_middleware"
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/services/event_service"
 )
@@ -22,6 +25,8 @@ import (
 const (
 	validUserID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
 	otherUserID = "9b2e6c1a-1d3f-4c5e-8a7b-6f0e2d4c8a19"
+	// firebaseUID is the Firebase UID of the user validUserID
+	firebaseUID = "Vw3kU1pZ8rQ2hXyT6mN9aB4cD7e1"
 )
 
 // unofficialEvent returns an event created by the given user.
@@ -50,6 +55,10 @@ type fakeEventService struct {
 	createUnofficialErr error
 	uploadedImageURL    string
 	uploadImageErr      error
+	listErr             error
+	popularErr          error
+	categoryErr         error
+	gotListParams       map[string]any
 
 	mapCalls        int
 	unofficialCalls int
@@ -74,8 +83,17 @@ func (f *fakeEventService) UpdateUnofficialEvent(_ context.Context, id int, e ev
 	return e, f.updateErr
 }
 
-func (f *fakeEventService) ListEvents(_ map[string]any) ([]event_model.Event, error) {
+func (f *fakeEventService) ListEvents(params map[string]any) ([]event_model.Event, error) {
+	f.gotListParams = params
+	return nil, f.listErr
+}
+
+func (f *fakeEventService) GetRecommendedEvents(_ context.Context, _ string, _ int, _ int) ([]event_model.Event, error) {
 	return nil, nil
+}
+
+func (f *fakeEventService) GetPopularEvents(_ int, _ int) ([]event_model.Event, error) {
+	return nil, f.popularErr
 }
 
 func (f *fakeEventService) ListMapEvents(_ context.Context, filter event_model.MapFilter) ([]event_model.MapEvent, error) {
@@ -89,6 +107,9 @@ func (f *fakeEventService) ResolveUserID(_ context.Context, identifier string) (
 	if identifier == "" {
 		return "", event_service.ErrUserNotRegistered
 	}
+	if identifier == firebaseUID {
+		return validUserID, nil
+	}
 	return identifier, nil
 }
 
@@ -101,7 +122,7 @@ func (f *fakeEventService) GetCategories() ([]event_model.Category, error) {
 }
 
 func (f *fakeEventService) GetCategory(_ int) (event_model.Category, error) {
-	return event_model.Category{}, nil
+	return event_model.Category{}, f.categoryErr
 }
 
 func (f *fakeEventService) SearchEvents(_ context.Context, query string, pageNum, pageSize int) (event_model.SearchResult, error) {
@@ -195,11 +216,21 @@ func TestListMapEvents(t *testing.T) {
 		},
 		{
 			name:       "events/map alias and minLon/maxLon aliases",
-			path:       "/events/map?minLat=41.3&maxLat=41.5&minLon=2.1&maxLon=2.3&userId=" + validUserID,
+			path:       "/events/map?minLat=41.3&maxLat=41.5&minLon=2.1&maxLon=2.3",
+			userHeader: validUserID,
 			service:    fakeEventService{mapEvents: sample},
 			wantStatus: http.StatusOK,
 			wantCalls:  1,
 			wantFilter: event_model.MapFilter{MinLat: 41.3, MaxLat: 41.5, MinLng: 2.1, MaxLng: 2.3, UserID: validUserID},
+			wantIDs:    []int{10, 20},
+		},
+		{
+			name:       "userId query parameter is ignored",
+			path:       "/event/map?userId=" + otherUserID,
+			service:    fakeEventService{mapEvents: sample},
+			wantStatus: http.StatusOK,
+			wantCalls:  1,
+			wantFilter: event_model.MapFilter{MinLat: -90, MaxLat: 90, MinLng: -180, MaxLng: 180},
 			wantIDs:    []int{10, 20},
 		},
 		{
@@ -454,6 +485,14 @@ func TestUploadEventImageHandler(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 			wantCalls:  0,
 		},
+		{
+			name:       "storage error returns 502",
+			path:       "/events/15/image",
+			userID:     validUserID,
+			service:    fakeEventService{event: unofficialEvent(t, 15, validUserID), uploadImageErr: event_service.ErrImageUploadFailed},
+			wantStatus: http.StatusBadGateway,
+			wantCalls:  1,
+		},
 	}
 
 	for _, tt := range tests {
@@ -652,6 +691,118 @@ func TestDeleteEventHandler(t *testing.T) {
 			}
 			if s.deleteCalls != tt.wantCalls {
 				t.Errorf("service delete calls = %d, want %d", s.deleteCalls, tt.wantCalls)
+			}
+		})
+	}
+}
+
+func TestListEvents(t *testing.T) {
+	tests := []struct {
+		name       string
+		path       string
+		listErr    error
+		wantStatus int
+		wantParams map[string]any
+	}{
+		{
+			name:       "default page",
+			path:       "/events",
+			wantStatus: http.StatusOK,
+			wantParams: map[string]any{"pageSize": 20, "pageNum": 0, "filterCategory": 0},
+		},
+		{
+			name:       "page size zero uses the default",
+			path:       "/events?pageSize=0&pageNum=2&filterCategory=5",
+			wantStatus: http.StatusOK,
+			wantParams: map[string]any{"pageSize": 20, "pageNum": 2, "filterCategory": 5},
+		},
+		{name: "page size not a number", path: "/events?pageSize=abc", wantStatus: http.StatusBadRequest},
+		{name: "page number not a number", path: "/events?pageNum=abc", wantStatus: http.StatusBadRequest},
+		{name: "category not a number", path: "/events?filterCategory=music", wantStatus: http.StatusBadRequest},
+		{
+			name:       "invalid filter",
+			path:       "/events?filterFree=maybe",
+			listErr:    fmt.Errorf("%w: filterFree", event_service.ErrInvalidFilter),
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := fakeEventService{listErr: tt.listErr}
+			rec := serve(&s, httptest.NewRequest(http.MethodGet, tt.path, nil))
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d: %s", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+			for k, want := range tt.wantParams {
+				if s.gotListParams[k] != want {
+					t.Errorf("param %s = %v, want %v", k, s.gotListParams[k], want)
+				}
+			}
+		})
+	}
+}
+
+func TestGetPopularEvents_NegativePage(t *testing.T) {
+	s := fakeEventService{popularErr: fmt.Errorf("%w: negative page", event_service.ErrInvalidFilter)}
+	rec := serve(&s, httptest.NewRequest(http.MethodGet, "/events/popular?pageSize=10&pageNum=-1", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestGetCategory_NotFound(t *testing.T) {
+	s := fakeEventService{categoryErr: fmt.Errorf("%w: id 99", event_service.ErrCategoryNotFound)}
+	rec := serve(&s, httptest.NewRequest(http.MethodGet, "/categories/99", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestListMapEvents_SignedInUser(t *testing.T) {
+	s := fakeEventService{mapEvents: []event_model.MapEvent{}}
+	req := httptest.NewRequest(http.MethodGet, "/events/map", nil)
+	// A signed in user cannot ask for the friends of another user with the header
+	req.Header.Set(UserIDHeader, otherUserID)
+	req = req.WithContext(auth_middleware.ContextWithUser(req.Context(), firebase_client.User{UID: firebaseUID}))
+
+	rec := serve(&s, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if s.gotFilter.UserID != validUserID {
+		t.Errorf("user id = %q, want %q", s.gotFilter.UserID, validUserID)
+	}
+}
+
+func TestUploadEventImageHandler_TooLarge(t *testing.T) {
+	tests := []struct {
+		name string
+		size int
+	}{
+		{"image just over the limit", maxImageBytes + 1},
+		{"request body over the limit", maxImageBytes + 1<<20},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := new(bytes.Buffer)
+			writer := multipart.NewWriter(body)
+			part, _ := writer.CreateFormFile("image", "poster.jpg")
+			_, _ = part.Write(bytes.Repeat([]byte("x"), tt.size))
+			writer.Close()
+
+			s := fakeEventService{event: unofficialEvent(t, 15, validUserID)}
+			req := httptest.NewRequest(http.MethodPost, "/events/15/image", body)
+			req.Header.Set("Content-Type", writer.FormDataContentType())
+			req.Header.Set(UserIDHeader, validUserID)
+
+			rec := serve(&s, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d: %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+			}
+			if s.uploadCalls != 0 {
+				t.Errorf("upload calls = %d, want 0", s.uploadCalls)
 			}
 		})
 	}

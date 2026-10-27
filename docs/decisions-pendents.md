@@ -290,6 +290,16 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Qui decideix:** equip
 - **Resolució:**
 
+### DP-026 · Imatge d'un esdeveniment en modificar-lo amb `PUT /events/{id}`
+- **Estat:** oberta
+- **Obert per:** 2026-10-27 · Claude Code (Opus 5.5) · Taiga Tasca #236
+- **Context:** `EventService.UpdateUnofficialEvent`; la imatge es puja a part amb `POST /events/{id}/image`.
+- **Dubte:** el `PUT` substitueix tots els camps i, si el cos no porta `images`, esborrava la imatge pujada. No hi ha cap contracte que digui si el formulari d'edició l'ha d'enviar.
+- **Opcions:** A) un `images` buit conserva la imatge actual (no es pot treure) · B) el client sempre envia `images` i un buit l'esborra · C) endpoint `DELETE /events/{id}/image`.
+- **Provisionalment:** A (`TODO(DP-026)`).
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
 ## Resoltes
 
 (cap)
