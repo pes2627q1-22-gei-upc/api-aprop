@@ -30,6 +30,7 @@ import (
 	"api-aprop/internal/handlers/signup_handler"
 	"api-aprop/internal/handlers/user_handler"
 	"api-aprop/internal/handlers/notification_handler"
+	"api-aprop/internal/mcp_server"
 	"api-aprop/internal/middleware/auth_middleware"
 	postgres_repository "api-aprop/internal/repositories/postgres"
 	"api-aprop/internal/router"
@@ -106,7 +107,8 @@ func main() {
 	}
 	groqAPIKey := getEnv("GROQ_API_KEY")
 	groqModel := getEnv("GROQ_MODEL")
-	mcpURL := getEnv("MCP_URL")
+	// The API serves the catalogue MCP server itself (see the router below), so the chatbot calls its own port.
+	mcpURL := "http://localhost:" + port + "/mcp"
 	mcpToken := getEnv("MCP_TOKEN")
 	location, err := time.LoadLocation(timeZone)
 	if err != nil {
@@ -244,6 +246,11 @@ func main() {
 		}
 	})
 
+	// /mcp has its own shared token, so it stays outside the Firebase auth middleware.
+	mux := http.NewServeMux()
+	mux.Handle("/mcp", mcp_server.NewHandler(mcp_server.NewServer(catalogueRepository, func() time.Time { return time.Now().In(location) }), mcpToken))
+	mux.Handle("/", router.NewRouter(corsMiddleware, authMiddleware, eventHandler, assistantHandler, signUpHandler, authHandler, notificationHandler, userHandler, preferenceHandler))
+
 	// Server: HTTP/1.1 and HTTP/2 without TLS (h2c)
 	protocols := new(http.Protocols)
 	protocols.SetHTTP1(true)
@@ -251,7 +258,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           router.NewRouter(corsMiddleware, authMiddleware, eventHandler, assistantHandler, signUpHandler, authHandler, notificationHandler, userHandler, preferenceHandler),
+		Handler:           mux,
 		Protocols:         protocols,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
