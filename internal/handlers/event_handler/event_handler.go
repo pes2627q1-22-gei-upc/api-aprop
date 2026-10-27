@@ -78,17 +78,45 @@ func (h *EventHandler) authorizeCreator(w http.ResponseWriter, r *http.Request, 
 	return true
 }
 
+// defaultPageSize is used when a list request does not ask for a page size, like GET /events/search.
+const defaultPageSize = 20
+
+// intParam reads an optional integer query parameter, returning def when it is missing.
+// It writes the error response and returns false when the value is not a number.
+func intParam(w http.ResponseWriter, r *http.Request, name string, def int) (int, bool) {
+	value := r.URL.Query().Get(name)
+	if value == "" {
+		return def, true
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil {
+		response.WriteError(w, http.StatusBadRequest, "invalid "+name)
+		return 0, false
+	}
+	return n, true
+}
+
 // ListEvents handles GET /events
 func (h *EventHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 	params := make(map[string]any)
-	params["pageSize"], _ = strconv.Atoi(r.URL.Query().Get("pageSize"))
-	params["pageNum"], _ = strconv.Atoi(r.URL.Query().Get("pageNum"))
-	tmp := r.URL.Query().Get("filterCategory")
-	if tmp != "" {
-		params["filterCategory"], _ = strconv.Atoi(tmp)
-	} else {
-		params["filterCategory"] = 0
+	pageSize, ok := intParam(w, r, "pageSize", defaultPageSize)
+	if !ok {
+		return
 	}
+	if pageSize == 0 {
+		pageSize = defaultPageSize
+	}
+	pageNum, ok := intParam(w, r, "pageNum", 0)
+	if !ok {
+		return
+	}
+	filterCategory, ok := intParam(w, r, "filterCategory", 0)
+	if !ok {
+		return
+	}
+	params["pageSize"] = pageSize
+	params["pageNum"] = pageNum
+	params["filterCategory"] = filterCategory
 	params["filterRegion"] = r.URL.Query().Get("filterRegion")
 	params["startBefore"] = r.URL.Query().Get("startBefore")
 	params["startAfter"] = r.URL.Query().Get("startAfter")

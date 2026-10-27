@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -50,6 +51,10 @@ type fakeEventService struct {
 	createUnofficialErr error
 	uploadedImageURL    string
 	uploadImageErr      error
+	listErr             error
+	popularErr          error
+	categoryErr         error
+	gotListParams       map[string]any
 
 	mapCalls        int
 	unofficialCalls int
@@ -74,8 +79,9 @@ func (f *fakeEventService) UpdateUnofficialEvent(_ context.Context, id int, e ev
 	return e, f.updateErr
 }
 
-func (f *fakeEventService) ListEvents(_ map[string]any) ([]event_model.Event, error) {
-	return nil, nil
+func (f *fakeEventService) ListEvents(params map[string]any) ([]event_model.Event, error) {
+	f.gotListParams = params
+	return nil, f.listErr
 }
 
 func (f *fakeEventService) GetRecommendedEvents(_ context.Context, _ string, _ int, _ int) ([]event_model.Event, error) {
@@ -83,7 +89,7 @@ func (f *fakeEventService) GetRecommendedEvents(_ context.Context, _ string, _ i
 }
 
 func (f *fakeEventService) GetPopularEvents(_ int, _ int) ([]event_model.Event, error) {
-	return nil, nil
+	return nil, f.popularErr
 }
 
 func (f *fakeEventService) ListMapEvents(_ context.Context, filter event_model.MapFilter) ([]event_model.MapEvent, error) {
@@ -109,7 +115,7 @@ func (f *fakeEventService) GetCategories() ([]event_model.Category, error) {
 }
 
 func (f *fakeEventService) GetCategory(_ int) (event_model.Category, error) {
-	return event_model.Category{}, nil
+	return event_model.Category{}, f.categoryErr
 }
 
 func (f *fakeEventService) SearchEvents(_ context.Context, query string, pageNum, pageSize int) (event_model.SearchResult, error) {
@@ -662,5 +668,68 @@ func TestDeleteEventHandler(t *testing.T) {
 				t.Errorf("service delete calls = %d, want %d", s.deleteCalls, tt.wantCalls)
 			}
 		})
+	}
+}
+
+func TestListEvents(t *testing.T) {
+	tests := []struct {
+		name       string
+		path       string
+		listErr    error
+		wantStatus int
+		wantParams map[string]any
+	}{
+		{
+			name:       "default page",
+			path:       "/events",
+			wantStatus: http.StatusOK,
+			wantParams: map[string]any{"pageSize": 20, "pageNum": 0, "filterCategory": 0},
+		},
+		{
+			name:       "page size zero uses the default",
+			path:       "/events?pageSize=0&pageNum=2&filterCategory=5",
+			wantStatus: http.StatusOK,
+			wantParams: map[string]any{"pageSize": 20, "pageNum": 2, "filterCategory": 5},
+		},
+		{name: "page size not a number", path: "/events?pageSize=abc", wantStatus: http.StatusBadRequest},
+		{name: "page number not a number", path: "/events?pageNum=abc", wantStatus: http.StatusBadRequest},
+		{name: "category not a number", path: "/events?filterCategory=music", wantStatus: http.StatusBadRequest},
+		{
+			name:       "invalid filter",
+			path:       "/events?filterFree=maybe",
+			listErr:    fmt.Errorf("%w: filterFree", event_service.ErrInvalidFilter),
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := fakeEventService{listErr: tt.listErr}
+			rec := serve(&s, httptest.NewRequest(http.MethodGet, tt.path, nil))
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d: %s", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+			for k, want := range tt.wantParams {
+				if s.gotListParams[k] != want {
+					t.Errorf("param %s = %v, want %v", k, s.gotListParams[k], want)
+				}
+			}
+		})
+	}
+}
+
+func TestGetPopularEvents_NegativePage(t *testing.T) {
+	s := fakeEventService{popularErr: fmt.Errorf("%w: negative page", event_service.ErrInvalidFilter)}
+	rec := serve(&s, httptest.NewRequest(http.MethodGet, "/events/popular?pageSize=10&pageNum=-1", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestGetCategory_NotFound(t *testing.T) {
+	s := fakeEventService{categoryErr: fmt.Errorf("%w: id 99", event_service.ErrCategoryNotFound)}
+	rec := serve(&s, httptest.NewRequest(http.MethodGet, "/categories/99", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
 	}
 }

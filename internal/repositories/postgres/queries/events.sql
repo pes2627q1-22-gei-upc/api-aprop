@@ -45,9 +45,10 @@ SELECT evlst.*, c.name as category FROM (
     and (sqlc.narg('free')::boolean is null or e.free = sqlc.narg('free')::boolean) -- free filter
     and (sqlc.narg('official')::boolean is null or sqlc.narg('official')::boolean = true and oe.id is not null or sqlc.narg('official')::boolean = false and oe.id is null)   -- official filter
     and (sqlc.narg('modality')::modalitytype is null or e.modality = sqlc.narg('modality')::modalitytype)
-    ORDER BY e.enddate ASC NULLS LAST
+    ORDER BY e.enddate ASC NULLS LAST, e.id ASC
     LIMIT $1 OFFSET $2
-) evlst left join eventcategories ec on evlst.id = ec.event left join categories c on ec.category = c.id;
+) evlst left join eventcategories ec on evlst.id = ec.event left join categories c on ec.category = c.id
+ORDER BY evlst.enddate ASC NULLS LAST, evlst.id ASC;
 
 -- name: GetPopularEvents :many
 SELECT evlst.*, c.name as category FROM (

@@ -14,6 +14,10 @@ func writeServiceError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, event_service.ErrEventNotFound):
 		response.WriteError(w, http.StatusNotFound, "event not found")
+	case errors.Is(err, event_service.ErrCategoryNotFound):
+		response.WriteError(w, http.StatusNotFound, "category not found")
+	case errors.Is(err, event_service.ErrInvalidFilter):
+		response.WriteError(w, http.StatusBadRequest, "invalid filter or page parameters")
 	case errors.Is(err, event_service.ErrInvalidEventTitle):
 		response.WriteError(w, http.StatusBadRequest, "title is required")
 	case errors.Is(err, event_service.ErrInvalidEventDescription):

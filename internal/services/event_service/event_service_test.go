@@ -3,6 +3,7 @@ package event_service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -35,6 +36,10 @@ type fakeEventRepository struct {
 	updateCalls  int
 	deleteErr    error
 	deleteCalls  int
+	listEvents   []event_model.Event
+	listErr      error
+	popularErr   error
+	categoryErr  error
 }
 
 func (f *fakeEventRepository) Create(e event_model.Event, _ bool) (event_model.Event, error) {
@@ -71,11 +76,11 @@ func (f *fakeEventRepository) Get(_ int) (event_model.Event, error) {
 }
 
 func (f *fakeEventRepository) List(_ map[string]any) ([]event_model.Event, error) {
-	return nil, nil
+	return f.listEvents, f.listErr
 }
 
 func (f *fakeEventRepository) GetPopular(_ int, _ int) ([]event_model.Event, error) {
-	return nil, nil
+	return nil, f.popularErr
 }
 
 func (f *fakeEventRepository) GetCategories() ([]event_model.Category, error) {
@@ -83,7 +88,7 @@ func (f *fakeEventRepository) GetCategories() ([]event_model.Category, error) {
 }
 
 func (f *fakeEventRepository) GetCategory(_ int) (event_model.Category, error) {
-	return event_model.Category{}, nil
+	return event_model.Category{}, f.categoryErr
 }
 
 func (f *fakeEventRepository) ListMapEvents(_ context.Context, filter event_model.MapFilter) ([]event_model.MapEvent, error) {
@@ -638,5 +643,25 @@ func TestDeleteUnofficialEvent(t *testing.T) {
 				t.Errorf("repository deletes = %d, want %d", repo.deleteCalls, tt.wantDeletes)
 			}
 		})
+	}
+}
+
+func TestListErrorsAreTranslated(t *testing.T) {
+	invalid := fmt.Errorf("list events: %w: pageNum", event_repository.ErrInvalidFilter)
+	repo := fakeEventRepository{
+		listErr:     invalid,
+		popularErr:  invalid,
+		categoryErr: fmt.Errorf("get category 9: %w", event_repository.ErrCategoryNotFound),
+	}
+	svc := NewEventService(&repo, nil, nil, nil, nil)
+
+	if _, err := svc.ListEvents(map[string]any{}); !errors.Is(err, ErrInvalidFilter) {
+		t.Errorf("ListEvents error = %v, want %v", err, ErrInvalidFilter)
+	}
+	if _, err := svc.GetPopularEvents(-1, 0); !errors.Is(err, ErrInvalidFilter) {
+		t.Errorf("GetPopularEvents error = %v, want %v", err, ErrInvalidFilter)
+	}
+	if _, err := svc.GetCategory(9); !errors.Is(err, ErrCategoryNotFound) {
+		t.Errorf("GetCategory error = %v, want %v", err, ErrCategoryNotFound)
 	}
 }

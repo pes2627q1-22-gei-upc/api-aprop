@@ -116,6 +116,9 @@ func (s *EventService) GetEvent(id int) (event_model.Event, error) {
 
 func (s *EventService) GetRecommendedEvents(ctx context.Context, userid string, pageSize int, pageNum int) ([]event_model.Event, error){
 	events, err := s.eventRepository.List(map[string]any{"pageSize":pageSize, "pageNum":pageNum, "filterCategory":0})
+	if errors.Is(err, event_repository.ErrInvalidFilter) {
+		return []event_model.Event{}, fmt.Errorf("%w: %w", ErrInvalidFilter, err)
+	}
 	if err!=nil{
 		return []event_model.Event{}, err
 	}
@@ -165,7 +168,11 @@ func (s *EventService) ListEvents(params map[string]any) ([]event_model.Event, e
 		}
 		return res.Events, nil
 	}
-	return s.eventRepository.List(params)
+	events, err := s.eventRepository.List(params)
+	if errors.Is(err, event_repository.ErrInvalidFilter) {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidFilter, err)
+	}
+	return events, err
 }
 
 func (s *EventService) SearchEvents(ctx context.Context, query string, pageNum, pageSize int) (event_model.SearchResult, error) {
@@ -204,7 +211,11 @@ func (s *EventService) ListMapEvents(ctx context.Context, filter event_model.Map
 }
 
 func (s *EventService) GetPopularEvents(pageSize int, pageNum int) ([]event_model.Event, error){
-	return s.eventRepository.GetPopular(pageSize, pageNum)
+	events, err := s.eventRepository.GetPopular(pageSize, pageNum)
+	if errors.Is(err, event_repository.ErrInvalidFilter) {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidFilter, err)
+	}
+	return events, err
 }
 
 // CreateUnofficialEvent validates and publishes a user-created unofficial event adhering to rule R5.
@@ -352,7 +363,11 @@ func (s *EventService) GetCategories() ([]event_model.Category, error) {
 }
 
 func (s *EventService) GetCategory(id int) (event_model.Category, error) {
-	return s.eventRepository.GetCategory(id)
+	cat, err := s.eventRepository.GetCategory(id)
+	if errors.Is(err, event_repository.ErrCategoryNotFound) {
+		return event_model.Category{}, fmt.Errorf("%w: %w", ErrCategoryNotFound, err)
+	}
+	return cat, err
 }
 
 // validateUnofficialEvent checks the fields required to publish an unofficial event and rule R5
