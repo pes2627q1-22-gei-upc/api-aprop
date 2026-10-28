@@ -1,0 +1,32 @@
+delete from notifications;
+alter table notifications drop constraint alt_key;
+alter table notifications drop column userid;
+alter table notifications add column userid uuid not null;
+alter table notifications drop column friend;
+alter table notifications add column friend uuid;
+alter table notifications add constraint alt_key unique(userid, notificationdate);
+
+delete from users;
+alter table users drop constraint users_pkey;
+alter table users drop column id;
+alter table users add column id UUID PRIMARY KEY DEFAULT gen_random_uuid();
+
+alter table notifications add constraint userid_fkey foreign key (userid) references users(id);
+alter table signup add constraint userid_fkey foreign key (userid) references users(id);
+alter table friendships add constraint user1_fkey foreign key (user1) references users(id);
+alter table friendships add constraint user2_fkey foreign key (user2) references users(id);
+alter table blocked add constraint blocker_fkey foreign key (blockinguser) references users(id);
+alter table blocked add constraint blocked_fkey foreign key (blockeduser) references users(id);
+alter table chatbotconversations add constraint userid_fkey foreign key (userid) references users(id);
+alter table eventratings add constraint userid_fkey foreign key (userid) references users(id);
+alter table friendrequests add constraint sender_fkey foreign key (sender) references users(id);
+alter table friendrequests add constraint receiver_fkey foreign key (receiver) references users(id);
+alter table messages add constraint userid_fkey foreign key (userid) references users(id);
+alter table preferencetests add constraint userid_fkey foreign key (userid) references users(id);
+alter table unofficialevents add constraint creator_fkey foreign key (creator) references users(id);
+alter table unofficialevents alter column creator set not null;
+alter table userlevels add constraint userid_fkey foreign key (userid) references users(id);
+alter table userpreferences add constraint userid_fkey foreign key (userid) references users(id);
+alter table userratings add constraint rater_fkey foreign key (rater) references users(id);
+alter table userratings add constraint rated_fkey foreign key (rated) references users(id);
+alter table userstate add constraint userid_fkey foreign key (userid) references users(id);

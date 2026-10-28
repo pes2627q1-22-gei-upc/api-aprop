@@ -1,0 +1,1 @@
+alter table settings drop column notificationbefore;
