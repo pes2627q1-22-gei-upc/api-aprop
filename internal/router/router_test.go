@@ -22,6 +22,9 @@ type stubEventService struct {
 	gotID     int
 }
 
+func (f *stubEventService) GetPopularEvents(pageSize int, pageNum int) ([]event_model.Event, error) {return []event_model.Event{}, nil}
+func (f *stubEventService) GetRecommendedEvents(ctx context.Context, user string, pageSize int, pageNum int) ([]event_model.Event, error) {return []event_model.Event{}, nil}
+
 func (s *stubEventService) GetEvent(id int) (event_model.Event, error) {
 	s.getCalled = true
 	s.gotID = id
