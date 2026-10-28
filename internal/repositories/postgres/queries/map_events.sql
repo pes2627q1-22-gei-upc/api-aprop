@@ -42,5 +42,5 @@ WHERE e.Latitude IS NOT NULL
   AND e.Latitude <= sqlc.arg(max_lat)::real
   AND e.Longitude >= sqlc.arg(min_lng)::real
   AND e.Longitude <= sqlc.arg(max_lng)::real
-  AND e.EndDate > now()
+  AND e.enddate is null or e.enddate > now()
 ORDER BY e.StartDate NULLS LAST, e.ID;
