@@ -68,9 +68,6 @@ type fakeEventService struct {
 	gotFilter       event_model.MapFilter
 }
 
-func (f *fakeEventService) GetPopularEvents(pageSize int, pageNum int) ([]event_model.Event, error) {return []event_model.Event{}, nil}
-func (f *fakeEventService) GetRecommendedEvents(ctx context.Context, user string, pageSize int, pageNum int) ([]event_model.Event, error) {return []event_model.Event{}, nil}
-
 func (f *fakeEventService) GetEvent(_ int) (event_model.Event, error) {
 	return f.event, f.getErr
 }
