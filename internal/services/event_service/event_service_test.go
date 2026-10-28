@@ -44,6 +44,9 @@ type fakeEventRepository struct {
 	categoryErr  error
 }
 
+func (f *fakeEventRepository) EventExists(id int) (bool, error){ return false, nil }
+func (f *fakeEventRepository) GetPopular(pageSize int, pageNum int) ([]event_model.Event, error) {return []event_model.Event{}, nil}
+
 func (f *fakeEventRepository) Create(e event_model.Event, _ bool) (event_model.Event, error) {
 	f.created = e
 	return e, f.createErr

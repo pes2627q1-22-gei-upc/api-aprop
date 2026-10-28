@@ -691,6 +691,14 @@ func (r *EventRepository) GetPopular(pageSize int, pageNum int) ([]event_model.E
 	return events, nil
 }
 
+func (r *EventRepository) EventExists(eventID int) (bool, error) {
+	exists, err := r.queries.EventExists(context.Background(), int32(eventID))
+	if err != nil {
+		return false, fmt.Errorf("check event %d: %w", eventID, err)
+	}
+	return exists, nil
+}
+
 func mapEventRowToModel(row sqlc.ListMapEventsRow) event_model.MapEvent {
 	return event_model.MapEvent{
 		Event: toModel(sqlc.Event{

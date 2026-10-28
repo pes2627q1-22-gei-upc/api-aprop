@@ -44,8 +44,10 @@ type queryRequest struct {
 }
 
 func (c *GencatClient) FetchEvents(ctx context.Context, pageNumber int, pageSize int) ([]event_model.Event, error) {
+	today := time.Now()
+	query := fmt.Sprintf("SELECT * WHERE data_fi IS NULL OR data_fi >= '%s' ORDER BY data_fi ASC NULLS LAST", today.Format("2006-01-02"))
 	jsonBody, err := json.Marshal(queryRequest{
-		Query: "SELECT * WHERE data_fi IS NULL OR data_fi > '2026-10-18T00:00:00' ORDER BY data_fi ASC NULLS LAST",
+		Query: query,
 		Page: queryPage{
 			PageNumber: pageNumber,
 			PageSize:   pageSize,

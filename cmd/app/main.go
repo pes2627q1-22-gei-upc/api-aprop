@@ -233,7 +233,7 @@ func main() {
 		chatbotRepository, catalogueRepository, groqClient, mcpClient,
 		func() time.Time { return time.Now().In(location) }, assistant_service.ReplyTimeout,
 	)
-	signUpService := signup_service.NewSignUpService(signUpRepository)
+	signUpService := signup_service.NewSignUpService(signUpRepository, eventRepository)
 	authService := auth_service.NewAuthService(authRepository)
 	userService := user_service.NewUserService(userRepository, s3Client)
 	notificationService := notification_service.NewNotificationService(notificationRepository)

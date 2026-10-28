@@ -5,18 +5,21 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/models/signup_model"
 	"api-aprop/internal/repositories/signup_repository"
+	"api-aprop/internal/repositories/event_repository"
 )
 
 type SignUpService struct {
 	signUpRepository signup_repository.Repository
+	eventRepository	 event_repository.Repository
 }
 
-func NewSignUpService(signUpRepository signup_repository.Repository) *SignUpService {
-	return &SignUpService{signUpRepository: signUpRepository}
+func NewSignUpService(signUpRepository signup_repository.Repository, eventRepository event_repository.Repository) *SignUpService {
+	return &SignUpService{signUpRepository: signUpRepository, eventRepository: eventRepository}
 }
 
 // SignUp signs the user up to the event. Signing up twice is not an error: Created is false.
@@ -29,12 +32,19 @@ func (s *SignUpService) SignUp(ctx context.Context, userID string, eventID int) 
 		return signup_model.SignUp{}, fmt.Errorf("%w: %d", ErrInvalidEventID, eventID)
 	}
 
-	exists, err := s.signUpRepository.EventExists(ctx, eventID)
+	exists, err := s.eventRepository.EventExists(eventID)
 	if err != nil {
 		return signup_model.SignUp{}, err
 	}
 	if !exists {
 		return signup_model.SignUp{}, fmt.Errorf("sign up to event %d: %w", eventID, ErrEventNotFound)
+	}
+	event, err := s.eventRepository.Get(eventID)
+	if err != nil{
+		return signup_model.SignUp{}, err
+	}
+	if event.EndDate.Before(time.Now()) {
+		return signup_model.SignUp{}, fmt.Errorf("sign up to event %d: %w", eventID, ErrEventExpired)
 	}
 
 	created, err := s.signUpRepository.Create(ctx, userID, eventID)
@@ -57,7 +67,7 @@ func (s *SignUpService) Unenroll(ctx context.Context, userID string, eventID int
 		return signup_model.Unenroll{}, fmt.Errorf("%w: %d", ErrInvalidEventID, eventID)
 	}
 
-	exists, err := s.signUpRepository.EventExists(ctx, eventID)
+	exists, err := s.eventRepository.EventExists(eventID)
 	if err != nil {
 		return signup_model.Unenroll{}, err
 	}
@@ -78,7 +88,7 @@ func (s *SignUpService) GetEnrollmentStatus(ctx context.Context, userID string, 
 		return signup_model.EnrollmentStatus{}, fmt.Errorf("%w: %d", ErrInvalidEventID, eventID)
 	}
 
-	exists, err := s.signUpRepository.EventExists(ctx, eventID)
+	exists, err := s.eventRepository.EventExists(eventID)
 	if err != nil {
 		return signup_model.EnrollmentStatus{}, err
 	}
