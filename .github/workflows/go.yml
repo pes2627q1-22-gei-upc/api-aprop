@@ -1,19 +1,28 @@
-name: Go
+name: CI/CD
 
 on:
   push:
-    tags:
-      - '*'
     branches:
-      - '**'
+      - develop
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - develop
+      - main
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # ---------- CI ----------
   test:
-    name: Tests
+    name: Tests & Build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,6 +30,11 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+
+      - name: Compile executables (cmd/app, cmd/mcp)
+        run: |
+          go build -v ./cmd/app
+          go build -v ./cmd/mcp
 
       - name: Run unit and integration tests
         run: go test -race -coverprofile=coverage.out ./...
@@ -57,10 +71,10 @@ jobs:
           go-package: ./...
 
   # ---------- CD ----------
-  # Only runs for tags, after every CI job has passed.
+  # Only runs for version tags (e.g. v1.0.0), after every CI job has passed.
   publish:
     name: Publish Docker image (GHCR)
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: [test, lint, vulncheck]
     runs-on: ubuntu-latest
     permissions:
@@ -77,7 +91,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Image tags: the git tag (e.g. v1.2.0) and latest
+      # Image tags: the git tag (e.g. v1.0.0) and latest
       - id: meta
         uses: docker/metadata-action@v5
         with:
@@ -96,3 +110,19 @@ jobs:
           cache-to: type=gha,mode=max
 
       # TODO(DP-024): deploy the published image to EC2 once the server and its secrets are set up
+
+  release:
+    name: Create GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release ${{ github.ref_name }}
+          generate_release_notes: true

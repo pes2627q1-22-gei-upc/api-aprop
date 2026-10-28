@@ -22,6 +22,7 @@
 
 ## Fet recentment (Sprint 1)
 
+- **Release v1.0.0 (MVP):** Preparació de la primera release v1.0.0 del backend (`api-aprop`) cap a `main` amb el pipeline complet de CI/CD (validació de PRs, comprovació de build de binaris `cmd/app` i `cmd/mcp`, execució de tests, linting, anàlisi de vulnerabilitats i publicació d'imatge Docker a GHCR + GitHub Release en etiquetes `v*`).
 - **#224 (Tasca Tancada):** Migració de base de dades PostgreSQL a Supabase amb migracions versionades (000001 a 000005) i Row Level Security (RLS) habilitat. Col·lecció Postman configurada.
 - **#225 (Tasca Tancada):** Reimplementació del xatbot assistent amb Groq AI (tool calling) integrat amb el servidor MCP (`cmd/mcp`).
 - **#78 / #80 (Tasques Tancades):** Integració d'endpoints per al mapa d'esdeveniments (`GET /events/map` i `GET /event/map`).

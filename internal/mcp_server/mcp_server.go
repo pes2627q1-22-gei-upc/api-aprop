@@ -61,7 +61,7 @@ type EventSummary struct {
 // NewServer builds the MCP server that exposes the events catalogue as read only tools.
 // now gives the current time, used to default the start of the date range to today.
 func NewServer(catalogue catalogue_repository.Repository, now func() time.Time) *mcp.Server {
-	server := mcp.NewServer(&mcp.Implementation{Name: "aprop-catalogue", Version: "0.1.0"}, &mcp.ServerOptions{
+	server := mcp.NewServer(&mcp.Implementation{Name: "aprop-catalogue", Version: "1.0.0"}, &mcp.ServerOptions{
 		Instructions: "Read only access to the cultural events catalogue of Aprop (Catalonia).",
 	})
 	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true}

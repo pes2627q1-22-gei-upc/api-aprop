@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: API Aprop
-  version: 0.1.0
+  version: 1.0.0
   description: |
     API HTTP del backend d'Aprop (`cmd/app`). El contracte real és el codi
     (`internal/handlers/*`): si hi ha discrepància, mana el codi.

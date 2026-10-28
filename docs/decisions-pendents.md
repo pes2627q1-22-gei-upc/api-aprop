@@ -109,14 +109,14 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Resolució:**
 
 ### DP-008 · Primera versió SemVer
-- **Estat:** oberta
+- **Estat:** resolta 2026-10-28
 - **Obert per:** 2026-10-16 · configuració IA (Cursor)
 - **Context:** skill `release-semver`
 - **Dubte:** la primera release ha de ser `v0.1.0` o el MVP ha de ser `v1.0.0`?
 - **Opcions:** A) `v0.x` fins al MVP i `v1.0.0` al MVP · B) `v1.0.0` al final de l'Sprint 1
 - **Provisionalment:** res.
 - **Qui decideix:** equip
-- **Resolució:**
+- **Resolució:** es publica la versió `v1.0.0` com a primera release en tancar el Sprint 1 (MVP) fusionant a la branca `main`, alineant-se amb la release `v1.0.0` de `frontend-aprop`.
 
 ### DP-009 · Atributs i valors d'enum que només són al diagrama UML
 - **Estat:** oberta
