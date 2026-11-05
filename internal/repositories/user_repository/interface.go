@@ -38,4 +38,5 @@ type Repository interface {
 	SendFriendRequest(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID) (user_model.FriendRequest, error)
 	AcceptFriendRequest(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID, date time.Time) (user_model.FriendRequest, error)
 	DenyFriendRequest(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID, date time.Time) (user_model.FriendRequest, error)
+	Unfriend(ctx context.Context, userid pgtype.UUID, targetuuid pgtype.UUID) (error)
 }

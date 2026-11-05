@@ -88,6 +88,11 @@ func (r *UserRepository) AreFriends(ctx context.Context, u1 pgtype.UUID, u2 pgty
 	return areFriends, nil
 }
 
+func (r *UserRepository) Unfriend(ctx context.Context, userid pgtype.UUID, targetuuid pgtype.UUID) (error){
+	err := r.queries.RemoveFriendship(ctx, sqlc.RemoveFriendshipParams{User1: userid, User2: targetuuid})
+	return err
+}
+
 func (r *UserRepository) CountPlans(ctx context.Context, uid pgtype.UUID) (int, error) {
 	count, err := r.queries.CountUserPlans(ctx, uid)
 	if err != nil {

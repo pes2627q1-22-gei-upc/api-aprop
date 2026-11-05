@@ -13,4 +13,5 @@ var (
 	ErrIsBlocked 			= errors.New("requester has blocked or been blocked by target user")
 	ErrAlreadyFriends 		= errors.New("requester is already friends with target user")
 	ErrRequestNotFound 		= errors.New("request not found")
+	ErrNotFriends			= errors.New("requester and target are not friends")
 )

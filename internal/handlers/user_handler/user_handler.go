@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"time"
+	"fmt"
 
 	"api-aprop/internal/handlers/response"
 	"api-aprop/internal/middleware/auth_middleware"
@@ -36,8 +37,7 @@ func (h *UserHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /users/{id}/friend-requests", h.SendFriendRequest)
 	mux.HandleFunc("POST /users/{id}/friend-requests/{date}/accept", h.AcceptFriendRequest)
 	mux.HandleFunc("POST /users/{id}/friend-requests/{date}/deny", h.DenyFriendRequest)
-	//TODO
-	//mux.HandleFunc("POST /users/{id}/unfriend", h.Unfriend)
+	mux.HandleFunc("POST /users/{id}/unfriend", h.Unfriend)
 }
 
 func (h *UserHandler) GetMyProfile(w http.ResponseWriter, r *http.Request) {
@@ -239,7 +239,7 @@ func (h *UserHandler) AcceptFriendRequest(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	date, err := time.Parse("2006-01-02T15:04:05.000000Z", datetmp)
+	date, err := time.Parse("2006-01-02T15:04:05.999999Z", datetmp)
 	if err!=nil{
 		response.WriteError(w, http.StatusBadRequest, "invalid request date")
 		return
@@ -273,7 +273,7 @@ func (h *UserHandler) DenyFriendRequest(w http.ResponseWriter, r *http.Request){
 		return
 	}
 
-	date, err := time.Parse("2006-01-02T15:04:05.000000Z", datetmp)
+	date, err := time.Parse("2006-01-02T15:04:05.999999Z", datetmp)
 	if err!=nil{
 		response.WriteError(w, http.StatusBadRequest, "invalid request date")
 		return
@@ -286,6 +286,28 @@ func (h *UserHandler) DenyFriendRequest(w http.ResponseWriter, r *http.Request){
 	}
 
 	response.WriteJSON(w, http.StatusOK, friendreq)
+}
+
+func (h *UserHandler) Unfriend(w http.ResponseWriter, r *http.Request){
+	targetid := r.PathValue("id")
+	if targetid == "" {
+		response.WriteError(w, http.StatusBadRequest, "missing user id")
+		return
+	}
+
+	requesterID := getRequesterID(r)
+	if requesterID == "" {
+		response.WriteError(w, http.StatusUnauthorized, "unauthorized: missing auth token or "+UserIDHeader)
+		return
+	}
+
+	err := h.userService.Unfriend(r.Context(), requesterID, targetid)
+	if err!=nil{
+		writeServiceError(w, err)
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, fmt.Sprintf("friendship with %s deleted successfully", targetid))
 }
 
 func (h *UserHandler) GetUserFriends(w http.ResponseWriter, r *http.Request){

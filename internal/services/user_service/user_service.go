@@ -366,6 +366,31 @@ func (s *userService) DenyFriendRequest(ctx context.Context, userid string, targ
 	return friendreq, nil
 }
 
+func (s *userService) Unfriend(ctx context.Context, userid string, targetid string) (error){
+	user, _, err := s.findUser(ctx, userid)
+	if err!=nil{
+		return ErrUserNotFound
+	}
+
+	id := user.ID
+	targetuuidtmp, err := uuid.FromString(targetid)
+	if err!=nil{
+		return ErrInvalidUserID
+	}
+	targetuuid := toPGUUID(targetuuidtmp)
+
+	arefriends, err := s.userRepo.AreFriends(ctx, id, targetuuid)
+	if err!=nil{
+		return err
+	}
+	if !arefriends{
+		return ErrNotFriends
+	}
+
+	err = s.userRepo.Unfriend(ctx, id, targetuuid)
+	return err
+}
+
 func (s *userService) findUser(ctx context.Context, identifier string) (user_model.User, bool, error) {
 	if identifier == "" {
 		return user_model.User{}, false, ErrUserNotFound
