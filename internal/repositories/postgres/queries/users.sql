@@ -76,3 +76,6 @@ UPDATE Settings SET
     ShowPlans = sqlc.arg(show_plans)::boolean
 WHERE ID = sqlc.arg(id)::integer
 RETURNING *;
+
+-- name: GetUserFriends :many
+SELECT user2 from friendships where user1=$1;

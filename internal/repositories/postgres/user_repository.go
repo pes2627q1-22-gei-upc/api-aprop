@@ -195,6 +195,21 @@ func (r *UserRepository) UpdateSettings(ctx context.Context, settingsID int, sho
 	return nil
 }
 
+func (r *UserRepository) GetUserFriends(ctx context.Context, userid pgtype.UUID) ([]string, error){
+	rows, err := r.queries.GetUserFriends(ctx, userid)
+	if errors.Is(err, pgx.ErrNoRows){
+		return []string{}, nil
+	} else if err!=nil{
+		return []string{}, err
+	}
+	friends := []string{}
+	for _, val := range(rows){
+		friends = append(friends, uuidToString(val))
+	}
+
+	return friends, nil
+}
+
 func mapGetUserRowToUser(row sqlc.GetUserByUUIDRow) (user_model.User, bool) {
 	u := user_model.User{
 		ID:             row.ID,

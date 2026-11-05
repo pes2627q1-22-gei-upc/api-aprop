@@ -30,6 +30,13 @@ func (h *UserHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /users/me/avatar", h.UploadAvatar)
 	mux.HandleFunc("GET /users/{id}", h.GetUserProfile)
 	mux.HandleFunc("GET /users/{id}/created-events", h.ListCreatedEvents)
+	mux.HandleFunc("GET /users/{id}/friends", h.GetUserFriends)
+	//TODO
+	//mux.HandleFunc("POST /users/{id}/friend-requests", h.SendFriendRequest)
+	//mux.HandleFunc("GET /users/{id}/friend-requests", h.GetFriendRequests)
+	//mux.HandleFunc("POST /friend-requests/{id}/accept", h.AcceptFriendRequest)
+	//mux.HandleFunc("POST /friend-requests/{id}/deny", h.DenyFriendRequest)
+	//mux.HandleFunc("POST /users/{id}/unfriend", h.Unfriend)
 }
 
 func (h *UserHandler) GetMyProfile(w http.ResponseWriter, r *http.Request) {
@@ -164,6 +171,30 @@ func (h *UserHandler) ListCreatedEvents(w http.ResponseWriter, r *http.Request) 
 	}
 
 	response.WriteJSON(w, http.StatusOK, events)
+}
+
+func (h *UserHandler) GetUserFriends(w http.ResponseWriter, r *http.Request){
+	id := r.PathValue("id")
+	if id == "" {
+		response.WriteError(w, http.StatusBadRequest, "missing user id")
+		return
+	}
+	if id == "me" {
+		requesterID := getRequesterID(r)
+		if requesterID == "" {
+			response.WriteError(w, http.StatusUnauthorized, "unauthorized: missing auth token or "+UserIDHeader)
+			return
+		}
+		id = requesterID
+	}
+
+	friends, err := h.userService.GetUserFriends(r.Context(), id)
+	if err!=nil{
+		writeServiceError(w, err)
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, friends)
 }
 
 func getRequesterID(r *http.Request) string {

@@ -29,4 +29,5 @@ type Repository interface {
 	ListCreatedEvents(ctx context.Context, creatorUUID pgtype.UUID) ([]event_model.Event, error)
 	UpdateProfile(ctx context.Context, id pgtype.UUID, name, username, biography, profilePicture *string) (user_model.User, error)
 	UpdateSettings(ctx context.Context, settingsID int, showPlans bool) error
+	GetUserFriends(ctx context.Context, userid pgtype.UUID) ([]string, error)
 }

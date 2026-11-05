@@ -21,4 +21,5 @@ type Service interface {
 	ListCreatedEvents(ctx context.Context, targetIdentifier string) ([]event_model.Event, error)
 	UpdateProfile(ctx context.Context, requesterIdentifier string, input UpdateProfileInput) (user_model.UserProfile, error)
 	UploadAvatar(ctx context.Context, requesterIdentifier string, filename string, contentType string, reader io.Reader) (user_model.UserProfile, error)
+	GetUserFriends(ctx context.Context, userid string) ([]string, error)
 }

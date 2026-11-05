@@ -244,6 +244,21 @@ func (s *userService) UploadAvatar(ctx context.Context, requesterIdentifier stri
 	return s.GetUserProfile(ctx, uuidToString(updatedUser.ID), requesterIdentifier)
 }
 
+func (s *userService) GetUserFriends(ctx context.Context, userid string) ([]string, error){
+	user, _, err := s.findUser(ctx, userid)
+	if err != nil {
+		return []string{}, ErrUserNotFound
+	}
+	
+	id := user.ID
+
+	friends, err := s.userRepo.GetUserFriends(ctx, id)
+	if err!=nil{
+		return []string{}, err
+	}
+	return friends, nil
+}
+
 func (s *userService) findUser(ctx context.Context, identifier string) (user_model.User, bool, error) {
 	if identifier == "" {
 		return user_model.User{}, false, ErrUserNotFound

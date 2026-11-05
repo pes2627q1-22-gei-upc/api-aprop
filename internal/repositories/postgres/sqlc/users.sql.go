@@ -216,6 +216,30 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (GetUs
 	return i, err
 }
 
+const getUserFriends = `-- name: GetUserFriends :many
+SELECT user2 from friendships where user1=$1
+`
+
+func (q *Queries) GetUserFriends(ctx context.Context, user1 pgtype.UUID) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, getUserFriends, user1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var user2 pgtype.UUID
+		if err := rows.Scan(&user2); err != nil {
+			return nil, err
+		}
+		items = append(items, user2)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getUserReliability = `-- name: GetUserReliability :one
 SELECT AVG(er.Rating)::real AS reliability
 FROM EventRatings er
