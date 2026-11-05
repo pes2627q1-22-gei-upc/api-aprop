@@ -93,6 +93,13 @@ func (f *fakeUserService) UploadAvatar(_ context.Context, requesterIdentifier st
 	return p, nil
 }
 
+func (f *fakeUserService) GetUserFriends(ctx context.Context, userid string) ([]string, error){return []string{}, nil}
+func (f *fakeUserService) GetFriendRequests(ctx context.Context, userid string) ([]user_model.FriendRequest, error){return []user_model.FriendRequest{}, nil}
+func (f *fakeUserService) SendFriendRequest(ctx context.Context, userid string, targetid string) (user_model.FriendRequest, error){return user_model.FriendRequest{}, nil}
+func (f *fakeUserService) AcceptFriendRequest(ctx context.Context, userid string, targetid string, date time.Time) (user_model.FriendRequest, error){return user_model.FriendRequest{}, nil}
+func (f *fakeUserService) DenyFriendRequest(ctx context.Context, userid string, targetid string, date time.Time) (user_model.FriendRequest, error){return user_model.FriendRequest{}, nil}
+func (f *fakeUserService) Unfriend(ctx context.Context, userid string, targetid string) (error){return nil}
+
 func setupMux(svc user_service.Service) *http.ServeMux {
 	h := user_handler.NewUserHandler(svc)
 	mux := http.NewServeMux()
