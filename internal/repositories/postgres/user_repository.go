@@ -210,6 +210,21 @@ func (r *UserRepository) GetUserFriends(ctx context.Context, userid pgtype.UUID)
 	return friends, nil
 }
 
+func (r *UserRepository) GetFriendRequests(ctx context.Context, userid pgtype.UUID) ([]user_model.FriendRequest, error){
+	rows, err := r.queries.GetFriendRequests(ctx, userid)
+	if errors.Is(err, pgx.ErrNoRows){
+		return []user_model.FriendRequest{}, nil
+	} else if err!=nil{
+		return []user_model.FriendRequest{}, err
+	}
+	friendreqs := []user_model.FriendRequest{}
+	for _, val := range(rows){
+		friendreqs = append(friendreqs, toFriendRequest(val))
+	}
+
+	return friendreqs, nil
+}
+
 func mapGetUserRowToUser(row sqlc.GetUserByUUIDRow) (user_model.User, bool) {
 	u := user_model.User{
 		ID:             row.ID,
@@ -276,4 +291,39 @@ func createdEventToModel(row sqlc.ListUserCreatedEventsRow) event_model.Event {
 		Startdate:    row.Startdate,
 		Enddate:      row.Enddate,
 	}, 0)
+}
+
+func toFriendRequest(row sqlc.Friendrequest) user_model.FriendRequest{
+	fr := user_model.FriendRequest{
+		Sender: row.Sender,
+		Receiver: row.Receiver,
+		DateSent: row.Datesent.Time,
+		State: string(row.State),
+		DateResolved: row.Dateresolved.Time,
+	}
+	return fr
+}
+
+func (r *UserRepository) PendingRequestExists(ctx context.Context, userid pgtype.UUID, target pgtype.UUID) (bool, error){
+	exists, err := r.queries.PendingRequestExists(ctx, sqlc.PendingRequestExistsParams{Sender:userid, Receiver:target})
+	if err!=nil{
+		return false, err
+	}
+	return exists, nil
+}
+
+func (r *UserRepository) IsBlocked(ctx context.Context, userid pgtype.UUID, target pgtype.UUID) (bool, error){
+	blocked, err := r.queries.IsBlocked(ctx, sqlc.IsBlockedParams{Blockeduser: userid, Blockinguser: target})
+	if err!=nil{
+		return false, err
+	}
+	return blocked, nil
+}
+
+func (r *UserRepository) SendFriendRequest(ctx context.Context, userid pgtype.UUID, target pgtype.UUID) (user_model.FriendRequest, error){
+	row, err := r.queries.CreateFriendRequest(ctx, sqlc.CreateFriendRequestParams{Sender:userid, Receiver:target})
+	if err!=nil{
+		return user_model.FriendRequest{}, err
+	}
+	return toFriendRequest(row), nil
 }

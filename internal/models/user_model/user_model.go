@@ -51,3 +51,11 @@ type SyncResult struct {
 	User    User `json:"user"`
 	Created bool `json:"created"` // true when the user signed in for the first time
 }
+
+type FriendRequest struct{
+	Sender			pgtype.UUID		`json:"sender-id"`
+	Receiver		pgtype.UUID		`json:"receiver-id"`
+	DateSent		time.Time		`json:"date-sent"`
+	State			string			`json:"state"`
+	DateResolved	time.Time		`json:"date-resolved"`
+}

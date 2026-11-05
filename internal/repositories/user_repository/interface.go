@@ -30,4 +30,9 @@ type Repository interface {
 	UpdateProfile(ctx context.Context, id pgtype.UUID, name, username, biography, profilePicture *string) (user_model.User, error)
 	UpdateSettings(ctx context.Context, settingsID int, showPlans bool) error
 	GetUserFriends(ctx context.Context, userid pgtype.UUID) ([]string, error)
+	GetFriendRequests(ctx context.Context, userid pgtype.UUID) ([]user_model.FriendRequest, error)
+	PendingRequestExists(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID) (bool, error)
+	// Checks if the user is blocked by the target
+	IsBlocked(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID) (bool, error)
+	SendFriendRequest(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID) (user_model.FriendRequest, error)
 }

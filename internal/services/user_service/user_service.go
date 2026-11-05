@@ -259,6 +259,57 @@ func (s *userService) GetUserFriends(ctx context.Context, userid string) ([]stri
 	return friends, nil
 }
 
+func (s *userService) GetFriendRequests(ctx context.Context, userid string) ([]user_model.FriendRequest, error){
+	user, _, err := s.findUser(ctx, userid)
+	if err != nil {
+		return []user_model.FriendRequest{}, ErrUserNotFound
+	}
+	
+	id := user.ID
+
+	friendreqs, err := s.userRepo.GetFriendRequests(ctx, id)
+	if err!=nil{
+		return []user_model.FriendRequest{}, err
+	}
+	return friendreqs, nil
+}
+
+func (s *userService) SendFriendRequest(ctx context.Context, userid string, targetid string) (user_model.FriendRequest, error){
+	user, _, err := s.findUser(ctx, userid)
+	if err!=nil{
+		return user_model.FriendRequest{}, ErrUserNotFound
+	}
+
+	id := user.ID
+	targetuuidtmp, err := uuid.FromString(targetid)
+	if err!=nil{
+		return user_model.FriendRequest{}, ErrInvalidUserID
+	}
+	targetuuid := toPGUUID(targetuuidtmp)
+
+	existingrequest, err := s.userRepo.PendingRequestExists(ctx, id, targetuuid)
+	if err!=nil{
+		return user_model.FriendRequest{}, err
+	}
+	if existingrequest {
+		return user_model.FriendRequest{}, ErrRequestAlreadyExists
+	}
+
+	isblocked, err := s.userRepo.IsBlocked(ctx, id, targetuuid)
+	if err!=nil{
+		return user_model.FriendRequest{}, err
+	}
+	if isblocked {
+		return user_model.FriendRequest{}, ErrIsBlocked
+	}
+
+	friendreq, err := s.userRepo.SendFriendRequest(ctx, id, targetuuid)
+	if err!=nil{
+		return user_model.FriendRequest{}, nil
+	}
+	return friendreq, nil
+}
+
 func (s *userService) findUser(ctx context.Context, identifier string) (user_model.User, bool, error) {
 	if identifier == "" {
 		return user_model.User{}, false, ErrUserNotFound

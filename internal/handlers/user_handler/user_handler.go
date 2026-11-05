@@ -31,9 +31,9 @@ func (h *UserHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /users/{id}", h.GetUserProfile)
 	mux.HandleFunc("GET /users/{id}/created-events", h.ListCreatedEvents)
 	mux.HandleFunc("GET /users/{id}/friends", h.GetUserFriends)
+	mux.HandleFunc("GET /users/{id}/friend-requests", h.GetFriendRequests)
+	mux.HandleFunc("POST /users/{id}/friend-requests", h.SendFriendRequest)
 	//TODO
-	//mux.HandleFunc("POST /users/{id}/friend-requests", h.SendFriendRequest)
-	//mux.HandleFunc("GET /users/{id}/friend-requests", h.GetFriendRequests)
 	//mux.HandleFunc("POST /friend-requests/{id}/accept", h.AcceptFriendRequest)
 	//mux.HandleFunc("POST /friend-requests/{id}/deny", h.DenyFriendRequest)
 	//mux.HandleFunc("POST /users/{id}/unfriend", h.Unfriend)
@@ -171,6 +171,52 @@ func (h *UserHandler) ListCreatedEvents(w http.ResponseWriter, r *http.Request) 
 	}
 
 	response.WriteJSON(w, http.StatusOK, events)
+}
+
+func (h *UserHandler) GetFriendRequests(w http.ResponseWriter, r *http.Request){
+	id := r.PathValue("id")
+	if id == "" {
+		response.WriteError(w, http.StatusBadRequest, "missing user id")
+		return
+	}
+	if id == "me" {
+		requesterID := getRequesterID(r)
+		if requesterID == "" {
+			response.WriteError(w, http.StatusUnauthorized, "unauthorized: missing auth token or "+UserIDHeader)
+			return
+		}
+		id = requesterID
+	}
+
+	friendreqs, err := h.userService.GetFriendRequests(r.Context(), id)
+	if err!=nil{
+		writeServiceError(w, err)
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, friendreqs)
+}
+
+func (h *UserHandler) SendFriendRequest(w http.ResponseWriter, r *http.Request){
+	targetid := r.PathValue("id")
+	if targetid == "" {
+		response.WriteError(w, http.StatusBadRequest, "missing user id")
+		return
+	}
+
+	requesterID := getRequesterID(r)
+	if requesterID == "" {
+		response.WriteError(w, http.StatusUnauthorized, "unauthorized: missing auth token or "+UserIDHeader)
+		return
+	}
+
+	friendreq, err := h.userService.SendFriendRequest(r.Context(), requesterID, targetid)
+	if err!=nil{
+		writeServiceError(w, err)
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, friendreq)
 }
 
 func (h *UserHandler) GetUserFriends(w http.ResponseWriter, r *http.Request){

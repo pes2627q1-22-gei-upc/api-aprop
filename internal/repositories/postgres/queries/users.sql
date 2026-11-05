@@ -79,3 +79,15 @@ RETURNING *;
 
 -- name: GetUserFriends :many
 SELECT user2 from friendships where user1=$1;
+
+-- name: GetFriendRequests :many
+SELECT * from friendrequests where state='Pending'::friendrequeststate and receiver=$1;
+
+-- name: IsBlocked :one
+SELECT EXISTS (SELECT 1 from blocked where (blockeduser = $1 and blockinguser = $2) or (blockeduser = $2 and blockinguser = $1) limit 1);
+
+-- name: PendingRequestExists :one
+SELECT EXISTS (SELECT 1 from friendrequests where state = 'Pending'::friendrequeststate and ((sender=$1 and receiver=$2) or (sender=$2 and receiver=$1)) limit 1);
+
+-- name: CreateFriendRequest :one
+INSERT INTO friendrequests (sender, receiver, datesent) VALUES ($1, $2, now()) returning *;

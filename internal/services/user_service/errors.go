@@ -9,4 +9,6 @@ var (
 	ErrUsernameTaken = errors.New("username already taken")
 	ErrInvalidUserID = errors.New("invalid user id")
 	ErrInvalidInput  = errors.New("invalid input")
+	ErrRequestAlreadyExists = errors.New("pending friend request exists between these users")
+	ErrIsBlocked = errors.New("requester is blocked by target user")
 )

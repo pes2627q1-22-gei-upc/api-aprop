@@ -22,4 +22,6 @@ type Service interface {
 	UpdateProfile(ctx context.Context, requesterIdentifier string, input UpdateProfileInput) (user_model.UserProfile, error)
 	UploadAvatar(ctx context.Context, requesterIdentifier string, filename string, contentType string, reader io.Reader) (user_model.UserProfile, error)
 	GetUserFriends(ctx context.Context, userid string) ([]string, error)
+	GetFriendRequests(ctx context.Context, userid string) ([]user_model.FriendRequest, error)
+	SendFriendRequest(ctx context.Context, userid string, targetid string) (user_model.FriendRequest, error)
 }

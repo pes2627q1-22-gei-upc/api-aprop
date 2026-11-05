@@ -72,6 +72,58 @@ func (q *Queries) CountUserPlans(ctx context.Context, userID pgtype.UUID) (int64
 	return column_1, err
 }
 
+const createFriendRequest = `-- name: CreateFriendRequest :one
+INSERT INTO friendrequests (sender, receiver, datesent) VALUES ($1, $2, now()) returning sender, receiver, datesent, state, dateresolved
+`
+
+type CreateFriendRequestParams struct {
+	Sender   pgtype.UUID
+	Receiver pgtype.UUID
+}
+
+func (q *Queries) CreateFriendRequest(ctx context.Context, arg CreateFriendRequestParams) (Friendrequest, error) {
+	row := q.db.QueryRow(ctx, createFriendRequest, arg.Sender, arg.Receiver)
+	var i Friendrequest
+	err := row.Scan(
+		&i.Sender,
+		&i.Receiver,
+		&i.Datesent,
+		&i.State,
+		&i.Dateresolved,
+	)
+	return i, err
+}
+
+const getFriendRequests = `-- name: GetFriendRequests :many
+SELECT sender, receiver, datesent, state, dateresolved from friendrequests where state='Pending'::friendrequeststate and receiver=$1
+`
+
+func (q *Queries) GetFriendRequests(ctx context.Context, receiver pgtype.UUID) ([]Friendrequest, error) {
+	rows, err := q.db.Query(ctx, getFriendRequests, receiver)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Friendrequest
+	for rows.Next() {
+		var i Friendrequest
+		if err := rows.Scan(
+			&i.Sender,
+			&i.Receiver,
+			&i.Datesent,
+			&i.State,
+			&i.Dateresolved,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getUserByFirebaseUIDWithSettings = `-- name: GetUserByFirebaseUIDWithSettings :one
 SELECT u.id, u.firebaseuid, u.username, u.name, u.email, u.profilepicture, u.biography,
        u.dateregistered, u.accountstate, u.experience, u.level, u.rating, u.settings,
@@ -254,6 +306,22 @@ func (q *Queries) GetUserReliability(ctx context.Context, creator pgtype.UUID) (
 	return reliability, err
 }
 
+const isBlocked = `-- name: IsBlocked :one
+SELECT EXISTS (SELECT 1 from blocked where (blockeduser = $1 and blockinguser = $2) or (blockeduser = $2 and blockinguser = $1) limit 1)
+`
+
+type IsBlockedParams struct {
+	Blockeduser  pgtype.UUID
+	Blockinguser pgtype.UUID
+}
+
+func (q *Queries) IsBlocked(ctx context.Context, arg IsBlockedParams) (bool, error) {
+	row := q.db.QueryRow(ctx, isBlocked, arg.Blockeduser, arg.Blockinguser)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const listUserCreatedEvents = `-- name: ListUserCreatedEvents :many
 SELECT e.id, e.title, e.subtitle, e.description, e.schedule, e.tickets, e.url, e.ticketsurl,
 e.free, e.permanent, e.modality, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone,
@@ -345,6 +413,22 @@ func (q *Queries) ListUserCreatedEvents(ctx context.Context, creator pgtype.UUID
 		return nil, err
 	}
 	return items, nil
+}
+
+const pendingRequestExists = `-- name: PendingRequestExists :one
+SELECT EXISTS (SELECT 1 from friendrequests where state = 'Pending'::friendrequeststate and ((sender=$1 and receiver=$2) or (sender=$2 and receiver=$1)) limit 1)
+`
+
+type PendingRequestExistsParams struct {
+	Sender   pgtype.UUID
+	Receiver pgtype.UUID
+}
+
+func (q *Queries) PendingRequestExists(ctx context.Context, arg PendingRequestExistsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, pendingRequestExists, arg.Sender, arg.Receiver)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const updateUserProfile = `-- name: UpdateUserProfile :one
