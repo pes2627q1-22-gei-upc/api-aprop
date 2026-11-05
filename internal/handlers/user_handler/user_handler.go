@@ -5,6 +5,7 @@ import (
 	"mime"
 	"net/http"
 	"path/filepath"
+	"time"
 
 	"api-aprop/internal/handlers/response"
 	"api-aprop/internal/middleware/auth_middleware"
@@ -33,9 +34,9 @@ func (h *UserHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /users/{id}/friends", h.GetUserFriends)
 	mux.HandleFunc("GET /users/{id}/friend-requests", h.GetFriendRequests)
 	mux.HandleFunc("POST /users/{id}/friend-requests", h.SendFriendRequest)
+	mux.HandleFunc("POST /users/{id}/friend-requests/{date}/accept", h.AcceptFriendRequest)
+	mux.HandleFunc("POST /users/{id}/friend-requests/{date}/deny", h.DenyFriendRequest)
 	//TODO
-	//mux.HandleFunc("POST /friend-requests/{id}/accept", h.AcceptFriendRequest)
-	//mux.HandleFunc("POST /friend-requests/{id}/deny", h.DenyFriendRequest)
 	//mux.HandleFunc("POST /users/{id}/unfriend", h.Unfriend)
 }
 
@@ -211,6 +212,74 @@ func (h *UserHandler) SendFriendRequest(w http.ResponseWriter, r *http.Request){
 	}
 
 	friendreq, err := h.userService.SendFriendRequest(r.Context(), requesterID, targetid)
+	if err!=nil{
+		writeServiceError(w, err)
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, friendreq)
+}
+
+func (h *UserHandler) AcceptFriendRequest(w http.ResponseWriter, r *http.Request){
+	targetid := r.PathValue("id")
+	if targetid == "" {
+		response.WriteError(w, http.StatusBadRequest, "missing user id")
+		return
+	}
+
+	requesterID := getRequesterID(r)
+	if requesterID == "" {
+		response.WriteError(w, http.StatusUnauthorized, "unauthorized: missing auth token or "+UserIDHeader)
+		return
+	}
+
+	datetmp := r.PathValue("date")
+	if datetmp == ""{
+		response.WriteError(w, http.StatusBadRequest, "missing request date")
+		return
+	}
+
+	date, err := time.Parse("2006-01-02T15:04:05.000000Z", datetmp)
+	if err!=nil{
+		response.WriteError(w, http.StatusBadRequest, "invalid request date")
+		return
+	}
+
+	friendreq, err := h.userService.AcceptFriendRequest(r.Context(), requesterID, targetid, date)
+	if err!=nil{
+		writeServiceError(w, err)
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, friendreq)
+}
+
+func (h *UserHandler) DenyFriendRequest(w http.ResponseWriter, r *http.Request){
+	targetid := r.PathValue("id")
+	if targetid == "" {
+		response.WriteError(w, http.StatusBadRequest, "missing user id")
+		return
+	}
+
+	requesterID := getRequesterID(r)
+	if requesterID == "" {
+		response.WriteError(w, http.StatusUnauthorized, "unauthorized: missing auth token or "+UserIDHeader)
+		return
+	}
+
+	datetmp := r.PathValue("date")
+	if datetmp == ""{
+		response.WriteError(w, http.StatusBadRequest, "missing request date")
+		return
+	}
+
+	date, err := time.Parse("2006-01-02T15:04:05.000000Z", datetmp)
+	if err!=nil{
+		response.WriteError(w, http.StatusBadRequest, "invalid request date")
+		return
+	}
+
+	friendreq, err := h.userService.DenyFriendRequest(r.Context(), requesterID, targetid, date)
 	if err!=nil{
 		writeServiceError(w, err)
 		return

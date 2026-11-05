@@ -3,6 +3,7 @@ package user_repository
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -35,4 +36,6 @@ type Repository interface {
 	// Checks if the user is blocked by the target
 	IsBlocked(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID) (bool, error)
 	SendFriendRequest(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID) (user_model.FriendRequest, error)
+	AcceptFriendRequest(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID, date time.Time) (user_model.FriendRequest, error)
+	DenyFriendRequest(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID, date time.Time) (user_model.FriendRequest, error)
 }

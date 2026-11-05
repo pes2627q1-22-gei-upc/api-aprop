@@ -24,6 +24,10 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		response.WriteError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, user_service.ErrIsBlocked):
 		response.WriteError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, user_service.ErrAlreadyFriends):
+		response.WriteError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, user_service.ErrRequestNotFound):
+		response.WriteError(w, http.StatusBadRequest, err.Error())
 	default:
 		response.WriteError(w, http.StatusInternalServerError, "internal server error")
 	}

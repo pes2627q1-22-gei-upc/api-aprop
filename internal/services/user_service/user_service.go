@@ -8,7 +8,9 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/gofrs/uuid/v5"
 
@@ -287,6 +289,14 @@ func (s *userService) SendFriendRequest(ctx context.Context, userid string, targ
 	}
 	targetuuid := toPGUUID(targetuuidtmp)
 
+	arefriends, err := s.userRepo.AreFriends(ctx, id, targetuuid)
+	if err!=nil{
+		return user_model.FriendRequest{}, err
+	}
+	if arefriends {
+		return user_model.FriendRequest{}, ErrAlreadyFriends
+	}
+
 	existingrequest, err := s.userRepo.PendingRequestExists(ctx, id, targetuuid)
 	if err!=nil{
 		return user_model.FriendRequest{}, err
@@ -307,6 +317,52 @@ func (s *userService) SendFriendRequest(ctx context.Context, userid string, targ
 	if err!=nil{
 		return user_model.FriendRequest{}, nil
 	}
+	return friendreq, nil
+}
+
+func (s *userService) AcceptFriendRequest(ctx context.Context, userid string, targetid string, date time.Time) (user_model.FriendRequest, error){
+	user, _, err := s.findUser(ctx, userid)
+	if err!=nil{
+		return user_model.FriendRequest{}, ErrUserNotFound
+	}
+
+	id := user.ID
+	targetuuidtmp, err := uuid.FromString(targetid)
+	if err!=nil{
+		return user_model.FriendRequest{}, ErrInvalidUserID
+	}
+	targetuuid := toPGUUID(targetuuidtmp)
+
+	friendreq, err := s.userRepo.AcceptFriendRequest(ctx, id, targetuuid, date)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return user_model.FriendRequest{}, ErrRequestNotFound
+	} else if err!=nil{
+		return user_model.FriendRequest{}, err
+	}
+
+	return friendreq, nil
+}
+
+func (s *userService) DenyFriendRequest(ctx context.Context, userid string, targetid string, date time.Time) (user_model.FriendRequest, error){
+	user, _, err := s.findUser(ctx, userid)
+	if err!=nil{
+		return user_model.FriendRequest{}, ErrUserNotFound
+	}
+
+	id := user.ID
+	targetuuidtmp, err := uuid.FromString(targetid)
+	if err!=nil{
+		return user_model.FriendRequest{}, ErrInvalidUserID
+	}
+	targetuuid := toPGUUID(targetuuidtmp)
+
+	friendreq, err := s.userRepo.DenyFriendRequest(ctx, id, targetuuid, date)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return user_model.FriendRequest{}, ErrRequestNotFound
+	} else if err!=nil{
+		return user_model.FriendRequest{}, err
+	}
+
 	return friendreq, nil
 }
 

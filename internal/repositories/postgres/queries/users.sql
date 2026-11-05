@@ -91,3 +91,15 @@ SELECT EXISTS (SELECT 1 from friendrequests where state = 'Pending'::friendreque
 
 -- name: CreateFriendRequest :one
 INSERT INTO friendrequests (sender, receiver, datesent) VALUES ($1, $2, now()) returning *;
+
+-- name: AcceptFriendRequest :one
+UPDATE friendrequests SET state='Accepted'::friendrequeststate, dateresolved=now() where sender=$1 and receiver=$2 and datesent=$3 and state='Pending'::friendrequeststate RETURNING *;
+
+-- name: AddFriendship :exec
+INSERT INTO friendships (user1, user2) values ($1, $2), ($2, $1);
+
+-- name: DenyFriendRequest :one
+UPDATE friendrequests SET state='Rejected'::friendrequeststate, dateresolved=now() where sender=$1 and receiver=$2 and datesent=$3 and state='Pending'::friendrequeststate RETURNING *;
+
+-- name: RemoveFriendship :exec
+DELETE from friendships where (user1=$1 and user2=$2) or (user1=$2 and user2=$1);

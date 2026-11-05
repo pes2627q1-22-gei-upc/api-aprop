@@ -3,6 +3,7 @@ package user_service
 import (
 	"context"
 	"io"
+	"time"
 
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/models/user_model"
@@ -24,4 +25,6 @@ type Service interface {
 	GetUserFriends(ctx context.Context, userid string) ([]string, error)
 	GetFriendRequests(ctx context.Context, userid string) ([]user_model.FriendRequest, error)
 	SendFriendRequest(ctx context.Context, userid string, targetid string) (user_model.FriendRequest, error)
+	AcceptFriendRequest(ctx context.Context, userid string, targetid string, date time.Time) (user_model.FriendRequest, error)
+	DenyFriendRequest(ctx context.Context, userid string, targetid string, date time.Time) (user_model.FriendRequest, error)
 }

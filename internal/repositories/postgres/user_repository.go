@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -326,4 +327,30 @@ func (r *UserRepository) SendFriendRequest(ctx context.Context, userid pgtype.UU
 		return user_model.FriendRequest{}, err
 	}
 	return toFriendRequest(row), nil
+}
+
+func (r *UserRepository) AcceptFriendRequest(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID, date time.Time) (user_model.FriendRequest, error){
+	row, err := r.queries.AcceptFriendRequest(ctx, sqlc.AcceptFriendRequestParams{Sender: targetid, Receiver: userid, Datesent: toTimestamp(date)})
+	if err!=nil{
+		return user_model.FriendRequest{}, err
+	}
+
+	err = r.queries.AddFriendship(ctx, sqlc.AddFriendshipParams{User1: userid, User2: targetid})
+	if err!=nil{
+		return user_model.FriendRequest{}, err
+	}
+	return toFriendRequest(row), nil
+}
+
+func (r *UserRepository) DenyFriendRequest(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID, date time.Time) (user_model.FriendRequest, error){
+	row, err := r.queries.DenyFriendRequest(ctx, sqlc.DenyFriendRequestParams{Sender: targetid, Receiver: userid, Datesent: toTimestamp(date)})
+	if err!=nil{
+		return user_model.FriendRequest{}, err
+	}
+
+	return toFriendRequest(row), nil
+}
+
+func toTimestamp(t time.Time) pgtype.Timestamp{
+	return pgtype.Timestamp{Time: t, Valid: true}
 }
