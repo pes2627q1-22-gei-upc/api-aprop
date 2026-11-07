@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -18,12 +19,13 @@ import (
 
 type UserRepository struct {
 	queries *sqlc.Queries
+	pool    *pgxpool.Pool
 }
 
 var _ user_repository.Repository = (*UserRepository)(nil)
 
 func NewUserRepository(pool *pgxpool.Pool) *UserRepository {
-	return &UserRepository{queries: sqlc.New(pool)}
+	return &UserRepository{queries: sqlc.New(pool), pool: pool}
 }
 
 func (r *UserRepository) GetByUsername(ctx context.Context, username string) (user_model.User, bool, error) {
@@ -85,6 +87,11 @@ func (r *UserRepository) AreFriends(ctx context.Context, u1 pgtype.UUID, u2 pgty
 		return false, fmt.Errorf("check are friends: %w", err)
 	}
 	return areFriends, nil
+}
+
+func (r *UserRepository) Unfriend(ctx context.Context, userid pgtype.UUID, targetuuid pgtype.UUID) error {
+	err := r.queries.RemoveFriendship(ctx, sqlc.RemoveFriendshipParams{User1: userid, User2: targetuuid})
+	return err
 }
 
 func (r *UserRepository) CountPlans(ctx context.Context, uid pgtype.UUID) (int, error) {
@@ -195,6 +202,36 @@ func (r *UserRepository) UpdateSettings(ctx context.Context, settingsID int, sho
 	return nil
 }
 
+func (r *UserRepository) GetUserFriends(ctx context.Context, userid pgtype.UUID) ([]string, error) {
+	rows, err := r.queries.GetUserFriends(ctx, userid)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return []string{}, nil
+	} else if err != nil {
+		return []string{}, err
+	}
+	friends := []string{}
+	for _, val := range rows {
+		friends = append(friends, uuidToString(val))
+	}
+
+	return friends, nil
+}
+
+func (r *UserRepository) GetFriendRequests(ctx context.Context, userid pgtype.UUID) ([]user_model.FriendRequest, error) {
+	rows, err := r.queries.GetFriendRequests(ctx, userid)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return []user_model.FriendRequest{}, nil
+	} else if err != nil {
+		return []user_model.FriendRequest{}, err
+	}
+	friendreqs := []user_model.FriendRequest{}
+	for _, val := range rows {
+		friendreqs = append(friendreqs, toFriendRequest(val))
+	}
+
+	return friendreqs, nil
+}
+
 func mapGetUserRowToUser(row sqlc.GetUserByUUIDRow) (user_model.User, bool) {
 	u := user_model.User{
 		ID:             row.ID,
@@ -261,4 +298,81 @@ func createdEventToModel(row sqlc.ListUserCreatedEventsRow) event_model.Event {
 		Startdate:    row.Startdate,
 		Enddate:      row.Enddate,
 	}, 0)
+}
+
+func toFriendRequest(row sqlc.Friendrequest) user_model.FriendRequest {
+	fr := user_model.FriendRequest{
+		Sender:       row.Sender,
+		Receiver:     row.Receiver,
+		DateSent:     row.Datesent.Time,
+		State:        string(row.State),
+		DateResolved: row.Dateresolved.Time,
+	}
+	return fr
+}
+
+func (r *UserRepository) PendingRequestExists(ctx context.Context, userid pgtype.UUID, target pgtype.UUID) (bool, error) {
+	exists, err := r.queries.PendingRequestExists(ctx, sqlc.PendingRequestExistsParams{Sender: userid, Receiver: target})
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
+func (r *UserRepository) IsBlocked(ctx context.Context, userid pgtype.UUID, target pgtype.UUID) (bool, error) {
+	blocked, err := r.queries.IsBlocked(ctx, sqlc.IsBlockedParams{Blockeduser: userid, Blockinguser: target})
+	if err != nil {
+		return false, err
+	}
+	return blocked, nil
+}
+
+func (r *UserRepository) SendFriendRequest(ctx context.Context, userid pgtype.UUID, target pgtype.UUID) (user_model.FriendRequest, error) {
+	row, err := r.queries.CreateFriendRequest(ctx, sqlc.CreateFriendRequestParams{Sender: userid, Receiver: target})
+	if err != nil {
+		return user_model.FriendRequest{}, err
+	}
+	return toFriendRequest(row), nil
+}
+
+func (r *UserRepository) AcceptFriendRequest(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID, date time.Time) (user_model.FriendRequest, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return user_model.FriendRequest{}, err
+	}
+	defer func() {
+    	_ = tx.Rollback(ctx)
+	}()
+
+	qtx := r.queries.WithTx(tx)
+
+	friendreq, err := qtx.AcceptFriendRequest(ctx, sqlc.AcceptFriendRequestParams{Sender: targetid, Receiver: userid, Datesent: toTimestamp(date)})
+	if err != nil {
+		return user_model.FriendRequest{}, err
+	}
+
+	err = qtx.AddFriendship(ctx, sqlc.AddFriendshipParams{User1: userid, User2: targetid})
+	if err != nil {
+		return user_model.FriendRequest{}, err
+	}
+
+	err = tx.Commit(ctx)
+	if err != nil {
+		return user_model.FriendRequest{}, err
+	}
+
+	return toFriendRequest(friendreq), nil
+}
+
+func (r *UserRepository) DenyFriendRequest(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID, date time.Time) (user_model.FriendRequest, error) {
+	row, err := r.queries.DenyFriendRequest(ctx, sqlc.DenyFriendRequestParams{Sender: targetid, Receiver: userid, Datesent: toTimestamp(date)})
+	if err != nil {
+		return user_model.FriendRequest{}, err
+	}
+
+	return toFriendRequest(row), nil
+}
+
+func toTimestamp(t time.Time) pgtype.Timestamp {
+	return pgtype.Timestamp{Time: t, Valid: true}
 }

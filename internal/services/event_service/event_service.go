@@ -1,26 +1,26 @@
 package event_service
 
 import (
+	"container/heap"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"math"
+	"slices"
 	"strings"
 	"time"
-	"slices"
-	"container/heap"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"api-aprop/internal/clients/gencat_client"
 	"api-aprop/internal/clients/s3_client"
 	"api-aprop/internal/models/event_model"
+	"api-aprop/internal/models/preference_model"
 	"api-aprop/internal/repositories/auth_repository"
 	"api-aprop/internal/repositories/event_repository"
 	"api-aprop/internal/repositories/preference_repository"
-	"api-aprop/internal/models/preference_model"
 )
 
 type Item struct {
@@ -64,20 +64,20 @@ func (pq *PriorityQueue) Pop() any {
 }
 
 type EventService struct {
-	eventRepository 		event_repository.Repository
-	authRepository  		auth_repository.Repository
-	gencatClient    		gencat_client.Client
-	preferenceRepository	preference_repository.Repository
-	s3Client        		s3_client.Client
+	eventRepository      event_repository.Repository
+	authRepository       auth_repository.Repository
+	gencatClient         gencat_client.Client
+	preferenceRepository preference_repository.Repository
+	s3Client             s3_client.Client
 }
 
 func NewEventService(eventRepository event_repository.Repository, authRepository auth_repository.Repository, preferenceRepository preference_repository.Repository, gencatClient gencat_client.Client, s3Client s3_client.Client) *EventService {
 	return &EventService{
-		eventRepository: 		eventRepository,
-		authRepository:  		authRepository,
-		preferenceRepository:	preferenceRepository,
-		gencatClient:    		gencatClient,
-		s3Client:        		s3Client,
+		eventRepository:      eventRepository,
+		authRepository:       authRepository,
+		preferenceRepository: preferenceRepository,
+		gencatClient:         gencatClient,
+		s3Client:             s3Client,
 	}
 }
 
@@ -114,28 +114,28 @@ func (s *EventService) GetEvent(id int) (event_model.Event, error) {
 	return e, nil
 }
 
-func (s *EventService) GetRecommendedEvents(ctx context.Context, userid string, pageSize int, pageNum int) ([]event_model.Event, error){
-	events, err := s.eventRepository.List(map[string]any{"pageSize":pageSize, "pageNum":pageNum, "filterCategory":0})
+func (s *EventService) GetRecommendedEvents(ctx context.Context, userid string, pageSize int, pageNum int) ([]event_model.Event, error) {
+	events, err := s.eventRepository.List(map[string]any{"pageSize": pageSize, "pageNum": pageNum, "filterCategory": 0})
 	if errors.Is(err, event_repository.ErrInvalidFilter) {
 		return []event_model.Event{}, fmt.Errorf("%w: %w", ErrInvalidFilter, err)
 	}
-	if err!=nil{
+	if err != nil {
 		return []event_model.Event{}, err
 	}
 
 	prefs, err := s.preferenceRepository.GetUserPreferences(ctx, userid)
-	if err!=nil{
+	if err != nil {
 		return []event_model.Event{}, err
 	}
 
 	ordered_events := &PriorityQueue{}
 	heap.Init(ordered_events)
-	for _, ev := range(events){
+	for _, ev := range events {
 		prio := float32(1.0)
-		for _, cat := range(ev.Categories){
+		for _, cat := range ev.Categories {
 			// A category without preference has weight 1, the default weight of UserPreferences
-			ind := slices.IndexFunc(prefs, func (p preference_model.UserPreference) bool {return p.CategoryName==cat})
-			if ind!=-1{
+			ind := slices.IndexFunc(prefs, func(p preference_model.UserPreference) bool { return p.CategoryName == cat })
+			if ind != -1 {
 				prio *= prefs[ind].Weight
 			}
 		}
@@ -209,7 +209,7 @@ func (s *EventService) ListMapEvents(ctx context.Context, filter event_model.Map
 	return events, nil
 }
 
-func (s *EventService) GetPopularEvents(pageSize int, pageNum int) ([]event_model.Event, error){
+func (s *EventService) GetPopularEvents(pageSize int, pageNum int) ([]event_model.Event, error) {
 	events, err := s.eventRepository.GetPopular(pageSize, pageNum)
 	if errors.Is(err, event_repository.ErrInvalidFilter) {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidFilter, err)
