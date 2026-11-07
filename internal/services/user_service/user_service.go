@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gofrs/uuid/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/gofrs/uuid/v5"
 
 	"api-aprop/internal/clients/s3_client"
 	"api-aprop/internal/models/event_model"
@@ -246,51 +246,51 @@ func (s *userService) UploadAvatar(ctx context.Context, requesterIdentifier stri
 	return s.GetUserProfile(ctx, uuidToString(updatedUser.ID), requesterIdentifier)
 }
 
-func (s *userService) GetUserFriends(ctx context.Context, userid string) ([]string, error){
+func (s *userService) GetUserFriends(ctx context.Context, userid string) ([]string, error) {
 	user, _, err := s.findUser(ctx, userid)
 	if err != nil {
 		return []string{}, ErrUserNotFound
 	}
-	
+
 	id := user.ID
 
 	friends, err := s.userRepo.GetUserFriends(ctx, id)
-	if err!=nil{
+	if err != nil {
 		return []string{}, err
 	}
 	return friends, nil
 }
 
-func (s *userService) GetFriendRequests(ctx context.Context, userid string) ([]user_model.FriendRequest, error){
+func (s *userService) GetFriendRequests(ctx context.Context, userid string) ([]user_model.FriendRequest, error) {
 	user, _, err := s.findUser(ctx, userid)
 	if err != nil {
 		return []user_model.FriendRequest{}, ErrUserNotFound
 	}
-	
+
 	id := user.ID
 
 	friendreqs, err := s.userRepo.GetFriendRequests(ctx, id)
-	if err!=nil{
+	if err != nil {
 		return []user_model.FriendRequest{}, err
 	}
 	return friendreqs, nil
 }
 
-func (s *userService) SendFriendRequest(ctx context.Context, userid string, targetid string) (user_model.FriendRequest, error){
+func (s *userService) SendFriendRequest(ctx context.Context, userid string, targetid string) (user_model.FriendRequest, error) {
 	user, _, err := s.findUser(ctx, userid)
-	if err!=nil{
+	if err != nil {
 		return user_model.FriendRequest{}, ErrUserNotFound
 	}
 
 	id := user.ID
 	targetuuidtmp, err := uuid.FromString(targetid)
-	if err!=nil{
+	if err != nil {
 		return user_model.FriendRequest{}, ErrInvalidUserID
 	}
 	targetuuid := toPGUUID(targetuuidtmp)
 
 	arefriends, err := s.userRepo.AreFriends(ctx, id, targetuuid)
-	if err!=nil{
+	if err != nil {
 		return user_model.FriendRequest{}, err
 	}
 	if arefriends {
@@ -298,7 +298,7 @@ func (s *userService) SendFriendRequest(ctx context.Context, userid string, targ
 	}
 
 	existingrequest, err := s.userRepo.PendingRequestExists(ctx, id, targetuuid)
-	if err!=nil{
+	if err != nil {
 		return user_model.FriendRequest{}, err
 	}
 	if existingrequest {
@@ -306,7 +306,7 @@ func (s *userService) SendFriendRequest(ctx context.Context, userid string, targ
 	}
 
 	isblocked, err := s.userRepo.IsBlocked(ctx, id, targetuuid)
-	if err!=nil{
+	if err != nil {
 		return user_model.FriendRequest{}, err
 	}
 	if isblocked {
@@ -314,21 +314,21 @@ func (s *userService) SendFriendRequest(ctx context.Context, userid string, targ
 	}
 
 	friendreq, err := s.userRepo.SendFriendRequest(ctx, id, targetuuid)
-	if err!=nil{
+	if err != nil {
 		return user_model.FriendRequest{}, nil
 	}
 	return friendreq, nil
 }
 
-func (s *userService) AcceptFriendRequest(ctx context.Context, userid string, targetid string, date time.Time) (user_model.FriendRequest, error){
+func (s *userService) AcceptFriendRequest(ctx context.Context, userid string, targetid string, date time.Time) (user_model.FriendRequest, error) {
 	user, _, err := s.findUser(ctx, userid)
-	if err!=nil{
+	if err != nil {
 		return user_model.FriendRequest{}, ErrUserNotFound
 	}
 
 	id := user.ID
 	targetuuidtmp, err := uuid.FromString(targetid)
-	if err!=nil{
+	if err != nil {
 		return user_model.FriendRequest{}, ErrInvalidUserID
 	}
 	targetuuid := toPGUUID(targetuuidtmp)
@@ -336,22 +336,22 @@ func (s *userService) AcceptFriendRequest(ctx context.Context, userid string, ta
 	friendreq, err := s.userRepo.AcceptFriendRequest(ctx, id, targetuuid, date)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return user_model.FriendRequest{}, ErrRequestNotFound
-	} else if err!=nil{
+	} else if err != nil {
 		return user_model.FriendRequest{}, err
 	}
 
 	return friendreq, nil
 }
 
-func (s *userService) DenyFriendRequest(ctx context.Context, userid string, targetid string, date time.Time) (user_model.FriendRequest, error){
+func (s *userService) DenyFriendRequest(ctx context.Context, userid string, targetid string, date time.Time) (user_model.FriendRequest, error) {
 	user, _, err := s.findUser(ctx, userid)
-	if err!=nil{
+	if err != nil {
 		return user_model.FriendRequest{}, ErrUserNotFound
 	}
 
 	id := user.ID
 	targetuuidtmp, err := uuid.FromString(targetid)
-	if err!=nil{
+	if err != nil {
 		return user_model.FriendRequest{}, ErrInvalidUserID
 	}
 	targetuuid := toPGUUID(targetuuidtmp)
@@ -359,31 +359,31 @@ func (s *userService) DenyFriendRequest(ctx context.Context, userid string, targ
 	friendreq, err := s.userRepo.DenyFriendRequest(ctx, id, targetuuid, date)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return user_model.FriendRequest{}, ErrRequestNotFound
-	} else if err!=nil{
+	} else if err != nil {
 		return user_model.FriendRequest{}, err
 	}
 
 	return friendreq, nil
 }
 
-func (s *userService) Unfriend(ctx context.Context, userid string, targetid string) (error){
+func (s *userService) Unfriend(ctx context.Context, userid string, targetid string) error {
 	user, _, err := s.findUser(ctx, userid)
-	if err!=nil{
+	if err != nil {
 		return ErrUserNotFound
 	}
 
 	id := user.ID
 	targetuuidtmp, err := uuid.FromString(targetid)
-	if err!=nil{
+	if err != nil {
 		return ErrInvalidUserID
 	}
 	targetuuid := toPGUUID(targetuuidtmp)
 
 	arefriends, err := s.userRepo.AreFriends(ctx, id, targetuuid)
-	if err!=nil{
+	if err != nil {
 		return err
 	}
-	if !arefriends{
+	if !arefriends {
 		return ErrNotFriends
 	}
 
@@ -423,8 +423,8 @@ func uuidToString(u pgtype.UUID) string {
 }
 
 func toPGUUID(id uuid.UUID) pgtype.UUID {
-    return pgtype.UUID{
-        Bytes: [16]byte(id),
-        Valid: true,
-    }
+	return pgtype.UUID{
+		Bytes: [16]byte(id),
+		Valid: true,
+	}
 }

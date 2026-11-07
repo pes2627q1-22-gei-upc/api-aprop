@@ -44,7 +44,7 @@ type fakeEventRepository struct {
 	categoryErr  error
 }
 
-func (f *fakeEventRepository) EventExists(id int) (bool, error){ return false, nil }
+func (f *fakeEventRepository) EventExists(id int) (bool, error) { return false, nil }
 
 func (f *fakeEventRepository) Create(e event_model.Event, _ bool) (event_model.Event, error) {
 	f.created = e

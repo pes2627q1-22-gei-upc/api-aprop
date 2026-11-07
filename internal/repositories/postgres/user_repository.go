@@ -88,7 +88,7 @@ func (r *UserRepository) AreFriends(ctx context.Context, u1 pgtype.UUID, u2 pgty
 	return areFriends, nil
 }
 
-func (r *UserRepository) Unfriend(ctx context.Context, userid pgtype.UUID, targetuuid pgtype.UUID) (error){
+func (r *UserRepository) Unfriend(ctx context.Context, userid pgtype.UUID, targetuuid pgtype.UUID) error {
 	err := r.queries.RemoveFriendship(ctx, sqlc.RemoveFriendshipParams{User1: userid, User2: targetuuid})
 	return err
 }
@@ -201,30 +201,30 @@ func (r *UserRepository) UpdateSettings(ctx context.Context, settingsID int, sho
 	return nil
 }
 
-func (r *UserRepository) GetUserFriends(ctx context.Context, userid pgtype.UUID) ([]string, error){
+func (r *UserRepository) GetUserFriends(ctx context.Context, userid pgtype.UUID) ([]string, error) {
 	rows, err := r.queries.GetUserFriends(ctx, userid)
-	if errors.Is(err, pgx.ErrNoRows){
+	if errors.Is(err, pgx.ErrNoRows) {
 		return []string{}, nil
-	} else if err!=nil{
+	} else if err != nil {
 		return []string{}, err
 	}
 	friends := []string{}
-	for _, val := range(rows){
+	for _, val := range rows {
 		friends = append(friends, uuidToString(val))
 	}
 
 	return friends, nil
 }
 
-func (r *UserRepository) GetFriendRequests(ctx context.Context, userid pgtype.UUID) ([]user_model.FriendRequest, error){
+func (r *UserRepository) GetFriendRequests(ctx context.Context, userid pgtype.UUID) ([]user_model.FriendRequest, error) {
 	rows, err := r.queries.GetFriendRequests(ctx, userid)
-	if errors.Is(err, pgx.ErrNoRows){
+	if errors.Is(err, pgx.ErrNoRows) {
 		return []user_model.FriendRequest{}, nil
-	} else if err!=nil{
+	} else if err != nil {
 		return []user_model.FriendRequest{}, err
 	}
 	friendreqs := []user_model.FriendRequest{}
-	for _, val := range(rows){
+	for _, val := range rows {
 		friendreqs = append(friendreqs, toFriendRequest(val))
 	}
 
@@ -299,63 +299,63 @@ func createdEventToModel(row sqlc.ListUserCreatedEventsRow) event_model.Event {
 	}, 0)
 }
 
-func toFriendRequest(row sqlc.Friendrequest) user_model.FriendRequest{
+func toFriendRequest(row sqlc.Friendrequest) user_model.FriendRequest {
 	fr := user_model.FriendRequest{
-		Sender: row.Sender,
-		Receiver: row.Receiver,
-		DateSent: row.Datesent.Time,
-		State: string(row.State),
+		Sender:       row.Sender,
+		Receiver:     row.Receiver,
+		DateSent:     row.Datesent.Time,
+		State:        string(row.State),
 		DateResolved: row.Dateresolved.Time,
 	}
 	return fr
 }
 
-func (r *UserRepository) PendingRequestExists(ctx context.Context, userid pgtype.UUID, target pgtype.UUID) (bool, error){
-	exists, err := r.queries.PendingRequestExists(ctx, sqlc.PendingRequestExistsParams{Sender:userid, Receiver:target})
-	if err!=nil{
+func (r *UserRepository) PendingRequestExists(ctx context.Context, userid pgtype.UUID, target pgtype.UUID) (bool, error) {
+	exists, err := r.queries.PendingRequestExists(ctx, sqlc.PendingRequestExistsParams{Sender: userid, Receiver: target})
+	if err != nil {
 		return false, err
 	}
 	return exists, nil
 }
 
-func (r *UserRepository) IsBlocked(ctx context.Context, userid pgtype.UUID, target pgtype.UUID) (bool, error){
+func (r *UserRepository) IsBlocked(ctx context.Context, userid pgtype.UUID, target pgtype.UUID) (bool, error) {
 	blocked, err := r.queries.IsBlocked(ctx, sqlc.IsBlockedParams{Blockeduser: userid, Blockinguser: target})
-	if err!=nil{
+	if err != nil {
 		return false, err
 	}
 	return blocked, nil
 }
 
-func (r *UserRepository) SendFriendRequest(ctx context.Context, userid pgtype.UUID, target pgtype.UUID) (user_model.FriendRequest, error){
-	row, err := r.queries.CreateFriendRequest(ctx, sqlc.CreateFriendRequestParams{Sender:userid, Receiver:target})
-	if err!=nil{
+func (r *UserRepository) SendFriendRequest(ctx context.Context, userid pgtype.UUID, target pgtype.UUID) (user_model.FriendRequest, error) {
+	row, err := r.queries.CreateFriendRequest(ctx, sqlc.CreateFriendRequestParams{Sender: userid, Receiver: target})
+	if err != nil {
 		return user_model.FriendRequest{}, err
 	}
 	return toFriendRequest(row), nil
 }
 
-func (r *UserRepository) AcceptFriendRequest(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID, date time.Time) (user_model.FriendRequest, error){
+func (r *UserRepository) AcceptFriendRequest(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID, date time.Time) (user_model.FriendRequest, error) {
 	row, err := r.queries.AcceptFriendRequest(ctx, sqlc.AcceptFriendRequestParams{Sender: targetid, Receiver: userid, Datesent: toTimestamp(date)})
-	if err!=nil{
+	if err != nil {
 		return user_model.FriendRequest{}, err
 	}
 
 	err = r.queries.AddFriendship(ctx, sqlc.AddFriendshipParams{User1: userid, User2: targetid})
-	if err!=nil{
+	if err != nil {
 		return user_model.FriendRequest{}, err
 	}
 	return toFriendRequest(row), nil
 }
 
-func (r *UserRepository) DenyFriendRequest(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID, date time.Time) (user_model.FriendRequest, error){
+func (r *UserRepository) DenyFriendRequest(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID, date time.Time) (user_model.FriendRequest, error) {
 	row, err := r.queries.DenyFriendRequest(ctx, sqlc.DenyFriendRequestParams{Sender: targetid, Receiver: userid, Datesent: toTimestamp(date)})
-	if err!=nil{
+	if err != nil {
 		return user_model.FriendRequest{}, err
 	}
 
 	return toFriendRequest(row), nil
 }
 
-func toTimestamp(t time.Time) pgtype.Timestamp{
+func toTimestamp(t time.Time) pgtype.Timestamp {
 	return pgtype.Timestamp{Time: t, Valid: true}
 }

@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/gofrs/uuid/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/gofrs/uuid/v5"
 
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/models/signup_model"
@@ -143,7 +143,7 @@ func signedUpEventToModel(row sqlc.ListUserSignedUpEventsRow) event_model.Event 
 
 func toUUID(s string) (pgtype.UUID, error) {
 	tmp, err := uuid.FromString(s)
-	if err!=nil{
+	if err != nil {
 		return pgtype.UUID{}, fmt.Errorf("invalid user id %s: %w", s, err)
 	}
 	return pgtype.UUID{Valid: true, Bytes: [16]byte(tmp)}, nil

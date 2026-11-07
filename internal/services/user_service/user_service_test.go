@@ -138,14 +138,30 @@ func (m *mockUserRepo) UpdateSettings(_ context.Context, settingsID int, showPla
 	return nil
 }
 
-func (m *mockUserRepo) GetUserFriends(ctx context.Context, userid pgtype.UUID) ([]string, error) {return []string{}, nil}
-func (m *mockUserRepo) GetFriendRequests(ctx context.Context, userid pgtype.UUID) ([]user_model.FriendRequest, error) {return []user_model.FriendRequest{}, nil}
-func (m *mockUserRepo) PendingRequestExists(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID) (bool, error) {return false, nil}
-func (m *mockUserRepo) IsBlocked(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID) (bool, error) {return false, nil}
-func (m *mockUserRepo) SendFriendRequest(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID) (user_model.FriendRequest, error) {return user_model.FriendRequest{}, nil}
-func (m *mockUserRepo) AcceptFriendRequest(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID, date time.Time) (user_model.FriendRequest, error) {return user_model.FriendRequest{}, nil}
-func (m *mockUserRepo) DenyFriendRequest(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID, date time.Time) (user_model.FriendRequest, error) {return user_model.FriendRequest{}, nil}
-func (m *mockUserRepo) Unfriend(ctx context.Context, userid pgtype.UUID, targetuuid pgtype.UUID) (error) {return nil}
+func (m *mockUserRepo) GetUserFriends(ctx context.Context, userid pgtype.UUID) ([]string, error) {
+	return []string{}, nil
+}
+func (m *mockUserRepo) GetFriendRequests(ctx context.Context, userid pgtype.UUID) ([]user_model.FriendRequest, error) {
+	return []user_model.FriendRequest{}, nil
+}
+func (m *mockUserRepo) PendingRequestExists(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID) (bool, error) {
+	return false, nil
+}
+func (m *mockUserRepo) IsBlocked(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID) (bool, error) {
+	return false, nil
+}
+func (m *mockUserRepo) SendFriendRequest(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID) (user_model.FriendRequest, error) {
+	return user_model.FriendRequest{}, nil
+}
+func (m *mockUserRepo) AcceptFriendRequest(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID, date time.Time) (user_model.FriendRequest, error) {
+	return user_model.FriendRequest{}, nil
+}
+func (m *mockUserRepo) DenyFriendRequest(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID, date time.Time) (user_model.FriendRequest, error) {
+	return user_model.FriendRequest{}, nil
+}
+func (m *mockUserRepo) Unfriend(ctx context.Context, userid pgtype.UUID, targetuuid pgtype.UUID) error {
+	return nil
+}
 
 type mockS3Client struct {
 	uploadedURL string

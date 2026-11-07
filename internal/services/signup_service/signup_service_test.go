@@ -13,11 +13,11 @@ import (
 
 const validUserID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
 
-type fakeEventRepository struct{
-	exists		bool
-	existsErr	error
+type fakeEventRepository struct {
+	exists    bool
+	existsErr error
 
-	gotEventID 	int
+	gotEventID int
 }
 
 type fakeRepository struct {
@@ -45,19 +45,41 @@ func (f *fakeEventRepository) EventExists(eventID int) (bool, error) {
 	return f.exists, f.existsErr
 }
 
-func (f *fakeEventRepository) Create(e event_model.Event, official bool) (event_model.Event, error) { return event_model.Event{}, nil}
-func (f *fakeEventRepository) CreateOrReplace(e event_model.Event) (event_model.Event, error) { return event_model.Event{}, nil}
-func (f *fakeEventRepository) Update(id int, e event_model.Event, official bool) (event_model.Event, error) { return event_model.Event{}, nil}
-func (f *fakeEventRepository) UpdateImage(ctx context.Context, id int, imageURL string) error { return nil }
-func (f *fakeEventRepository) Delete(ctx context.Context, id int) error { return nil }
+func (f *fakeEventRepository) Create(e event_model.Event, official bool) (event_model.Event, error) {
+	return event_model.Event{}, nil
+}
+func (f *fakeEventRepository) CreateOrReplace(e event_model.Event) (event_model.Event, error) {
+	return event_model.Event{}, nil
+}
+func (f *fakeEventRepository) Update(id int, e event_model.Event, official bool) (event_model.Event, error) {
+	return event_model.Event{}, nil
+}
+func (f *fakeEventRepository) UpdateImage(ctx context.Context, id int, imageURL string) error {
+	return nil
+}
+func (f *fakeEventRepository) Delete(ctx context.Context, id int) error                 { return nil }
 func (f *fakeEventRepository) SetCategories(id int, cats []string, official bool) error { return nil }
-func (f *fakeEventRepository) Get(id int) (event_model.Event, error) { return event_model.Event{EndDate:time.Now().Add(time.Hour * time.Duration(24))}, nil}
-func (f *fakeEventRepository) List(params map[string]any) ([]event_model.Event, error) { return []event_model.Event{}, nil}
-func (f *fakeEventRepository) GetPopular(pageSize int, pageNum int) ([]event_model.Event, error) { return []event_model.Event{}, nil}
-func (f *fakeEventRepository) Search(ctx context.Context, query string, pageNum, pageSize int) (event_model.SearchResult, error) { return event_model.SearchResult{}, nil}
-func (f *fakeEventRepository) GetCategories() ([]event_model.Category, error) { return []event_model.Category{}, nil}
-func (f *fakeEventRepository) GetCategory(id int) (event_model.Category, error) { return event_model.Category{}, nil}
-func (f *fakeEventRepository) ListMapEvents(ctx context.Context, filter event_model.MapFilter) ([]event_model.MapEvent, error) { return []event_model.MapEvent{}, nil}
+func (f *fakeEventRepository) Get(id int) (event_model.Event, error) {
+	return event_model.Event{EndDate: time.Now().Add(time.Hour * time.Duration(24))}, nil
+}
+func (f *fakeEventRepository) List(params map[string]any) ([]event_model.Event, error) {
+	return []event_model.Event{}, nil
+}
+func (f *fakeEventRepository) GetPopular(pageSize int, pageNum int) ([]event_model.Event, error) {
+	return []event_model.Event{}, nil
+}
+func (f *fakeEventRepository) Search(ctx context.Context, query string, pageNum, pageSize int) (event_model.SearchResult, error) {
+	return event_model.SearchResult{}, nil
+}
+func (f *fakeEventRepository) GetCategories() ([]event_model.Category, error) {
+	return []event_model.Category{}, nil
+}
+func (f *fakeEventRepository) GetCategory(id int) (event_model.Category, error) {
+	return event_model.Category{}, nil
+}
+func (f *fakeEventRepository) ListMapEvents(ctx context.Context, filter event_model.MapFilter) ([]event_model.MapEvent, error) {
+	return []event_model.MapEvent{}, nil
+}
 
 func (f *fakeRepository) Create(_ context.Context, userID string, eventID int) (bool, error) {
 	f.createCalls++
@@ -106,7 +128,7 @@ func TestSignUp(t *testing.T) {
 		userID      string
 		eventID     int
 		repo        fakeRepository
-		eventRepo	fakeEventRepository
+		eventRepo   fakeEventRepository
 		wantErr     error
 		wantCreated bool
 		wantCreate  int
@@ -150,7 +172,7 @@ func TestSignUp(t *testing.T) {
 
 func TestSignUpNormalizesUserID(t *testing.T) {
 	repo := fakeRepository{created: true}
-	eventRepo := fakeEventRepository{exists:true}
+	eventRepo := fakeEventRepository{exists: true}
 	s := NewSignUpService(&repo, &eventRepo)
 
 	got, err := s.SignUp(context.Background(), "3F2504E0-4F89-11D3-9A0C-0305E82C3301", 1)
@@ -281,7 +303,7 @@ func TestGetEnrollmentStatus(t *testing.T) {
 			userID:     validUserID,
 			eventID:    1,
 			repo:       fakeRepository{countSignUps: 42, isSignedUp: true},
-			eventRepo: 	fakeEventRepository{exists: true}, 
+			eventRepo:  fakeEventRepository{exists: true},
 			wantStatus: signup_model.EnrollmentStatus{EventID: 1, IsEnrolled: true, EnrolledCount: 42},
 		},
 		{
@@ -289,7 +311,7 @@ func TestGetEnrollmentStatus(t *testing.T) {
 			userID:     validUserID,
 			eventID:    1,
 			repo:       fakeRepository{countSignUps: 15, isSignedUp: false},
-			eventRepo: 	fakeEventRepository{exists: true}, 
+			eventRepo:  fakeEventRepository{exists: true},
 			wantStatus: signup_model.EnrollmentStatus{EventID: 1, IsEnrolled: false, EnrolledCount: 15},
 		},
 		{
@@ -297,32 +319,32 @@ func TestGetEnrollmentStatus(t *testing.T) {
 			userID:     "",
 			eventID:    1,
 			repo:       fakeRepository{countSignUps: 10},
-			eventRepo: 	fakeEventRepository{exists: true}, 
+			eventRepo:  fakeEventRepository{exists: true},
 			wantStatus: signup_model.EnrollmentStatus{EventID: 1, IsEnrolled: false, EnrolledCount: 10},
 		},
 		{
-			name:    	"event not found",
-			userID:  	validUserID,
-			eventID: 	999,
-			repo:    	fakeRepository{},
-			eventRepo: 	fakeEventRepository{exists: false}, 
-			wantErr: 	ErrEventNotFound,
+			name:      "event not found",
+			userID:    validUserID,
+			eventID:   999,
+			repo:      fakeRepository{},
+			eventRepo: fakeEventRepository{exists: false},
+			wantErr:   ErrEventNotFound,
 		},
 		{
-			name:    	"invalid event id",
-			userID:  	validUserID,
-			eventID: 	-1,
-			repo:    	fakeRepository{},
-			eventRepo: 	fakeEventRepository{exists: true}, 
-			wantErr: 	ErrInvalidEventID,
+			name:      "invalid event id",
+			userID:    validUserID,
+			eventID:   -1,
+			repo:      fakeRepository{},
+			eventRepo: fakeEventRepository{exists: true},
+			wantErr:   ErrInvalidEventID,
 		},
 		{
-			name:    	"count error",
-			userID:  	validUserID,
-			eventID: 	1,
-			repo:    	fakeRepository{countErr: repoErr},
-			eventRepo: 	fakeEventRepository{exists: true}, 
-			wantErr: 	repoErr,
+			name:      "count error",
+			userID:    validUserID,
+			eventID:   1,
+			repo:      fakeRepository{countErr: repoErr},
+			eventRepo: fakeEventRepository{exists: true},
+			wantErr:   repoErr,
 		},
 	}
 	for _, tt := range tests {

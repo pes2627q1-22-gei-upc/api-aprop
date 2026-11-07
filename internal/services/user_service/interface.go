@@ -27,5 +27,5 @@ type Service interface {
 	SendFriendRequest(ctx context.Context, userid string, targetid string) (user_model.FriendRequest, error)
 	AcceptFriendRequest(ctx context.Context, userid string, targetid string, date time.Time) (user_model.FriendRequest, error)
 	DenyFriendRequest(ctx context.Context, userid string, targetid string, date time.Time) (user_model.FriendRequest, error)
-	Unfriend(ctx context.Context, userid string, targetid string) (error)
+	Unfriend(ctx context.Context, userid string, targetid string) error
 }

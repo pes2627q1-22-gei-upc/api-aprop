@@ -485,7 +485,7 @@ func (r *EventRepository) List(params map[string]any) ([]event_model.Event, erro
 	return events, nil
 }
 
-func toGetEventRow (r sqlc.SearchEventsWithRelevanceRow) sqlc.GetEventRow {
+func toGetEventRow(r sqlc.SearchEventsWithRelevanceRow) sqlc.GetEventRow {
 	return sqlc.GetEventRow{
 		ID:           r.ID,
 		Title:        r.Title,
@@ -501,7 +501,7 @@ func toGetEventRow (r sqlc.SearchEventsWithRelevanceRow) sqlc.GetEventRow {
 		Relatedurls:  r.Relatedurls,
 		Urlnames:     r.Urlnames,
 		Images:       r.Images,
-		Videos:		  r.Videos,
+		Videos:       r.Videos,
 		Email:        r.Email,
 		Phone:        r.Phone,
 		Activityurl:  r.Activityurl,
@@ -518,7 +518,7 @@ func toGetEventRow (r sqlc.SearchEventsWithRelevanceRow) sqlc.GetEventRow {
 		Creator:      r.Creator,
 		Datecreated:  r.Datecreated,
 		Category:     r.Category,
-	}    
+	}
 }
 
 func (r *EventRepository) Search(ctx context.Context, query string, pageNum, pageSize int) (event_model.SearchResult, error) {
@@ -629,9 +629,9 @@ func (r *EventRepository) ListMapEvents(ctx context.Context, filter event_model.
 	return events, nil
 }
 
-func getPopularToGetEventRow(row sqlc.GetPopularEventsRow) sqlc.GetEventRow{
+func getPopularToGetEventRow(row sqlc.GetPopularEventsRow) sqlc.GetEventRow {
 	return sqlc.GetEventRow{
-		ID:			  row.ID,
+		ID:           row.ID,
 		Title:        row.Title,
 		Description:  row.Description,
 		Subtitle:     row.Subtitle,
@@ -661,19 +661,19 @@ func getPopularToGetEventRow(row sqlc.GetPopularEventsRow) sqlc.GetEventRow{
 		Code:         row.Code,
 		Creator:      row.Creator,
 		Datecreated:  row.Datecreated,
-		Category:	  row.Category,
+		Category:     row.Category,
 	}
 }
 
-func (r *EventRepository) GetPopular(pageSize int, pageNum int) ([]event_model.Event, error){
+func (r *EventRepository) GetPopular(pageSize int, pageNum int) ([]event_model.Event, error) {
 	if pageSize < 0 || pageNum < 0 {
 		return nil, fmt.Errorf("popular events: %w: pageSize and pageNum must not be negative", event_repository.ErrInvalidFilter)
 	}
-	rows, err := r.queries.GetPopularEvents(context.Background(), sqlc.GetPopularEventsParams{Limit: int32(pageSize), Offset: int32(pageSize*pageNum)})
-	if err!=nil{
+	rows, err := r.queries.GetPopularEvents(context.Background(), sqlc.GetPopularEventsParams{Limit: int32(pageSize), Offset: int32(pageSize * pageNum)})
+	if err != nil {
 		return []event_model.Event{}, err
 	}
-	if len(rows)==0{
+	if len(rows) == 0 {
 		return []event_model.Event{}, nil
 	}
 	events := []event_model.Event{}

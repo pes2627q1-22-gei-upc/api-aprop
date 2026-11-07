@@ -57,7 +57,7 @@ func (s *NotificationService) CreateNotification(n notification_model.Notificati
 	return id, nil
 }
 
-func (s *NotificationService) ReadNotification(id int) (error) {
+func (s *NotificationService) ReadNotification(id int) error {
 	err := s.notificationRepository.ReadNotification(id)
 	if err != nil {
 		return err
@@ -65,7 +65,7 @@ func (s *NotificationService) ReadNotification(id int) (error) {
 	return nil
 }
 
-func (s *NotificationService) ReadUserNotifications(id pgtype.UUID) (error) {
+func (s *NotificationService) ReadUserNotifications(id pgtype.UUID) error {
 	err := s.notificationRepository.ReadUserNotifications(id)
 	if err != nil {
 		return err
@@ -73,9 +73,9 @@ func (s *NotificationService) ReadUserNotifications(id pgtype.UUID) (error) {
 	return nil
 }
 
-func (s *NotificationService) CreateReminders() ([]int32, error){
+func (s *NotificationService) CreateReminders() ([]int32, error) {
 	ids, err := s.notificationRepository.CreateReminders()
-	if err!=nil{
+	if err != nil {
 		return []int32{}, err
 	}
 	return ids, nil

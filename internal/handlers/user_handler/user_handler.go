@@ -2,11 +2,11 @@ package user_handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"mime"
 	"net/http"
 	"path/filepath"
 	"time"
-	"fmt"
 
 	"api-aprop/internal/handlers/response"
 	"api-aprop/internal/middleware/auth_middleware"
@@ -174,7 +174,7 @@ func (h *UserHandler) ListCreatedEvents(w http.ResponseWriter, r *http.Request) 
 	response.WriteJSON(w, http.StatusOK, events)
 }
 
-func (h *UserHandler) GetFriendRequests(w http.ResponseWriter, r *http.Request){
+func (h *UserHandler) GetFriendRequests(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
 		response.WriteError(w, http.StatusBadRequest, "missing user id")
@@ -190,7 +190,7 @@ func (h *UserHandler) GetFriendRequests(w http.ResponseWriter, r *http.Request){
 	}
 
 	friendreqs, err := h.userService.GetFriendRequests(r.Context(), id)
-	if err!=nil{
+	if err != nil {
 		writeServiceError(w, err)
 		return
 	}
@@ -198,7 +198,7 @@ func (h *UserHandler) GetFriendRequests(w http.ResponseWriter, r *http.Request){
 	response.WriteJSON(w, http.StatusOK, friendreqs)
 }
 
-func (h *UserHandler) SendFriendRequest(w http.ResponseWriter, r *http.Request){
+func (h *UserHandler) SendFriendRequest(w http.ResponseWriter, r *http.Request) {
 	targetid := r.PathValue("id")
 	if targetid == "" {
 		response.WriteError(w, http.StatusBadRequest, "missing user id")
@@ -212,7 +212,7 @@ func (h *UserHandler) SendFriendRequest(w http.ResponseWriter, r *http.Request){
 	}
 
 	friendreq, err := h.userService.SendFriendRequest(r.Context(), requesterID, targetid)
-	if err!=nil{
+	if err != nil {
 		writeServiceError(w, err)
 		return
 	}
@@ -220,7 +220,7 @@ func (h *UserHandler) SendFriendRequest(w http.ResponseWriter, r *http.Request){
 	response.WriteJSON(w, http.StatusOK, friendreq)
 }
 
-func (h *UserHandler) AcceptFriendRequest(w http.ResponseWriter, r *http.Request){
+func (h *UserHandler) AcceptFriendRequest(w http.ResponseWriter, r *http.Request) {
 	targetid := r.PathValue("id")
 	if targetid == "" {
 		response.WriteError(w, http.StatusBadRequest, "missing user id")
@@ -234,19 +234,19 @@ func (h *UserHandler) AcceptFriendRequest(w http.ResponseWriter, r *http.Request
 	}
 
 	datetmp := r.PathValue("date")
-	if datetmp == ""{
+	if datetmp == "" {
 		response.WriteError(w, http.StatusBadRequest, "missing request date")
 		return
 	}
 
 	date, err := time.Parse("2006-01-02T15:04:05.999999Z", datetmp)
-	if err!=nil{
+	if err != nil {
 		response.WriteError(w, http.StatusBadRequest, "invalid request date")
 		return
 	}
 
 	friendreq, err := h.userService.AcceptFriendRequest(r.Context(), requesterID, targetid, date)
-	if err!=nil{
+	if err != nil {
 		writeServiceError(w, err)
 		return
 	}
@@ -254,7 +254,7 @@ func (h *UserHandler) AcceptFriendRequest(w http.ResponseWriter, r *http.Request
 	response.WriteJSON(w, http.StatusOK, friendreq)
 }
 
-func (h *UserHandler) DenyFriendRequest(w http.ResponseWriter, r *http.Request){
+func (h *UserHandler) DenyFriendRequest(w http.ResponseWriter, r *http.Request) {
 	targetid := r.PathValue("id")
 	if targetid == "" {
 		response.WriteError(w, http.StatusBadRequest, "missing user id")
@@ -268,19 +268,19 @@ func (h *UserHandler) DenyFriendRequest(w http.ResponseWriter, r *http.Request){
 	}
 
 	datetmp := r.PathValue("date")
-	if datetmp == ""{
+	if datetmp == "" {
 		response.WriteError(w, http.StatusBadRequest, "missing request date")
 		return
 	}
 
 	date, err := time.Parse("2006-01-02T15:04:05.999999Z", datetmp)
-	if err!=nil{
+	if err != nil {
 		response.WriteError(w, http.StatusBadRequest, "invalid request date")
 		return
 	}
 
 	friendreq, err := h.userService.DenyFriendRequest(r.Context(), requesterID, targetid, date)
-	if err!=nil{
+	if err != nil {
 		writeServiceError(w, err)
 		return
 	}
@@ -288,7 +288,7 @@ func (h *UserHandler) DenyFriendRequest(w http.ResponseWriter, r *http.Request){
 	response.WriteJSON(w, http.StatusOK, friendreq)
 }
 
-func (h *UserHandler) Unfriend(w http.ResponseWriter, r *http.Request){
+func (h *UserHandler) Unfriend(w http.ResponseWriter, r *http.Request) {
 	targetid := r.PathValue("id")
 	if targetid == "" {
 		response.WriteError(w, http.StatusBadRequest, "missing user id")
@@ -302,7 +302,7 @@ func (h *UserHandler) Unfriend(w http.ResponseWriter, r *http.Request){
 	}
 
 	err := h.userService.Unfriend(r.Context(), requesterID, targetid)
-	if err!=nil{
+	if err != nil {
 		writeServiceError(w, err)
 		return
 	}
@@ -310,7 +310,7 @@ func (h *UserHandler) Unfriend(w http.ResponseWriter, r *http.Request){
 	response.WriteJSON(w, http.StatusOK, fmt.Sprintf("friendship with %s deleted successfully", targetid))
 }
 
-func (h *UserHandler) GetUserFriends(w http.ResponseWriter, r *http.Request){
+func (h *UserHandler) GetUserFriends(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
 		response.WriteError(w, http.StatusBadRequest, "missing user id")
@@ -326,7 +326,7 @@ func (h *UserHandler) GetUserFriends(w http.ResponseWriter, r *http.Request){
 	}
 
 	friends, err := h.userService.GetUserFriends(r.Context(), id)
-	if err!=nil{
+	if err != nil {
 		writeServiceError(w, err)
 		return
 	}

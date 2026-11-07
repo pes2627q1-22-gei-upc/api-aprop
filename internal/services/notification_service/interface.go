@@ -10,8 +10,8 @@ type Service interface {
 	GetNotification(id int) (notification_model.Notification, error)
 	GetUserNotifications(id pgtype.UUID, params map[string]any) ([]notification_model.Notification, error)
 	CreateNotification(n notification_model.Notification) (int, error)
-	ReadNotification(id int) (error)
-	ReadUserNotifications(id pgtype.UUID) (error)
+	ReadNotification(id int) error
+	ReadUserNotifications(id pgtype.UUID) error
 	GetNotificationTypes() ([]notification_model.NotificationType, error)
 	CreateReminders() ([]int32, error)
 }

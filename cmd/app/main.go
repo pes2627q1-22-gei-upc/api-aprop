@@ -25,11 +25,11 @@ import (
 	"api-aprop/internal/handlers/assistant_handler"
 	"api-aprop/internal/handlers/auth_handler"
 	"api-aprop/internal/handlers/event_handler"
+	"api-aprop/internal/handlers/notification_handler"
 	"api-aprop/internal/handlers/preference_handler"
 	"api-aprop/internal/handlers/requester"
 	"api-aprop/internal/handlers/signup_handler"
 	"api-aprop/internal/handlers/user_handler"
-	"api-aprop/internal/handlers/notification_handler"
 	"api-aprop/internal/mcp_server"
 	"api-aprop/internal/middleware/auth_middleware"
 	postgres_repository "api-aprop/internal/repositories/postgres"
@@ -37,10 +37,10 @@ import (
 	"api-aprop/internal/services/assistant_service"
 	"api-aprop/internal/services/auth_service"
 	"api-aprop/internal/services/event_service"
+	"api-aprop/internal/services/notification_service"
 	"api-aprop/internal/services/preference_service"
 	"api-aprop/internal/services/signup_service"
 	"api-aprop/internal/services/user_service"
-	"api-aprop/internal/services/notification_service"
 	"api-aprop/migrations"
 )
 
@@ -260,8 +260,8 @@ func main() {
 			log.Printf("could not load official events: %v", err)
 		}
 	})
-	checkForReminders(5, func(){
-		if nots, err := notificationService.CreateReminders(); err!=nil{
+	checkForReminders(5, func() {
+		if nots, err := notificationService.CreateReminders(); err != nil {
 			log.Printf("could not load reminders: %v", err)
 		} else {
 			log.Printf("loaded %d new reminders", len(nots))
