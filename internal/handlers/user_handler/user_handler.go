@@ -33,7 +33,7 @@ func (h *UserHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /users/{id}", h.GetUserProfile)
 	mux.HandleFunc("GET /users/{id}/created-events", h.ListCreatedEvents)
 	mux.HandleFunc("GET /users/{id}/friends", h.GetUserFriends)
-	mux.HandleFunc("GET /users/{id}/friend-requests", h.GetFriendRequests)
+	mux.HandleFunc("GET /users/me/friend-requests", h.GetFriendRequests)
 	mux.HandleFunc("POST /users/{id}/friend-requests", h.SendFriendRequest)
 	mux.HandleFunc("POST /users/{id}/friend-requests/{date}/accept", h.AcceptFriendRequest)
 	mux.HandleFunc("POST /users/{id}/friend-requests/{date}/deny", h.DenyFriendRequest)
@@ -175,21 +175,13 @@ func (h *UserHandler) ListCreatedEvents(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *UserHandler) GetFriendRequests(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if id == "" {
-		response.WriteError(w, http.StatusBadRequest, "missing user id")
+	requesterID := getRequesterID(r)
+	if requesterID == "" {
+		response.WriteError(w, http.StatusUnauthorized, "unauthorized: missing auth token or "+UserIDHeader)
 		return
 	}
-	if id == "me" {
-		requesterID := getRequesterID(r)
-		if requesterID == "" {
-			response.WriteError(w, http.StatusUnauthorized, "unauthorized: missing auth token or "+UserIDHeader)
-			return
-		}
-		id = requesterID
-	}
 
-	friendreqs, err := h.userService.GetFriendRequests(r.Context(), id)
+	friendreqs, err := h.userService.GetFriendRequests(r.Context(), requesterID)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -307,7 +299,11 @@ func (h *UserHandler) Unfriend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response.WriteJSON(w, http.StatusOK, fmt.Sprintf("friendship with %s deleted successfully", targetid))
+	type resp struct {
+		Text string `json:"message"`
+	}
+
+	response.WriteJSON(w, http.StatusOK, resp{Text: fmt.Sprintf("friendship with %s deleted successfully", targetid)})
 }
 
 func (h *UserHandler) GetUserFriends(w http.ResponseWriter, r *http.Request) {

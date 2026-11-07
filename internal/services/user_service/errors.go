@@ -14,4 +14,5 @@ var (
 	ErrAlreadyFriends       = errors.New("requester is already friends with target user")
 	ErrRequestNotFound      = errors.New("request not found")
 	ErrNotFriends           = errors.New("requester and target are not friends")
+	ErrSameUser             = errors.New("requester and target cannot be the same")
 )

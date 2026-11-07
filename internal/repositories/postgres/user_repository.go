@@ -19,12 +19,13 @@ import (
 
 type UserRepository struct {
 	queries *sqlc.Queries
+	pool    *pgxpool.Pool
 }
 
 var _ user_repository.Repository = (*UserRepository)(nil)
 
 func NewUserRepository(pool *pgxpool.Pool) *UserRepository {
-	return &UserRepository{queries: sqlc.New(pool)}
+	return &UserRepository{queries: sqlc.New(pool), pool: pool}
 }
 
 func (r *UserRepository) GetByUsername(ctx context.Context, username string) (user_model.User, bool, error) {
@@ -335,16 +336,30 @@ func (r *UserRepository) SendFriendRequest(ctx context.Context, userid pgtype.UU
 }
 
 func (r *UserRepository) AcceptFriendRequest(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID, date time.Time) (user_model.FriendRequest, error) {
-	row, err := r.queries.AcceptFriendRequest(ctx, sqlc.AcceptFriendRequestParams{Sender: targetid, Receiver: userid, Datesent: toTimestamp(date)})
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return user_model.FriendRequest{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	qtx := r.queries.WithTx(tx)
+
+	friendreq, err := qtx.AcceptFriendRequest(ctx, sqlc.AcceptFriendRequestParams{Sender: targetid, Receiver: userid, Datesent: toTimestamp(date)})
 	if err != nil {
 		return user_model.FriendRequest{}, err
 	}
 
-	err = r.queries.AddFriendship(ctx, sqlc.AddFriendshipParams{User1: userid, User2: targetid})
+	err = qtx.AddFriendship(ctx, sqlc.AddFriendshipParams{User1: userid, User2: targetid})
 	if err != nil {
 		return user_model.FriendRequest{}, err
 	}
-	return toFriendRequest(row), nil
+
+	err = tx.Commit(ctx)
+	if err != nil {
+		return user_model.FriendRequest{}, err
+	}
+
+	return toFriendRequest(friendreq), nil
 }
 
 func (r *UserRepository) DenyFriendRequest(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID, date time.Time) (user_model.FriendRequest, error) {
