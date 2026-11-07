@@ -9,13 +9,13 @@ import (
 
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/models/signup_model"
-	"api-aprop/internal/repositories/signup_repository"
 	"api-aprop/internal/repositories/event_repository"
+	"api-aprop/internal/repositories/signup_repository"
 )
 
 type SignUpService struct {
 	signUpRepository signup_repository.Repository
-	eventRepository	 event_repository.Repository
+	eventRepository  event_repository.Repository
 }
 
 func NewSignUpService(signUpRepository signup_repository.Repository, eventRepository event_repository.Repository) *SignUpService {
@@ -40,7 +40,7 @@ func (s *SignUpService) SignUp(ctx context.Context, userID string, eventID int) 
 		return signup_model.SignUp{}, fmt.Errorf("sign up to event %d: %w", eventID, ErrEventNotFound)
 	}
 	event, err := s.eventRepository.Get(eventID)
-	if err != nil{
+	if err != nil {
 		return signup_model.SignUp{}, err
 	}
 	if event.EndDate.Before(time.Now()) {

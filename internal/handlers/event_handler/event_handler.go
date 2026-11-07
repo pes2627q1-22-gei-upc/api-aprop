@@ -140,14 +140,14 @@ func (h *EventHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 	response.WriteJSON(w, http.StatusOK, list)
 }
 
-func (h *EventHandler) GetRecommendedEvents(w http.ResponseWriter, r *http.Request){
+func (h *EventHandler) GetRecommendedEvents(w http.ResponseWriter, r *http.Request) {
 	pageSize, err := strconv.Atoi(r.URL.Query().Get("pageSize"))
-	if err!=nil{
+	if err != nil {
 		response.WriteError(w, http.StatusBadRequest, "invalid page size")
 		return
 	}
 	pageNum, err := strconv.Atoi(r.URL.Query().Get("pageNum"))
-	if err!=nil{
+	if err != nil {
 		response.WriteError(w, http.StatusBadRequest, "invalid page num")
 		return
 	}
@@ -158,7 +158,7 @@ func (h *EventHandler) GetRecommendedEvents(w http.ResponseWriter, r *http.Reque
 	}
 
 	ev, err := h.eventService.GetRecommendedEvents(r.Context(), requester, pageSize, pageNum)
-	if err!=nil{
+	if err != nil {
 		writeServiceError(w, err)
 		return
 	}
@@ -335,19 +335,19 @@ func (h *EventHandler) ListMapEvents(w http.ResponseWriter, r *http.Request) {
 	response.WriteJSON(w, http.StatusOK, events)
 }
 
-func (h *EventHandler) GetPopularEvents(w http.ResponseWriter, r *http.Request){
+func (h *EventHandler) GetPopularEvents(w http.ResponseWriter, r *http.Request) {
 	pageSize, err := strconv.Atoi(r.URL.Query().Get("pageSize"))
-	if err!=nil{
+	if err != nil {
 		response.WriteError(w, http.StatusBadRequest, "invalid page size")
 		return
 	}
 	pageNum, err := strconv.Atoi(r.URL.Query().Get("pageNum"))
-	if err!=nil{
+	if err != nil {
 		response.WriteError(w, http.StatusBadRequest, "invalid page num")
 		return
 	}
 	ev, err := h.eventService.GetPopularEvents(pageSize, pageNum)
-	if err!=nil{
+	if err != nil {
 		writeServiceError(w, err)
 		return
 	}

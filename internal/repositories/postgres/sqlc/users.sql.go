@@ -11,6 +11,43 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const acceptFriendRequest = `-- name: AcceptFriendRequest :one
+UPDATE friendrequests SET state='Accepted'::friendrequeststate, dateresolved=now() where sender=$1 and receiver=$2 and datesent=$3 and state='Pending'::friendrequeststate RETURNING sender, receiver, datesent, state, dateresolved
+`
+
+type AcceptFriendRequestParams struct {
+	Sender   pgtype.UUID
+	Receiver pgtype.UUID
+	Datesent pgtype.Timestamp
+}
+
+func (q *Queries) AcceptFriendRequest(ctx context.Context, arg AcceptFriendRequestParams) (Friendrequest, error) {
+	row := q.db.QueryRow(ctx, acceptFriendRequest, arg.Sender, arg.Receiver, arg.Datesent)
+	var i Friendrequest
+	err := row.Scan(
+		&i.Sender,
+		&i.Receiver,
+		&i.Datesent,
+		&i.State,
+		&i.Dateresolved,
+	)
+	return i, err
+}
+
+const addFriendship = `-- name: AddFriendship :exec
+INSERT INTO friendships (user1, user2) values ($1, $2), ($2, $1)
+`
+
+type AddFriendshipParams struct {
+	User1 pgtype.UUID
+	User2 pgtype.UUID
+}
+
+func (q *Queries) AddFriendship(ctx context.Context, arg AddFriendshipParams) error {
+	_, err := q.db.Exec(ctx, addFriendship, arg.User1, arg.User2)
+	return err
+}
+
 const areFriends = `-- name: AreFriends :one
 SELECT EXISTS (
     SELECT 1 FROM Friendships
@@ -70,6 +107,81 @@ func (q *Queries) CountUserPlans(ctx context.Context, userID pgtype.UUID) (int64
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const createFriendRequest = `-- name: CreateFriendRequest :one
+INSERT INTO friendrequests (sender, receiver, datesent) VALUES ($1, $2, now()) returning sender, receiver, datesent, state, dateresolved
+`
+
+type CreateFriendRequestParams struct {
+	Sender   pgtype.UUID
+	Receiver pgtype.UUID
+}
+
+func (q *Queries) CreateFriendRequest(ctx context.Context, arg CreateFriendRequestParams) (Friendrequest, error) {
+	row := q.db.QueryRow(ctx, createFriendRequest, arg.Sender, arg.Receiver)
+	var i Friendrequest
+	err := row.Scan(
+		&i.Sender,
+		&i.Receiver,
+		&i.Datesent,
+		&i.State,
+		&i.Dateresolved,
+	)
+	return i, err
+}
+
+const denyFriendRequest = `-- name: DenyFriendRequest :one
+UPDATE friendrequests SET state='Rejected'::friendrequeststate, dateresolved=now() where sender=$1 and receiver=$2 and datesent=$3 and state='Pending'::friendrequeststate RETURNING sender, receiver, datesent, state, dateresolved
+`
+
+type DenyFriendRequestParams struct {
+	Sender   pgtype.UUID
+	Receiver pgtype.UUID
+	Datesent pgtype.Timestamp
+}
+
+func (q *Queries) DenyFriendRequest(ctx context.Context, arg DenyFriendRequestParams) (Friendrequest, error) {
+	row := q.db.QueryRow(ctx, denyFriendRequest, arg.Sender, arg.Receiver, arg.Datesent)
+	var i Friendrequest
+	err := row.Scan(
+		&i.Sender,
+		&i.Receiver,
+		&i.Datesent,
+		&i.State,
+		&i.Dateresolved,
+	)
+	return i, err
+}
+
+const getFriendRequests = `-- name: GetFriendRequests :many
+SELECT sender, receiver, datesent, state, dateresolved from friendrequests where state='Pending'::friendrequeststate and receiver=$1
+`
+
+func (q *Queries) GetFriendRequests(ctx context.Context, receiver pgtype.UUID) ([]Friendrequest, error) {
+	rows, err := q.db.Query(ctx, getFriendRequests, receiver)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Friendrequest
+	for rows.Next() {
+		var i Friendrequest
+		if err := rows.Scan(
+			&i.Sender,
+			&i.Receiver,
+			&i.Datesent,
+			&i.State,
+			&i.Dateresolved,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getUserByFirebaseUIDWithSettings = `-- name: GetUserByFirebaseUIDWithSettings :one
@@ -216,6 +328,30 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (GetUs
 	return i, err
 }
 
+const getUserFriends = `-- name: GetUserFriends :many
+SELECT user2 from friendships where user1=$1
+`
+
+func (q *Queries) GetUserFriends(ctx context.Context, user1 pgtype.UUID) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, getUserFriends, user1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var user2 pgtype.UUID
+		if err := rows.Scan(&user2); err != nil {
+			return nil, err
+		}
+		items = append(items, user2)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getUserReliability = `-- name: GetUserReliability :one
 SELECT AVG(er.Rating)::real AS reliability
 FROM EventRatings er
@@ -228,6 +364,22 @@ func (q *Queries) GetUserReliability(ctx context.Context, creator pgtype.UUID) (
 	var reliability float32
 	err := row.Scan(&reliability)
 	return reliability, err
+}
+
+const isBlocked = `-- name: IsBlocked :one
+SELECT EXISTS (SELECT 1 from blocked where (blockeduser = $1 and blockinguser = $2) or (blockeduser = $2 and blockinguser = $1) limit 1)
+`
+
+type IsBlockedParams struct {
+	Blockeduser  pgtype.UUID
+	Blockinguser pgtype.UUID
+}
+
+func (q *Queries) IsBlocked(ctx context.Context, arg IsBlockedParams) (bool, error) {
+	row := q.db.QueryRow(ctx, isBlocked, arg.Blockeduser, arg.Blockinguser)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const listUserCreatedEvents = `-- name: ListUserCreatedEvents :many
@@ -321,6 +473,36 @@ func (q *Queries) ListUserCreatedEvents(ctx context.Context, creator pgtype.UUID
 		return nil, err
 	}
 	return items, nil
+}
+
+const pendingRequestExists = `-- name: PendingRequestExists :one
+SELECT EXISTS (SELECT 1 from friendrequests where state = 'Pending'::friendrequeststate and ((sender=$1 and receiver=$2) or (sender=$2 and receiver=$1)) limit 1)
+`
+
+type PendingRequestExistsParams struct {
+	Sender   pgtype.UUID
+	Receiver pgtype.UUID
+}
+
+func (q *Queries) PendingRequestExists(ctx context.Context, arg PendingRequestExistsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, pendingRequestExists, arg.Sender, arg.Receiver)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const removeFriendship = `-- name: RemoveFriendship :exec
+DELETE from friendships where (user1=$1 and user2=$2) or (user1=$2 and user2=$1)
+`
+
+type RemoveFriendshipParams struct {
+	User1 pgtype.UUID
+	User2 pgtype.UUID
+}
+
+func (q *Queries) RemoveFriendship(ctx context.Context, arg RemoveFriendshipParams) error {
+	_, err := q.db.Exec(ctx, removeFriendship, arg.User1, arg.User2)
+	return err
 }
 
 const updateUserProfile = `-- name: UpdateUserProfile :one

@@ -20,6 +20,18 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		response.WriteError(w, http.StatusConflict, "username already taken")
 	case errors.Is(err, user_service.ErrInvalidInput), errors.Is(err, user_service.ErrInvalidUserID):
 		response.WriteError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, user_service.ErrRequestAlreadyExists):
+		response.WriteError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, user_service.ErrIsBlocked):
+		response.WriteError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, user_service.ErrAlreadyFriends):
+		response.WriteError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, user_service.ErrRequestNotFound):
+		response.WriteError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, user_service.ErrNotFriends):
+		response.WriteError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, user_service.ErrSameUser):
+		response.WriteError(w, http.StatusBadRequest, err.Error())
 	default:
 		response.WriteError(w, http.StatusInternalServerError, "internal server error")
 	}

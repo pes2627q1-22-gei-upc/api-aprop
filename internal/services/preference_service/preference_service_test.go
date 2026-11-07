@@ -18,12 +18,12 @@ type fakePreferenceRepository struct {
 	hasCompleted   bool
 	hasCompleteErr error
 
-	saveErr         error
-	savedUserID     string
-	savedDateTaken  time.Time
-	savedAnswers    []preference_model.TestAnswer
-	savedPrefs      []preference_model.UserPreference
-	saveCalls       int
+	saveErr        error
+	savedUserID    string
+	savedDateTaken time.Time
+	savedAnswers   []preference_model.TestAnswer
+	savedPrefs     []preference_model.UserPreference
+	saveCalls      int
 
 	eventCategories    map[int][]int
 	eventCategoriesErr error
