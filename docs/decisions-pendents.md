@@ -300,6 +300,27 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Qui decideix:** frontend + backend
 - **Resolució:**
 
+### DP-027 · Reimplementació de l'assistent: tool calling directe i cerca amb rànquing
+- **Estat:** oberta
+- **Obert per:** 2026-11-07 · Claude Code (Sonnet 5.5) · branca `feature/assistant-tool-calling`
+- **Context:** s'elimina MCP (`cmd/mcp`, `internal/mcp_server`, `internal/clients/mcp_client`, `/mcp`, `MCP_TOKEN`); el servei crida les eines directament (`assistant_service/tools.go`). `SearchEvents` ignora accents (`unaccent`, migració 000012) i ordena per rellevància del text + pes màxim de `UserPreferences`.
+- **Dubte:** (1) l'extensió `unaccent` i la consulta no s'han provat contra Supabase; (2) els pesos de rellevància (títol 3, categoria 2, subtítol 1, descripció 1) i la suma amb la preferència són deduïts, no mesurats; (3) `ADR-0005` i `docs/architecture.md` encara descriuen MCP; (4) falten les eines `list_categories`/`get_user_context`, el filtre de tema fusionat i els IDs recomanats a l'historial; (5) ajuda de l'app: `assistant_service/help/guide.md` s'ha extret del codi del frontend el 2026-11-07 i s'ha de mantenir sincronitzada; l'assistent respon en l'idioma de l'usuari tot i que la UI és només en català; (6) Gemini com a còpia de seguretat (`GEMINI_API_KEY`, `GEMINI_MODEL`) sense provar; (7) `GET /assistant/suggestions` no és a `api/openapi.yaml` ni el frontend l'usa; (8) la navegació des del xat requereix un contracte nou amb el frontend i no s'ha fet.
+- **Opcions:** A) mantenir el rànquing actual · B) afegir cerca per text complet (`tsvector`) · C) afegir `pgvector` si A/B no basten.
+- **Provisionalment:** A.
+- **Qui decideix:** equip
+- **Resolució:**
+
+
+### DP-028 · Millores de l'assistent: accions de pantalla, feedback i límit de missatges
+- **Estat:** oberta
+- **Obert per:** 2026-11-07 · Claude Code (Sonnet 5.5) · branca `feature/assistant-tool-calling`
+- **Context:** `POST /assistant/feedback` (migració 000013, taula `ChatbotFeedback`), camp `action.screen` a la resposta de `POST /assistant/messages`, límit de 20 missatges/minut per usuari (`429`), registre de les crides a eines, ajuda amb l'estat de l'usuari (`user-has-done-test`).
+- **Dubte:** (1) `action.screen` és un enum tancat (`home`, `agenda`, `discover`, `notifications`, `profile`, `settings`, `interest-test`) deduït del tema de la guia (`topicScreens` a `help.go`); el frontend ha de dir quines pantalles existeixen de debò; temes sense pantalla clara (mapa, crear activitat, amics) no en porten; (2) `action` no es desa: una conversa recarregada amb `GET /assistant/conversation` no el porta; (3) el límit és en memòria (es perd en reiniciar i no es comparteix entre instàncies) i els 20/min no s'han validat amb ús real; (4) la migració 000013 no s'ha aplicat a Supabase ni es reflecteix a `supabase/migrations/`; la consulta de `sqlc` s'ha escrit a mà (sqlc no és instal·lat): cal `sqlc generate` i comparar; (5) `gemini-2.5-flash` retorna 404; el valor per defecte és ara `gemini-3.8-flash` (el que suggereix Google) però la crida de prova ha donat 503/timeout, així que Gemini continua sense verificar; (6) el model respon sovint en català a preguntes en castellà o anglès tot i la regla del prompt; (7) `api/openapi.yaml` no inclou els endpoints nous.
+- **Opcions:** A) deixar-ho així i validar amb el frontend · B) desar `action` en una columna nova · C) límit compartit (Redis/BD).
+- **Provisionalment:** A.
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
 ## Resoltes
 
 (cap)

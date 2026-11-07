@@ -2,19 +2,17 @@ package assistant_service
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"api-aprop/internal/clients/groq_client"
-	"api-aprop/internal/clients/mcp_client"
-	"api-aprop/internal/mcp_server"
 	"api-aprop/internal/models/chatbot_model"
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/repositories/catalogue_repository"
 	"api-aprop/internal/repositories/chatbot_repository"
+	"api-aprop/internal/repositories/preference_repository"
 )
 
 const validUserID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
@@ -27,6 +25,8 @@ type fakeChatbotRepository struct {
 	startedAt time.Time // zero: no conversation
 	history   []chatbot_model.Message
 	saveErr   error
+	feedback    *bool
+	feedbackErr error
 
 	savedStartedAt time.Time
 	saved          []chatbot_model.Message
@@ -52,13 +52,17 @@ func (f *fakeChatbotRepository) ListMessages(context.Context, string, time.Time)
 	return f.history, nil
 }
 
-type fakeCatalogue struct{}
-
-func (fakeCatalogue) Search(context.Context, catalogue_repository.SearchFilter) ([]event_model.Event, error) {
-	return nil, nil
+type fakeCatalogue struct {
+	searchIDs []int
+	searches  []catalogue_repository.SearchFilter
 }
 
-func (fakeCatalogue) ListByIDs(_ context.Context, ids []int) ([]event_model.Event, error) {
+func (f *fakeCatalogue) Search(_ context.Context, filter catalogue_repository.SearchFilter) ([]event_model.Event, error) {
+	f.searches = append(f.searches, filter)
+	return f.ListByIDs(context.Background(), f.searchIDs)
+}
+
+func (*fakeCatalogue) ListByIDs(_ context.Context, ids []int) ([]event_model.Event, error) {
 	events := make([]event_model.Event, 0, len(ids))
 	for _, id := range ids {
 		events = append(events, event_model.Event{ID: id, Title: "event"})
@@ -100,31 +104,6 @@ func (f *fakeGroq) ChatCompletion(ctx context.Context, req groq_client.ChatCompl
 		return groq_client.ChatCompletionResponse{}, errors.New("unexpected call")
 	}
 	return f.responses[len(f.requests)-1], nil
-}
-
-type fakeMCP struct {
-	results map[string]mcp_client.ToolResult
-	calls   []string
-	closed  bool
-}
-
-func (f *fakeMCP) Connect(context.Context) (mcp_client.Session, error) { return f, nil }
-
-func (f *fakeMCP) ListTools(context.Context) ([]mcp_client.Tool, error) {
-	return []mcp_client.Tool{
-		{Name: mcp_server.ToolSearchEvents, InputSchema: map[string]any{"type": "object", "additionalProperties": false}},
-		{Name: mcp_server.ToolGetEvent, InputSchema: map[string]any{"type": "object"}},
-	}, nil
-}
-
-func (f *fakeMCP) CallTool(_ context.Context, name string, args json.RawMessage) (mcp_client.ToolResult, error) {
-	f.calls = append(f.calls, name+" "+string(args))
-	return f.results[name], nil
-}
-
-func (f *fakeMCP) Close() error {
-	f.closed = true
-	return nil
 }
 
 // --- helpers ---
@@ -170,17 +149,8 @@ func textReply(text string) groq_client.ChatCompletionResponse {
 	}
 }
 
-func searchResult(ids ...int) mcp_client.ToolResult {
-	out := mcp_server.SearchEventsOutput{}
-	for _, id := range ids {
-		out.Events = append(out.Events, mcp_server.EventSummary{ID: id})
-	}
-	b, _ := json.Marshal(out)
-	return mcp_client.ToolResult{Text: string(b), Structured: b}
-}
-
-func newService(repo *fakeChatbotRepository, ai *fakeGroq, mcp *fakeMCP) *AssistantService {
-	return NewAssistantService(repo, fakeCatalogue{}, ai, mcp, func() time.Time { return fixedNow }, ReplyTimeout)
+func newService(repo *fakeChatbotRepository, ai *fakeGroq, catalogue *fakeCatalogue) *AssistantService {
+	return NewAssistantService(repo, catalogue, ai, func() time.Time { return fixedNow }, ReplyTimeout)
 }
 
 func messageRoles(msgs []groq_client.Message) []string {
@@ -196,12 +166,12 @@ func messageRoles(msgs []groq_client.Message) []string {
 func TestSendMessage_SearchesAndRecommends(t *testing.T) {
 	repo := &fakeChatbotRepository{}
 	ai := &fakeGroq{responses: []groq_client.ChatCompletionResponse{
-		functionCall("call_1", mcp_server.ToolSearchEvents, `{"category":"concert","municipality":"Girona","from":"2026-10-24","to":"2026-10-25"}`),
+		functionCall("call_1", ToolSearchEvents, `{"category":"concert","municipality":"Girona","from":"2026-10-24","to":"2026-10-25"}`),
 		textReply("He entès: concerts a Girona aquest cap de setmana."),
 	}}
-	mcp := &fakeMCP{results: map[string]mcp_client.ToolResult{mcp_server.ToolSearchEvents: searchResult(7, 9)}}
+	catalogue := &fakeCatalogue{searchIDs: []int{7, 9}}
 
-	exchange, err := newService(repo, ai, mcp).SendMessage(context.Background(), strings.ToUpper(validUserID), "  concerts a Girona aquest cap de setmana ", false)
+	exchange, err := newService(repo, ai, catalogue).SendMessage(context.Background(), strings.ToUpper(validUserID), "  concerts a Girona aquest cap de setmana ", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -246,23 +216,17 @@ func TestSendMessage_SearchesAndRecommends(t *testing.T) {
 	if !strings.Contains(ai.requests[0].Messages[0].Content, "dilluns 2026-10-19") {
 		t.Errorf("the system instruction must give today's date")
 	}
-	if _, ok := ai.requests[0].Tools[0].Function.Parameters.(map[string]any)["additionalProperties"]; ok {
-		t.Errorf("tool schemas must be sanitized")
-	}
-	if !mcp.closed {
-		t.Errorf("the MCP session must be closed")
-	}
 }
 
 func TestSendMessage_R12(t *testing.T) {
 	repo := &fakeChatbotRepository{}
 	ai := &fakeGroq{responses: []groq_client.ChatCompletionResponse{
-		functionCall("c", mcp_server.ToolSearchEvents, `{"municipality":"Reus"}`),
+		functionCall("c", ToolSearchEvents, `{"municipality":"Reus"}`),
 		textReply("Activitats a Reus."),
 	}}
-	mcp := &fakeMCP{results: map[string]mcp_client.ToolResult{mcp_server.ToolSearchEvents: searchResult(1)}}
+	catalogue := &fakeCatalogue{searchIDs: []int{1}}
 
-	exchange, err := newService(repo, ai, mcp).SendMessage(context.Background(), validUserID, "què hi ha a Reus", true)
+	exchange, err := newService(repo, ai, catalogue).SendMessage(context.Background(), validUserID, "què hi ha a Reus", true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -279,7 +243,7 @@ func TestSendMessage_ReplyWithoutSearch(t *testing.T) {
 	repo := &fakeChatbotRepository{}
 	ai := &fakeGroq{responses: []groq_client.ChatCompletionResponse{textReply("Hola! Quina activitat busques?")}}
 
-	exchange, err := newService(repo, ai, &fakeMCP{}).SendMessage(context.Background(), validUserID, "hola", false)
+	exchange, err := newService(repo, ai, &fakeCatalogue{}).SendMessage(context.Background(), validUserID, "hola", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -296,7 +260,7 @@ func TestSendMessage_ContinuesConversation(t *testing.T) {
 	}}
 	ai := &fakeGroq{responses: []groq_client.ChatCompletionResponse{textReply("I demà també n'hi ha.")}}
 
-	exchange, err := newService(repo, ai, &fakeMCP{}).SendMessage(context.Background(), validUserID, "i demà?", false)
+	exchange, err := newService(repo, ai, &fakeCatalogue{}).SendMessage(context.Background(), validUserID, "i demà?", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -311,9 +275,9 @@ func TestSendMessage_ContinuesConversation(t *testing.T) {
 func TestSendMessage_OffTopicGetsFixedReply(t *testing.T) {
 	repo := &fakeChatbotRepository{}
 	ai := &fakeGroq{topic: " Off_Topic\n"}
-	mcp := &fakeMCP{}
+	catalogue := &fakeCatalogue{}
 
-	exchange, err := newService(repo, ai, mcp).SendMessage(context.Background(), validUserID, "Quin model ets?", false)
+	exchange, err := newService(repo, ai, catalogue).SendMessage(context.Background(), validUserID, "Quin model ets?", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -321,7 +285,7 @@ func TestSendMessage_OffTopicGetsFixedReply(t *testing.T) {
 	if reply.Text != offTopicReply || reply.Interpretation != nil || len(reply.RecommendedEvents) != 0 {
 		t.Errorf("reply = %+v", reply)
 	}
-	if len(ai.requests) != 0 || len(mcp.calls) != 0 {
+	if len(ai.requests) != 0 || len(catalogue.searches) != 0 {
 		t.Errorf("off topic messages must not reach the agent nor the tools")
 	}
 	if len(repo.saved) != 2 {
@@ -342,7 +306,7 @@ func TestSendMessage_TopicUsesRecentHistory(t *testing.T) {
 	}}
 	ai := &fakeGroq{responses: []groq_client.ChatCompletionResponse{textReply("Demà també n'hi ha.")}}
 
-	if _, err := newService(repo, ai, &fakeMCP{}).SendMessage(context.Background(), validUserID, "i demà?", false); err != nil {
+	if _, err := newService(repo, ai, &fakeCatalogue{}).SendMessage(context.Background(), validUserID, "i demà?", false); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	msgs := ai.topicRequests[0].Messages
@@ -359,13 +323,13 @@ func TestSendMessage_UnknownToolIsReportedToTheModel(t *testing.T) {
 		functionCall("c", "delete_everything", `{}`),
 		textReply("No ho puc fer."),
 	}}
-	mcp := &fakeMCP{}
+	catalogue := &fakeCatalogue{}
 
-	if _, err := newService(&fakeChatbotRepository{}, ai, mcp).SendMessage(context.Background(), validUserID, "hola", false); err != nil {
+	if _, err := newService(&fakeChatbotRepository{}, ai, catalogue).SendMessage(context.Background(), validUserID, "hola", false); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(mcp.calls) != 0 {
-		t.Errorf("unknown tools must not reach the MCP server: %v", mcp.calls)
+	if len(catalogue.searches) != 0 {
+		t.Errorf("unknown tools must not search the catalogue: %v", catalogue.searches)
 	}
 	last := ai.requests[1].Messages
 	lastMsg := last[len(last)-1]
@@ -377,7 +341,7 @@ func TestSendMessage_UnknownToolIsReportedToTheModel(t *testing.T) {
 func TestSendMessage_Failures(t *testing.T) {
 	loop := make([]groq_client.ChatCompletionResponse, maxToolRounds)
 	for i := range loop {
-		loop[i] = functionCall("c", mcp_server.ToolSearchEvents, `{}`)
+		loop[i] = functionCall("c", ToolSearchEvents, `{}`)
 	}
 	tests := map[string]struct {
 		ai   *fakeGroq
@@ -391,8 +355,8 @@ func TestSendMessage_Failures(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			repo := &fakeChatbotRepository{}
-			mcp := &fakeMCP{results: map[string]mcp_client.ToolResult{mcp_server.ToolSearchEvents: searchResult()}}
-			s := NewAssistantService(repo, fakeCatalogue{}, tt.ai, mcp, func() time.Time { return fixedNow }, 50*time.Millisecond)
+			catalogue := &fakeCatalogue{searchIDs: []int{}}
+			s := NewAssistantService(repo, catalogue, tt.ai, func() time.Time { return fixedNow }, 50*time.Millisecond)
 
 			_, err := s.SendMessage(context.Background(), validUserID, "hola", false)
 			if !errors.Is(err, tt.want) {
@@ -417,7 +381,7 @@ func TestSendMessage_InvalidInput(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			ai := &fakeGroq{}
-			_, err := newService(&fakeChatbotRepository{}, ai, &fakeMCP{}).SendMessage(context.Background(), tt.userID, tt.text, false)
+			_, err := newService(&fakeChatbotRepository{}, ai, &fakeCatalogue{}).SendMessage(context.Background(), tt.userID, tt.text, false)
 			if !errors.Is(err, tt.want) {
 				t.Fatalf("error = %v, want %v", err, tt.want)
 			}
@@ -429,14 +393,14 @@ func TestSendMessage_InvalidInput(t *testing.T) {
 }
 
 func TestGetConversation(t *testing.T) {
-	s := newService(&fakeChatbotRepository{}, &fakeGroq{}, &fakeMCP{})
+	s := newService(&fakeChatbotRepository{}, &fakeGroq{}, &fakeCatalogue{})
 	if _, err := s.GetConversation(context.Background(), validUserID); !errors.Is(err, ErrConversationNotFound) {
 		t.Fatalf("error = %v, want ErrConversationNotFound", err)
 	}
 
 	startedAt := fixedNow.Truncate(time.Microsecond)
 	history := []chatbot_model.Message{{Sender: chatbot_model.SenderUser, Text: "hola"}}
-	s = newService(&fakeChatbotRepository{startedAt: startedAt, history: history}, &fakeGroq{}, &fakeMCP{})
+	s = newService(&fakeChatbotRepository{startedAt: startedAt, history: history}, &fakeGroq{}, &fakeCatalogue{})
 	conversation, err := s.GetConversation(context.Background(), validUserID)
 	if err != nil || !conversation.StartedAt.Equal(startedAt) || len(conversation.Messages) != 1 {
 		t.Fatalf("conversation = %+v, err = %v", conversation, err)
@@ -460,5 +424,106 @@ func TestMessageValidate_R12(t *testing.T) {
 				t.Fatalf("error = %v, want %v", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestSendMessage_SearchIsRankedForTheRequestingUser(t *testing.T) {
+	ai := &fakeGroq{responses: []groq_client.ChatCompletionResponse{
+		functionCall("c", ToolSearchEvents, `{"category":"teatre"}`),
+		textReply("Teatre."),
+	}}
+	catalogue := &fakeCatalogue{searchIDs: []int{1}}
+
+	if _, err := newService(&fakeChatbotRepository{}, ai, catalogue).SendMessage(context.Background(), strings.ToUpper(validUserID), "teatre", false); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(catalogue.searches) != 1 || catalogue.searches[0].UserID != validUserID {
+		t.Errorf("the search must carry the requester, not model input: %+v", catalogue.searches)
+	}
+}
+
+func (f *fakeChatbotRepository) SaveFeedback(_ context.Context, _ string, _, _ time.Time, helpful bool) error {
+	f.feedback = &helpful
+	return f.feedbackErr
+}
+
+type fakePreferences struct {
+	preference_repository.Repository // the rest is not used
+	done                             bool
+}
+
+func (f fakePreferences) HasCompletedTest(context.Context, string) (bool, error) { return f.done, nil }
+
+func TestRateLimit(t *testing.T) {
+	var l rateLimiter
+	for i := range rateLimitMessages {
+		if !l.allow(validUserID, fixedNow) {
+			t.Fatalf("message %d must be allowed", i+1)
+		}
+	}
+	if l.allow(validUserID, fixedNow.Add(time.Second)) {
+		t.Error("message over the limit must be refused")
+	}
+	if !l.allow("other-user", fixedNow) {
+		t.Error("the limit is per user")
+	}
+	if !l.allow(validUserID, fixedNow.Add(rateLimitWindow)) {
+		t.Error("the limit must reset after the window")
+	}
+}
+
+func TestSendMessage_TooManyMessages(t *testing.T) {
+	ai := &fakeGroq{topic: labelOffTopic}
+	s := newService(&fakeChatbotRepository{}, ai, &fakeCatalogue{})
+	var err error
+	for range rateLimitMessages + 1 {
+		_, err = s.SendMessage(context.Background(), validUserID, "hola", false)
+	}
+	if !errors.Is(err, ErrTooManyMessages) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestSendFeedback(t *testing.T) {
+	repo := &fakeChatbotRepository{}
+	s := newService(repo, &fakeGroq{}, &fakeCatalogue{})
+	if err := s.SendFeedback(context.Background(), validUserID, fixedNow, fixedNow, true); err != nil || repo.feedback == nil || !*repo.feedback {
+		t.Fatalf("err = %v, feedback = %v", err, repo.feedback)
+	}
+	if err := s.SendFeedback(context.Background(), "nope", fixedNow, fixedNow, true); !errors.Is(err, ErrInvalidUserID) {
+		t.Errorf("err = %v", err)
+	}
+	repo.feedbackErr = chatbot_repository.ErrMessageNotFound
+	if err := s.SendFeedback(context.Background(), validUserID, fixedNow, fixedNow, false); !errors.Is(err, ErrMessageNotFound) {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestSendMessage_HelpSuggestsScreen(t *testing.T) {
+	ai := &fakeGroq{responses: []groq_client.ChatCompletionResponse{
+		functionCall("c1", ToolGetAppHelp, `{"topic":"profile"}`),
+		textReply("Obre la pestanya Perfil i toca Editar perfil."),
+	}}
+	exchange, err := newService(&fakeChatbotRepository{}, ai, &fakeCatalogue{}).SendMessage(context.Background(), validUserID, "com canvio el meu perfil?", false)
+	if err != nil || exchange.AssistantMessage.Action != "profile" {
+		t.Fatalf("action = %q, err = %v", exchange.AssistantMessage.Action, err)
+	}
+	// a topic without a screen, or a plain search, suggests none
+	for _, topic := range []string{"sign-up", "nope"} {
+		if helpScreen(`{"topic":"` + topic + `"}`) != "" {
+			t.Errorf("topic %q must not suggest a screen", topic)
+		}
+	}
+}
+
+func TestGetAppHelp_UserHasDoneTest(t *testing.T) {
+	s := newService(nil, nil, &fakeCatalogue{}).WithPreferences(fakePreferences{done: true})
+	text, err := s.getAppHelp(context.Background(), validUserID, `{"topic":"interest-test"}`)
+	if err != nil || !strings.Contains(text, `"user-has-done-test":true`) {
+		t.Fatalf("text = %q, err = %v", text, err)
+	}
+	text, _ = s.getAppHelp(context.Background(), validUserID, `{"topic":"profile"}`)
+	if strings.Contains(text, "user-has-done-test") {
+		t.Errorf("only the interest test topic carries the user state: %q", text)
 	}
 }

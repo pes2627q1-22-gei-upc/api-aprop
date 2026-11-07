@@ -19,7 +19,6 @@ import (
 	"api-aprop/internal/clients/firebase_client"
 	"api-aprop/internal/clients/gencat_client"
 	"api-aprop/internal/clients/groq_client"
-	"api-aprop/internal/clients/mcp_client"
 	"api-aprop/internal/clients/s3_client"
 	"api-aprop/internal/drivers/postgres_driver"
 	"api-aprop/internal/handlers/assistant_handler"
@@ -30,7 +29,6 @@ import (
 	"api-aprop/internal/handlers/signup_handler"
 	"api-aprop/internal/handlers/user_handler"
 	"api-aprop/internal/handlers/notification_handler"
-	"api-aprop/internal/mcp_server"
 	"api-aprop/internal/middleware/auth_middleware"
 	postgres_repository "api-aprop/internal/repositories/postgres"
 	"api-aprop/internal/router"
@@ -120,11 +118,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("invalid GENCAT_PAGE_SIZE: %v", err)
 	}
-	groqAPIKey := getEnv("GROQ_API_KEY")
+	groqAPIKey := os.Getenv("GROQ_API_KEYS")
+	if groqAPIKey == "" {
+		groqAPIKey = getEnv("GROQ_API_KEY")
+	}
 	groqModel := getEnv("GROQ_MODEL")
-	// The API serves the catalogue MCP server itself (see the router below), so the chatbot calls its own port.
-	mcpURL := "http://localhost:" + port + "/mcp"
-	mcpToken := getEnv("MCP_TOKEN")
 	location, err := time.LoadLocation(timeZone)
 	if err != nil {
 		log.Fatalf("load time zone %s: %v", timeZone, err)
@@ -178,8 +176,15 @@ func main() {
 	// Clients
 	httpClient := &http.Client{Timeout: 15 * time.Second}
 	gencatClient := gencat_client.NewGencatClient(httpClient, gencatEventsURL, appToken)
-	groqClient := groq_client.NewGroqClient(httpClient, groq_client.DefaultBaseURL, groqAPIKey, groqModel)
-	mcpClient := mcp_client.NewMCPClient(httpClient, mcpURL, mcpToken)
+	var chatClient groq_client.Client = groq_client.NewGroqClient(httpClient, groq_client.DefaultBaseURL, groqAPIKey, groqModel)
+	// Gemini is the backup when every Groq key fails.
+	if geminiKey := os.Getenv("GEMINI_API_KEY"); geminiKey != "" {
+		geminiModel := os.Getenv("GEMINI_MODEL")
+		if geminiModel == "" {
+			geminiModel = "gemini-3.8-flash" // TODO(DP-027): gemini-2.5-flash returns 404; this one is the model Google suggests, not verified with a successful call
+		}
+		chatClient = groq_client.NewFallbackClient(chatClient, groq_client.NewGroqClient(httpClient, groq_client.GeminiBaseURL, geminiKey, geminiModel))
+	}
 	s3Client := s3_client.NewS3Client(httpClient, s3_client.S3Config{
 		Bucket:    os.Getenv("S3_BUCKET"),
 		Region:    os.Getenv("S3_REGION"),
@@ -213,8 +218,8 @@ func main() {
 		}
 		authMiddleware = auth_middleware.NewAuthMiddleware(firebaseClient)
 	} else {
-		slog.Warn("Firebase credentials file not found; running without auth middleware for local development", "file", firebaseCredentialsFile)
-		authMiddleware = func(next http.Handler) http.Handler { return next }
+		slog.Warn("Firebase credentials file not found; running with dev auth middleware for local development", "file", firebaseCredentialsFile)
+		authMiddleware = auth_middleware.NewDevAuthMiddleware()
 	}
 
 	// Repositories
@@ -230,9 +235,9 @@ func main() {
 	// Services
 	eventService := event_service.NewEventService(eventRepository, authRepository, preferenceRepository, gencatClient, s3Client)
 	assistantService := assistant_service.NewAssistantService(
-		chatbotRepository, catalogueRepository, groqClient, mcpClient,
+		chatbotRepository, catalogueRepository, chatClient,
 		func() time.Time { return time.Now().In(location) }, assistant_service.ReplyTimeout,
-	)
+	).WithPreferences(preferenceRepository)
 	signUpService := signup_service.NewSignUpService(signUpRepository, eventRepository)
 	authService := auth_service.NewAuthService(authRepository)
 	userService := user_service.NewUserService(userRepository, s3Client)
@@ -268,9 +273,7 @@ func main() {
 		}
 	})
 
-	// /mcp has its own shared token, so it stays outside the Firebase auth middleware.
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", mcp_server.NewHandler(mcp_server.NewServer(catalogueRepository, func() time.Time { return time.Now().In(location) }), mcpToken))
 	mux.Handle("/", router.NewRouter(corsMiddleware, authMiddleware, eventHandler, assistantHandler, signUpHandler, authHandler, notificationHandler, userHandler, preferenceHandler))
 
 	// Server: HTTP/1.1 and HTTP/2 without TLS (h2c)

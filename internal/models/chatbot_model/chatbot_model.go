@@ -44,6 +44,9 @@ type Message struct {
 	ByVoice           bool
 	Interpretation    *Interpretation     // only chatbot messages
 	RecommendedEvents []event_model.Event // only chatbot messages
+	// Action is the app screen the reply suggests opening (see assistant_service.ScreenFor).
+	// Only chatbot messages; it is not stored, so it is empty in a loaded conversation.
+	Action string
 }
 
 // Validate checks the domain restriction R12.
@@ -54,6 +57,9 @@ func (m Message) Validate() error {
 			return ErrOnlyAssistantInterprets
 		}
 		if len(m.RecommendedEvents) > 0 {
+			return ErrOnlyAssistantRecommends
+		}
+		if m.Action != "" {
 			return ErrOnlyAssistantRecommends
 		}
 	case SenderAssistant:

@@ -29,6 +29,8 @@ type fakeService struct {
 	gotUserID  string
 	gotText    string
 	gotByVoice bool
+	gotHelpful bool
+	gotSentAt  time.Time
 }
 
 func (f *fakeService) SendMessage(_ context.Context, userID, text string, byVoice bool) (chatbot_model.Exchange, error) {
@@ -222,5 +224,47 @@ func TestGetConversation_TranslatesFirebaseUID(t *testing.T) {
 	NewAssistantHandler(service, fakeResolver{err: event_service.ErrUserNotRegistered}).GetConversation(rec, withFirebaseUser(httptest.NewRequest(http.MethodGet, "/assistant/conversation", nil)))
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("not registered: status = %d, want 401", rec.Code)
+	}
+}
+
+func (f *fakeService) SendFeedback(_ context.Context, userID string, _, sentAt time.Time, helpful bool) error {
+	f.gotUserID, f.gotHelpful, f.gotSentAt = userID, helpful, sentAt
+	return f.err
+}
+
+func sendFeedback(service *fakeService, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "/assistant/feedback", strings.NewReader(body))
+	req.Header.Set(requester.UserIDHeader, validUserID)
+	rec := httptest.NewRecorder()
+	NewAssistantHandler(service, nil).SendFeedback(rec, req)
+	return rec
+}
+
+func TestSendFeedback(t *testing.T) {
+	const ok = `{"conversation-started-at":"2026-10-19T14:30:00Z","sent-at":"2026-10-19T14:30:01Z","helpful":false}`
+	service := &fakeService{}
+	if rec := sendFeedback(service, ok); rec.Code != http.StatusNoContent || service.gotHelpful || service.gotSentAt.IsZero() {
+		t.Fatalf("status = %d, helpful = %v", rec.Code, service.gotHelpful)
+	}
+	for _, body := range []string{`{}`, `{"sent-at":"2026-10-19T14:30:01Z","helpful":true}`, `{"conversation-started-at":"2026-10-19T14:30:00Z","sent-at":"2026-10-19T14:30:01Z"}`, `nope`} {
+		if rec := sendFeedback(&fakeService{}, body); rec.Code != http.StatusBadRequest {
+			t.Errorf("body %s: status = %d", body, rec.Code)
+		}
+	}
+	for err, code := range map[error]int{
+		assistant_service.ErrMessageNotFound: http.StatusNotFound,
+		assistant_service.ErrTooManyMessages: http.StatusTooManyRequests,
+	} {
+		if rec := sendFeedback(&fakeService{err: err}, ok); rec.Code != code {
+			t.Errorf("%v: status = %d, want %d", err, rec.Code, code)
+		}
+	}
+}
+
+func TestSendMessage_ActionInReply(t *testing.T) {
+	service := &fakeService{exchange: chatbot_model.Exchange{AssistantMessage: chatbot_model.Message{Sender: chatbot_model.SenderAssistant, Text: "ok", Action: "profile"}}}
+	rec := sendMessage(t, service, validUserID, `{"text":"com canvio el meu perfil?"}`)
+	if !strings.Contains(rec.Body.String(), `"action":{"screen":"profile"}`) {
+		t.Errorf("body = %s", rec.Body)
 	}
 }

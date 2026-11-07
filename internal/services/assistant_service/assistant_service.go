@@ -2,19 +2,18 @@ package assistant_service
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"api-aprop/internal/clients/groq_client"
-	"api-aprop/internal/clients/mcp_client"
-	"api-aprop/internal/mcp_server"
 	"api-aprop/internal/models/chatbot_model"
 	"api-aprop/internal/repositories/catalogue_repository"
 	"api-aprop/internal/repositories/chatbot_repository"
+	"api-aprop/internal/repositories/preference_repository"
 )
 
 const (
@@ -32,9 +31,16 @@ type AssistantService struct {
 	chatbotRepository   chatbot_repository.Repository
 	catalogueRepository catalogue_repository.Repository
 	ai                  groq_client.Client
-	mcp                 mcp_client.Client
 	now                 func() time.Time
 	replyTimeout        time.Duration
+	preferences         preference_repository.Repository // optional, see WithPreferences
+	limiter             rateLimiter
+}
+
+// WithPreferences lets the help answers use the state of the user, such as having done the interest test.
+func (s *AssistantService) WithPreferences(r preference_repository.Repository) *AssistantService {
+	s.preferences = r
+	return s
 }
 
 // NewAssistantService builds the service. now must return the time in the local time zone of the users,
@@ -43,7 +49,6 @@ func NewAssistantService(
 	chatbotRepository chatbot_repository.Repository,
 	catalogueRepository catalogue_repository.Repository,
 	ai groq_client.Client,
-	mcp mcp_client.Client,
 	now func() time.Time,
 	replyTimeout time.Duration,
 ) *AssistantService {
@@ -51,7 +56,6 @@ func NewAssistantService(
 		chatbotRepository:   chatbotRepository,
 		catalogueRepository: catalogueRepository,
 		ai:                  ai,
-		mcp:                 mcp,
 		now:                 now,
 		replyTimeout:        replyTimeout,
 	}
@@ -70,7 +74,10 @@ func (s *AssistantService) SendMessage(ctx context.Context, userID string, text 
 	}
 
 	now := s.now()
-	userMessage := chatbot_model.Message{SentAt: timestamp(now), Sender: chatbot_model.SenderUser, Text: text, ByVoice: byVoice}
+	if !s.limiter.allow(userID, now) {
+		return chatbot_model.Exchange{}, ErrTooManyMessages
+	}
+	userMessage :=chatbot_model.Message{SentAt: timestamp(now), Sender: chatbot_model.SenderUser, Text: text, ByVoice: byVoice}
 
 	// TODO(DP-017): a conversation never ends; every message goes to the latest one.
 	startedAt, err := s.chatbotRepository.LatestConversation(ctx, userID)
@@ -88,7 +95,7 @@ func (s *AssistantService) SendMessage(ctx context.Context, userID string, text 
 
 	replyCtx, cancel := context.WithTimeout(ctx, s.replyTimeout)
 	defer cancel()
-	assistantMessage, err := s.reply(replyCtx, now, history, text)
+	assistantMessage, err := s.reply(replyCtx, userID, now, history, text)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return chatbot_model.Exchange{}, fmt.Errorf("%w: %w", ErrAssistantTimeout, err)
@@ -115,6 +122,20 @@ func (s *AssistantService) SendMessage(ctx context.Context, userID string, text 
 	}, nil
 }
 
+// SendFeedback stores whether an assistant message was helpful. The message is identified by the
+// start of its conversation and its own sent time, as returned when it was sent.
+func (s *AssistantService) SendFeedback(ctx context.Context, userID string, conversationStartedAt, sentAt time.Time, helpful bool) error {
+	userID, err := normalizeUserID(userID)
+	if err != nil {
+		return err
+	}
+	err = s.chatbotRepository.SaveFeedback(ctx, userID, timestamp(conversationStartedAt), timestamp(sentAt), helpful)
+	if errors.Is(err, chatbot_repository.ErrMessageNotFound) {
+		return fmt.Errorf("%w: %w", ErrMessageNotFound, err)
+	}
+	return err
+}
+
 func (s *AssistantService) GetConversation(ctx context.Context, userID string) (chatbot_model.Conversation, error) {
 	userID, err := normalizeUserID(userID)
 	if err != nil {
@@ -136,30 +157,20 @@ func (s *AssistantService) GetConversation(ctx context.Context, userID string) (
 
 // lastSearch is the latest successful search_events call of a reply.
 type lastSearch struct {
-	input    mcp_server.SearchEventsInput
+	input    SearchEventsInput
 	eventIDs []int
 }
 
-// reply runs the agent loop: Groq decides which MCP tools to call until it answers with text.
+// reply runs the agent loop: Groq decides which tools to call until it answers with text.
 // Messages that are not about the app get a fixed reply and never reach the tools.
-func (s *AssistantService) reply(ctx context.Context, now time.Time, history []chatbot_model.Message, text string) (chatbot_model.Message, error) {
+func (s *AssistantService) reply(ctx context.Context, userID string, now time.Time, history []chatbot_model.Message, text string) (chatbot_model.Message, error) {
 	onTopic, err := s.isOnTopic(ctx, history, text)
 	if err != nil {
 		return chatbot_model.Message{}, err
 	}
 	if !onTopic {
+		log.Printf("assistant: off-topic message")
 		return chatbot_model.Message{Sender: chatbot_model.SenderAssistant, Text: offTopicReply}, nil
-	}
-
-	session, err := s.mcp.Connect(ctx)
-	if err != nil {
-		return chatbot_model.Message{}, err
-	}
-	defer session.Close()
-
-	tools, err := session.ListTools(ctx)
-	if err != nil {
-		return chatbot_model.Message{}, err
 	}
 
 	messages := make([]groq_client.Message, 0, len(history)+2)
@@ -167,21 +178,10 @@ func (s *AssistantService) reply(ctx context.Context, now time.Time, history []c
 	messages = append(messages, historyToMessages(history)...)
 	messages = append(messages, groq_client.UserMessage(text))
 
-	groqTools := make([]groq_client.Tool, 0, len(tools))
-	known := make(map[string]bool, len(tools))
-	for _, t := range tools {
-		known[t.Name] = true
-		groqTools = append(groqTools, groq_client.Tool{
-			Type: "function",
-			Function: groq_client.ToolDefinition{
-				Name:        t.Name,
-				Description: t.Description,
-				Parameters:  groq_client.SanitizeSchema(t.InputSchema),
-			},
-		})
-	}
+	groqTools := toolDefinitions()
 
 	var search *lastSearch
+	var action string
 	for range maxToolRounds {
 		resp, err := s.ai.ChatCompletion(ctx, groq_client.ChatCompletionRequest{
 			Messages: messages,
@@ -202,26 +202,24 @@ func (s *AssistantService) reply(ctx context.Context, now time.Time, history []c
 			if replyText == "" {
 				return chatbot_model.Message{}, errors.New("empty reply from groq")
 			}
-			return s.assistantMessage(ctx, replyText, search)
+			m, err := s.assistantMessage(ctx, replyText, search)
+			m.Action = action
+			return m, err
 		}
 
 		for _, call := range assistantMsg.ToolCalls {
-			if !known[call.Function.Name] {
-				messages = append(messages, groq_client.ToolResultMessage(call.ID, `{"error":"unknown tool `+call.Function.Name+`","is_error":true}`))
-				continue
-			}
-			result, err := session.CallTool(ctx, call.Function.Name, json.RawMessage(call.Function.Arguments))
+			resultText, found, err := s.callTool(ctx, userID, now, call.Function.Name, call.Function.Arguments)
 			if err != nil {
 				return chatbot_model.Message{}, err
 			}
-			if call.Function.Name == mcp_server.ToolSearchEvents && !result.IsError {
-				if found, ok := parseSearch(json.RawMessage(call.Function.Arguments), result.Structured); ok {
-					search = found
+			log.Printf("assistant: tool=%s arguments=%s", call.Function.Name, call.Function.Arguments)
+			if call.Function.Name == ToolGetAppHelp {
+				if screen := helpScreen(call.Function.Arguments); screen != "" {
+					action = screen
 				}
 			}
-			resultText := result.Text
-			if result.IsError && !strings.Contains(resultText, `"is_error":true`) {
-				resultText = fmt.Sprintf(`{"error":%q,"is_error":true}`, result.Text)
+			if found != nil {
+				search = found
 			}
 			messages = append(messages, groq_client.ToolResultMessage(call.ID, resultText))
 		}
@@ -268,23 +266,7 @@ func (s *AssistantService) assistantMessage(ctx context.Context, text string, se
 	return m, nil
 }
 
-func parseSearch(arguments json.RawMessage, structured json.RawMessage) (*lastSearch, bool) {
-	var input mcp_server.SearchEventsInput
-	if len(arguments) > 0 && json.Unmarshal(arguments, &input) != nil {
-		return nil, false
-	}
-	var output mcp_server.SearchEventsOutput
-	if json.Unmarshal(structured, &output) != nil {
-		return nil, false
-	}
-	ids := make([]int, 0, len(output.Events))
-	for _, e := range output.Events {
-		ids = append(ids, e.ID)
-	}
-	return &lastSearch{input: input, eventIDs: ids}, true
-}
-
-func toInterpretation(in mcp_server.SearchEventsInput) *chatbot_model.Interpretation {
+func toInterpretation(in SearchEventsInput) *chatbot_model.Interpretation {
 	return &chatbot_model.Interpretation{
 		Category:     strings.TrimSpace(in.Category),
 		Municipality: strings.TrimSpace(in.Municipality),
@@ -294,7 +276,7 @@ func toInterpretation(in mcp_server.SearchEventsInput) *chatbot_model.Interpreta
 }
 
 func parseDate(s string) *time.Time {
-	t, err := time.Parse(mcp_server.DateLayout, s)
+	t, err := time.Parse(DateLayout, s)
 	if err != nil {
 		return nil
 	}

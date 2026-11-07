@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -121,6 +122,27 @@ func (r *ChatbotRepository) ListMessages(ctx context.Context, userID string, con
 		messages = append(messages, m)
 	}
 	return messages, nil
+}
+
+func (r *ChatbotRepository) SaveFeedback(ctx context.Context, userID string, conversationStartedAt, sentAt time.Time, helpful bool) error {
+	uid, err := parseUUID(userID)
+	if err != nil {
+		return err
+	}
+	err = r.queries.UpsertChatbotFeedback(ctx, sqlc.UpsertChatbotFeedbackParams{
+		UserID:                uid,
+		ConversationStartedAt: toTimestamptz(conversationStartedAt),
+		SentAt:                toTimestamptz(sentAt),
+		Helpful:               helpful,
+	})
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == foreignKeyViolation {
+		return fmt.Errorf("feedback of user %s: %w", userID, chatbot_repository.ErrMessageNotFound)
+	}
+	if err != nil {
+		return fmt.Errorf("save chatbot feedback of user %s: %w", userID, err)
+	}
+	return nil
 }
 
 func toChatbotMessageParams(uid pgtype.UUID, conversation pgtype.Timestamptz, m chatbot_model.Message) sqlc.CreateChatbotMessageParams {
