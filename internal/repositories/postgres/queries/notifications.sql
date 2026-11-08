@@ -6,7 +6,7 @@ SELECT * FROM notifications where userid = $1
 and (sqlc.arg(filtertype)::integer = 0 or type = sqlc.arg(filtertype)::integer);
 
 -- name: CreateNotification :one
-INSERT INTO notifications (userid, notificationdate, friend, requestdate, event, type, text) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id;
+INSERT INTO notifications (userid, notificationdate, friend, requestdate, event, type, text) VALUES ($1, now(), $2, $3, $4, $5, $6) RETURNING id;
 
 -- name: ReadNotification :exec
 UPDATE notifications SET read = true where id = $1;
@@ -16,6 +16,9 @@ UPDATE notifications SET read = true where userid = $1;
 
 -- name: GetNotificationTypes :many
 SELECT * FROM notificationtypes;
+
+-- name: GetNotificationTypeByName :one
+SELECT id FROM notificationtypes where name = $1;
 
 -- name: RemoveNotificationTypes :exec
 DELETE FROM notificationtypes;

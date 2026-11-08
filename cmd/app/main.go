@@ -235,7 +235,7 @@ func main() {
 	)
 	signUpService := signup_service.NewSignUpService(signUpRepository, eventRepository)
 	authService := auth_service.NewAuthService(authRepository)
-	userService := user_service.NewUserService(userRepository, s3Client)
+	userService := user_service.NewUserService(userRepository, notificationRepository, s3Client)
 	notificationService := notification_service.NewNotificationService(notificationRepository)
 	preferenceService := preference_service.NewPreferenceService(preferenceRepository)
 

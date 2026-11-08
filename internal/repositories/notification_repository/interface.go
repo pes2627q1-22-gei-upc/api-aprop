@@ -12,5 +12,6 @@ type Repository interface {
 	ReadNotification(id int) error
 	ReadUserNotifications(id pgtype.UUID) error
 	GetNotificationTypes() ([]notification_model.NotificationType, error)
+	GetNotificationTypeByName(name string) (int, error)
 	CreateReminders() ([]int32, error)
 }

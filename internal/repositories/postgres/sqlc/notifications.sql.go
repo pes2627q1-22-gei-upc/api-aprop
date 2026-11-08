@@ -12,23 +12,21 @@ import (
 )
 
 const createNotification = `-- name: CreateNotification :one
-INSERT INTO notifications (userid, notificationdate, friend, requestdate, event, type, text) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id
+INSERT INTO notifications (userid, notificationdate, friend, requestdate, event, type, text) VALUES ($1, now(), $2, $3, $4, $5, $6) RETURNING id
 `
 
 type CreateNotificationParams struct {
-	Userid           pgtype.UUID
-	Notificationdate pgtype.Timestamp
-	Friend           pgtype.UUID
-	Requestdate      pgtype.Timestamp
-	Event            pgtype.Int4
-	Type             int32
-	Text             string
+	Userid      pgtype.UUID
+	Friend      pgtype.UUID
+	Requestdate pgtype.Timestamp
+	Event       pgtype.Int4
+	Type        int32
+	Text        string
 }
 
 func (q *Queries) CreateNotification(ctx context.Context, arg CreateNotificationParams) (int32, error) {
 	row := q.db.QueryRow(ctx, createNotification,
 		arg.Userid,
-		arg.Notificationdate,
 		arg.Friend,
 		arg.Requestdate,
 		arg.Event,
@@ -88,6 +86,17 @@ func (q *Queries) GetNotification(ctx context.Context, id int32) (Notification, 
 		&i.Text,
 	)
 	return i, err
+}
+
+const getNotificationTypeByName = `-- name: GetNotificationTypeByName :one
+SELECT id FROM notificationtypes where name = $1
+`
+
+func (q *Queries) GetNotificationTypeByName(ctx context.Context, name string) (int32, error) {
+	row := q.db.QueryRow(ctx, getNotificationTypeByName, name)
+	var id int32
+	err := row.Scan(&id)
+	return id, err
 }
 
 const getNotificationTypes = `-- name: GetNotificationTypes :many
