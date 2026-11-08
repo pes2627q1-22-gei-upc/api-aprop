@@ -82,6 +82,7 @@ func (r *NotificationRepository) Create(n notification_model.Notification) (int,
 		Event:            n.Event,
 		Type:             int32(n.Type),
 		Friend:           n.Friend,
+		Text:			  n.Text,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("create notification: %w", err)
@@ -147,6 +148,7 @@ func toNotification(row sqlc.Notification) notification_model.Notification {
 		Read:             row.Read,
 		UserID:           row.Userid,
 		Friend:           row.Friend,
+		Text:			  row.Text,
 	}
 }
 

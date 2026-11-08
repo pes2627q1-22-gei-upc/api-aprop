@@ -216,6 +216,7 @@ type Notification struct {
 	Read             bool
 	Userid           pgtype.UUID
 	Friend           pgtype.UUID
+	Text             string
 }
 
 type Notificationtype struct {

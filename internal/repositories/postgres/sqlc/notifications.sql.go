@@ -12,7 +12,7 @@ import (
 )
 
 const createNotification = `-- name: CreateNotification :one
-INSERT INTO notifications (userid, notificationdate, friend, requestdate, event, type) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id
+INSERT INTO notifications (userid, notificationdate, friend, requestdate, event, type, text) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id
 `
 
 type CreateNotificationParams struct {
@@ -22,6 +22,7 @@ type CreateNotificationParams struct {
 	Requestdate      pgtype.Timestamp
 	Event            pgtype.Int4
 	Type             int32
+	Text             string
 }
 
 func (q *Queries) CreateNotification(ctx context.Context, arg CreateNotificationParams) (int32, error) {
@@ -32,6 +33,7 @@ func (q *Queries) CreateNotification(ctx context.Context, arg CreateNotification
 		arg.Requestdate,
 		arg.Event,
 		arg.Type,
+		arg.Text,
 	)
 	var id int32
 	err := row.Scan(&id)
@@ -39,8 +41,8 @@ func (q *Queries) CreateNotification(ctx context.Context, arg CreateNotification
 }
 
 const createReminders = `-- name: CreateReminders :many
-INSERT INTO notifications (userid, notificationdate, type, event)
-SELECT su.userid, now(), (SELECT id from notificationtypes where name='Recordatori'), e.id
+INSERT INTO notifications (userid, notificationdate, type, event, text)
+SELECT su.userid, now(), (SELECT id from notificationtypes where name='Recordatori'), e.id, CONCAT(e.title, ' comença aviat. No hi faltis!')
 from signup su join events e on e.id=su.event join users u on u.id=su.userid join settings st on st.id=u.settings
 left join notifications n on (n.event=e.id and n.userid=su.userid)
 where n.id is null and e.startdate - now() > '0 seconds'::interval and e.startdate - now() < st.notificationbefore
@@ -68,7 +70,7 @@ func (q *Queries) CreateReminders(ctx context.Context) ([]int32, error) {
 }
 
 const getNotification = `-- name: GetNotification :one
-SELECT notificationdate, requestdate, event, type, id, read, userid, friend FROM notifications where id = $1
+SELECT notificationdate, requestdate, event, type, id, read, userid, friend, text FROM notifications where id = $1
 `
 
 func (q *Queries) GetNotification(ctx context.Context, id int32) (Notification, error) {
@@ -83,6 +85,7 @@ func (q *Queries) GetNotification(ctx context.Context, id int32) (Notification, 
 		&i.Read,
 		&i.Userid,
 		&i.Friend,
+		&i.Text,
 	)
 	return i, err
 }
@@ -112,7 +115,7 @@ func (q *Queries) GetNotificationTypes(ctx context.Context) ([]Notificationtype,
 }
 
 const getUserNotifications = `-- name: GetUserNotifications :many
-SELECT notificationdate, requestdate, event, type, id, read, userid, friend FROM notifications where userid = $1
+SELECT notificationdate, requestdate, event, type, id, read, userid, friend, text FROM notifications where userid = $1
 and ($2::integer = 0 or type = $2::integer)
 `
 
@@ -139,6 +142,7 @@ func (q *Queries) GetUserNotifications(ctx context.Context, arg GetUserNotificat
 			&i.Read,
 			&i.Userid,
 			&i.Friend,
+			&i.Text,
 		); err != nil {
 			return nil, err
 		}
