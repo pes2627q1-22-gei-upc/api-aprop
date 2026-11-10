@@ -76,12 +76,12 @@ func (r *NotificationRepository) GetNotificationTypes() ([]notification_model.No
 
 func (r *NotificationRepository) Create(n notification_model.Notification) (int, error) {
 	row, err := r.queries.CreateNotification(context.Background(), sqlc.CreateNotificationParams{
-		Userid:           n.UserID,
-		Requestdate:      n.RequestDate,
-		Event:            n.Event,
-		Type:             int32(n.Type),
-		Friend:           n.Friend,
-		Text:			  n.Text,
+		Userid:      n.UserID,
+		Requestdate: n.RequestDate,
+		Event:       n.Event,
+		Type:        int32(n.Type),
+		Friend:      n.Friend,
+		Text:        n.Text,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("create notification: %w", err)
@@ -147,7 +147,7 @@ func toNotification(row sqlc.Notification) notification_model.Notification {
 		Read:             row.Read,
 		UserID:           row.Userid,
 		Friend:           row.Friend,
-		Text:			  row.Text,
+		Text:             row.Text,
 	}
 }
 
@@ -160,9 +160,9 @@ func (r *NotificationRepository) CreateReminders() ([]int32, error) {
 	return ids, nil
 }
 
-func (r *NotificationRepository) GetNotificationTypeByName(name string) (int, error){
+func (r *NotificationRepository) GetNotificationTypeByName(name string) (int, error) {
 	id, err := r.queries.GetNotificationTypeByName(context.Background(), name)
-	if err!=nil{
+	if err != nil {
 		return 0, err
 	}
 

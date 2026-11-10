@@ -126,6 +126,7 @@ func (q *Queries) GetNotificationTypes(ctx context.Context) ([]Notificationtype,
 const getUserNotifications = `-- name: GetUserNotifications :many
 SELECT notificationdate, requestdate, event, type, id, read, userid, friend, text FROM notifications where userid = $1
 and ($2::integer = 0 or type = $2::integer)
+ORDER BY notificationdate desc
 `
 
 type GetUserNotificationsParams struct {

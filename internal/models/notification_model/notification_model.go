@@ -13,7 +13,7 @@ type Notification struct {
 	Event            pgtype.Int4      `json:"event"`
 	Type             int              `json:"type"`
 	Read             bool             `json:"read"`
-	Text			 string			  `json:"text"`
+	Text             string           `json:"text"`
 }
 
 type NotificationType struct {

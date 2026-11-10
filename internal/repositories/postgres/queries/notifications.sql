@@ -3,7 +3,8 @@ SELECT * FROM notifications where id = $1;
 
 -- name: GetUserNotifications :many
 SELECT * FROM notifications where userid = $1
-and (sqlc.arg(filtertype)::integer = 0 or type = sqlc.arg(filtertype)::integer);
+and (sqlc.arg(filtertype)::integer = 0 or type = sqlc.arg(filtertype)::integer)
+ORDER BY notificationdate desc;
 
 -- name: CreateNotification :one
 INSERT INTO notifications (userid, notificationdate, friend, requestdate, event, type, text) VALUES ($1, now(), $2, $3, $4, $5, $6) RETURNING id;
