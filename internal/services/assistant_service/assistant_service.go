@@ -13,6 +13,7 @@ import (
 	"api-aprop/internal/clients/mcp_client"
 	"api-aprop/internal/mcp_server"
 	"api-aprop/internal/models/chatbot_model"
+	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/repositories/catalogue_repository"
 	"api-aprop/internal/repositories/chatbot_repository"
 )
@@ -60,7 +61,7 @@ func NewAssistantService(
 // SendMessage asks the chatbot and, only if it answers, stores both messages.
 // Nothing is stored when the chatbot fails, so the client can retry the same message.
 func (s *AssistantService) SendMessage(ctx context.Context, userID string, text string, byVoice bool) (chatbot_model.Exchange, error) {
-	userID, err := normalizeUserID(userID)
+	userID, err := user_model.NormalizeID(userID)
 	if err != nil {
 		return chatbot_model.Exchange{}, err
 	}
@@ -116,7 +117,7 @@ func (s *AssistantService) SendMessage(ctx context.Context, userID string, text 
 }
 
 func (s *AssistantService) GetConversation(ctx context.Context, userID string) (chatbot_model.Conversation, error) {
-	userID, err := normalizeUserID(userID)
+	userID, err := user_model.NormalizeID(userID)
 	if err != nil {
 		return chatbot_model.Conversation{}, err
 	}
@@ -336,26 +337,4 @@ func stripThinking(text string) string {
 // timestamp drops what Postgres cannot store, so the stored and returned times are equal.
 func timestamp(t time.Time) time.Time {
 	return t.UTC().Truncate(time.Microsecond)
-}
-
-// normalizeUserID accepts only the canonical UUID form (8-4-4-4-12 hex digits) and lowercases it.
-func normalizeUserID(userID string) (string, error) {
-	if len(userID) != 36 {
-		return "", fmt.Errorf("%w: %q", ErrInvalidUserID, userID)
-	}
-	for i, c := range userID {
-		switch {
-		case i == 8 || i == 13 || i == 18 || i == 23:
-			if c != '-' {
-				return "", fmt.Errorf("%w: %q", ErrInvalidUserID, userID)
-			}
-		case !isHex(c):
-			return "", fmt.Errorf("%w: %q", ErrInvalidUserID, userID)
-		}
-	}
-	return strings.ToLower(userID), nil
-}
-
-func isHex(c rune) bool {
-	return ('0' <= c && c <= '9') || ('a' <= c && c <= 'f') || ('A' <= c && c <= 'F')
 }

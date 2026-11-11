@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"api-aprop/internal/models/event_model"
+	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/repositories/event_repository"
 	"api-aprop/internal/repositories/postgres/sqlc"
 )
@@ -612,7 +613,7 @@ func (r *EventRepository) ListMapEvents(ctx context.Context, filter event_model.
 		MaxLng: filter.MaxLng,
 	}
 	if filter.UserID != "" {
-		uid, err := toUUID(filter.UserID)
+		uid, err := user_model.ParseID(filter.UserID)
 		if err != nil {
 			return nil, err
 		}

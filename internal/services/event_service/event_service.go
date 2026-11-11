@@ -12,12 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
-
 	"api-aprop/internal/clients/gencat_client"
 	"api-aprop/internal/clients/s3_client"
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/models/preference_model"
+	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/repositories/auth_repository"
 	"api-aprop/internal/repositories/event_repository"
 	"api-aprop/internal/repositories/preference_repository"
@@ -87,7 +86,7 @@ func (s *EventService) ResolveUserID(ctx context.Context, identifier string) (st
 	if identifier == "" {
 		return "", ErrUserNotRegistered
 	}
-	if uid, err := normalizeUserID(identifier); err == nil {
+	if uid, err := user_model.NormalizeID(identifier); err == nil {
 		return uid, nil
 	}
 	if s.authRepository == nil {
@@ -193,7 +192,7 @@ func (s *EventService) ListMapEvents(ctx context.Context, filter event_model.Map
 		return nil, err
 	}
 	if filter.UserID != "" {
-		uid, err := normalizeUserID(filter.UserID)
+		uid, err := user_model.NormalizeID(filter.UserID)
 		if err != nil {
 			return nil, err
 		}
@@ -219,7 +218,7 @@ func (s *EventService) GetPopularEvents(pageSize int, pageNum int) ([]event_mode
 
 // CreateUnofficialEvent validates and publishes a user-created unofficial event adhering to rule R5.
 func (s *EventService) CreateUnofficialEvent(ctx context.Context, userID string, e event_model.Event) (event_model.Event, error) {
-	uid, err := normalizeUserID(userID)
+	creatorUUID, err := user_model.ParseID(userID)
 	if err != nil {
 		return event_model.Event{}, err
 	}
@@ -227,11 +226,6 @@ func (s *EventService) CreateUnofficialEvent(ctx context.Context, userID string,
 	now := time.Now().UTC()
 	if err := validateUnofficialEvent(e, now); err != nil {
 		return event_model.Event{}, err
-	}
-
-	var creatorUUID pgtype.UUID
-	if err := creatorUUID.Scan(uid); err != nil {
-		return event_model.Event{}, fmt.Errorf("%w: %v", ErrInvalidUserID, err)
 	}
 
 	e.ID = 0
@@ -417,26 +411,4 @@ func validateBoundingBox(minLat, maxLat, minLng, maxLng float32) error {
 		return fmt.Errorf("%w: longitude range [%v, %v] must be within [-180, 180]", ErrInvalidBoundingBox, minLng, maxLng)
 	}
 	return nil
-}
-
-// normalizeUserID accepts only the canonical UUID form (8-4-4-4-12 hex digits) and lowercases it.
-func normalizeUserID(userID string) (string, error) {
-	if len(userID) != 36 {
-		return "", fmt.Errorf("%w: %q", ErrInvalidUserID, userID)
-	}
-	for i, c := range userID {
-		switch {
-		case i == 8 || i == 13 || i == 18 || i == 23:
-			if c != '-' {
-				return "", fmt.Errorf("%w: %q", ErrInvalidUserID, userID)
-			}
-		case !isHex(c):
-			return "", fmt.Errorf("%w: %q", ErrInvalidUserID, userID)
-		}
-	}
-	return strings.ToLower(userID), nil
-}
-
-func isHex(c rune) bool {
-	return ('0' <= c && c <= '9') || ('a' <= c && c <= 'f') || ('A' <= c && c <= 'F')
 }

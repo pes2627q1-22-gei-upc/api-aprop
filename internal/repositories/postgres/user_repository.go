@@ -162,7 +162,7 @@ func (r *UserRepository) UpdateProfile(ctx context.Context, id pgtype.UUID, name
 		return user_model.User{}, user_repository.ErrUserNotFound
 	}
 	if err != nil {
-		return user_model.User{}, fmt.Errorf("update profile of user %s: %w", uuidToString(id), err)
+		return user_model.User{}, fmt.Errorf("update profile of user %s: %w", id.String(), err)
 	}
 
 	u := user_model.User{
@@ -211,7 +211,7 @@ func (r *UserRepository) GetUserFriends(ctx context.Context, userid pgtype.UUID)
 	}
 	friends := []string{}
 	for _, val := range rows {
-		friends = append(friends, uuidToString(val))
+		friends = append(friends, val.String())
 	}
 
 	return friends, nil
@@ -257,15 +257,6 @@ func mapGetUserRowToUser(row sqlc.GetUserByUUIDRow) (user_model.User, bool) {
 		u.Rating = &r
 	}
 	return u, row.ShowPlans
-}
-
-func uuidToString(u pgtype.UUID) string {
-	if !u.Valid {
-		return ""
-	}
-	src := u.Bytes
-	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
-		src[0:4], src[4:6], src[6:8], src[8:10], src[10:16])
 }
 
 func createdEventToModel(row sqlc.ListUserCreatedEventsRow) event_model.Event {
@@ -341,7 +332,7 @@ func (r *UserRepository) AcceptFriendRequest(ctx context.Context, userid pgtype.
 		return user_model.FriendRequest{}, err
 	}
 	defer func() {
-    	_ = tx.Rollback(ctx)
+		_ = tx.Rollback(ctx)
 	}()
 
 	qtx := r.queries.WithTx(tx)

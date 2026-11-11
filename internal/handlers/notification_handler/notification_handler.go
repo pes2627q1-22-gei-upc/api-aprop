@@ -7,17 +7,15 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gofrs/uuid/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"api-aprop/internal/handlers/response"
 	"api-aprop/internal/models/notification_model"
+	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/services/notification_service"
 )
 
 const maxBodyBytes = 1 << 20
-
-const UserIDHeader = "X-User-ID"
 
 type NotificationHandler struct {
 	notificationService notification_service.Service
@@ -62,7 +60,7 @@ func (h *NotificationHandler) GetNotificationTypes(w http.ResponseWriter, r *htt
 
 func (h *NotificationHandler) GetUserNotifications(w http.ResponseWriter, r *http.Request) {
 	tmp := r.PathValue("id")
-	id, err := uuid.FromString(tmp)
+	id, err := user_model.ParseID(tmp)
 	if err != nil {
 		response.WriteError(w, http.StatusBadRequest, "invalid user id")
 		return
@@ -70,7 +68,7 @@ func (h *NotificationHandler) GetUserNotifications(w http.ResponseWriter, r *htt
 	params := map[string]any{}
 	params["filterType"] = r.URL.Query().Get("filterType")
 
-	notifs, err := h.notificationService.GetUserNotifications(toPGUUID(id), params)
+	notifs, err := h.notificationService.GetUserNotifications(id, params)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -93,7 +91,7 @@ func (h *NotificationHandler) CreateNotification(w http.ResponseWriter, r *http.
 		response.WriteError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	id, err := uuid.FromString(n.UserID)
+	id, err := user_model.ParseID(n.UserID)
 	if err != nil {
 		response.WriteError(w, http.StatusBadRequest, "invalid request body")
 		return
@@ -107,19 +105,18 @@ func (h *NotificationHandler) CreateNotification(w http.ResponseWriter, r *http.
 		requestdate = pgtype.Timestamp{Valid: true, Time: *n.RequestDate}
 	}
 	if n.Friend != "" {
-		tmp, err := uuid.FromString(n.Friend)
+		friend, err = user_model.ParseID(n.Friend)
 		if err != nil {
 			response.WriteError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
-		friend = toPGUUID(tmp)
 	}
 	if n.Event != nil {
 		event = pgtype.Int4{Valid: true, Int32: *n.Event}
 	}
 
 	notif := notification_model.Notification{
-		UserID:           toPGUUID(id),
+		UserID:           id,
 		NotificationDate: notifdate,
 		Friend:           friend,
 		RequestDate:      requestdate,
@@ -154,22 +151,18 @@ func (h *NotificationHandler) ReadNotification(w http.ResponseWriter, r *http.Re
 
 func (h *NotificationHandler) ReadUserNotifications(w http.ResponseWriter, r *http.Request) {
 	tmp := r.PathValue("id")
-	id, err := uuid.FromString(tmp)
+	id, err := user_model.ParseID(tmp)
 	if err != nil {
 		response.WriteError(w, http.StatusBadRequest, "invalid user id")
 		return
 	}
 
-	err = h.notificationService.ReadUserNotifications(toPGUUID(id))
+	err = h.notificationService.ReadUserNotifications(id)
 	if err != nil {
 		writeServiceError(w, err)
 		return
 	}
 	response.WriteJSON(w, http.StatusOK, struct {
 		Message string `json:"message"`
-	}{Message: fmt.Sprintf("notifications of user %d read", id)})
-}
-
-func toPGUUID(id uuid.UUID) pgtype.UUID {
-	return pgtype.UUID{Valid: true, Bytes: [16]byte(id)}
+	}{Message: fmt.Sprintf("notifications of user %s read", id)})
 }

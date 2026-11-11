@@ -5,13 +5,13 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/gofrs/uuid/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/models/signup_model"
+	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/repositories/postgres/sqlc"
 	"api-aprop/internal/repositories/signup_repository"
 )
@@ -32,7 +32,7 @@ func NewSignUpRepository(pool *pgxpool.Pool) *SignUpRepository {
 // Create inserts the sign up unless the user is already signed up to the event.
 // TODO(DP-012): without a UNIQUE (UserID, Event) constraint concurrent requests can still duplicate the sign up.
 func (r *SignUpRepository) Create(ctx context.Context, userID string, eventID int) (bool, error) {
-	uid, err := toUUID(userID)
+	uid, err := user_model.ParseID(userID)
 	if err != nil {
 		return false, err
 	}
@@ -48,7 +48,7 @@ func (r *SignUpRepository) Create(ctx context.Context, userID string, eventID in
 }
 
 func (r *SignUpRepository) Delete(ctx context.Context, userID string, eventID int) (bool, error) {
-	uid, err := toUUID(userID)
+	uid, err := user_model.ParseID(userID)
 	if err != nil {
 		return false, err
 	}
@@ -68,7 +68,7 @@ func (r *SignUpRepository) CountSignUps(ctx context.Context, eventID int) (int, 
 }
 
 func (r *SignUpRepository) IsSignedUp(ctx context.Context, userID string, eventID int) (bool, error) {
-	uid, err := toUUID(userID)
+	uid, err := user_model.ParseID(userID)
 	if err != nil {
 		return false, err
 	}
@@ -80,7 +80,7 @@ func (r *SignUpRepository) IsSignedUp(ctx context.Context, userID string, eventI
 }
 
 func (r *SignUpRepository) ListUserEvents(ctx context.Context, userID string, dateRange signup_model.DateRange) ([]event_model.Event, error) {
-	uid, err := toUUID(userID)
+	uid, err := user_model.ParseID(userID)
 	if err != nil {
 		return nil, err
 	}
@@ -139,12 +139,4 @@ func signedUpEventToModel(row sqlc.ListUserSignedUpEventsRow) event_model.Event 
 		Startdate:    row.Startdate,
 		Enddate:      row.Enddate,
 	}, 0)
-}
-
-func toUUID(s string) (pgtype.UUID, error) {
-	tmp, err := uuid.FromString(s)
-	if err != nil {
-		return pgtype.UUID{}, fmt.Errorf("invalid user id %s: %w", s, err)
-	}
-	return pgtype.UUID{Valid: true, Bytes: [16]byte(tmp)}, nil
 }

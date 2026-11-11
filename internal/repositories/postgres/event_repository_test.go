@@ -83,18 +83,6 @@ func TestListMapEvents_InvalidUUID(t *testing.T) {
 	}
 }
 
-func TestToUUID_ValidAndInvalid(t *testing.T) {
-	uid, err := toUUID("3f2504e0-4f89-11d3-9a0c-0305e82c3301")
-	if err != nil || !uid.Valid {
-		t.Fatalf("expected valid pgtype.UUID, got valid=%v err=%v", uid.Valid, err)
-	}
-
-	var empty pgtype.UUID
-	if empty.Valid {
-		t.Fatal("expected zero pgtype.UUID to be invalid (NULL)")
-	}
-}
-
 func TestList_InvalidFilters(t *testing.T) {
 	valid := func() map[string]any {
 		return map[string]any{"pageSize": 20, "pageNum": 0, "filterCategory": 0}
