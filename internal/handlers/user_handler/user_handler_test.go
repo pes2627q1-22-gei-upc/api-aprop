@@ -18,6 +18,7 @@ import (
 	"api-aprop/internal/middleware/auth_middleware"
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/models/user_model"
+	"api-aprop/internal/services/auth_service"
 	"api-aprop/internal/services/user_service"
 )
 
@@ -112,8 +113,23 @@ func (f *fakeUserService) Unfriend(ctx context.Context, userid string, targetid 
 	return nil
 }
 
+const (
+	aliceID          = "11111111-1111-1111-1111-111111111111"
+	aliceFirebaseUID = "alice-firebase-uid"
+)
+
+// fakeResolver translates the Firebase UID of alice and fails for unknown accounts, like auth_service does.
+type fakeResolver struct{}
+
+func (fakeResolver) ResolveUserID(_ context.Context, firebaseUID string) (string, error) {
+	if firebaseUID == aliceFirebaseUID {
+		return aliceID, nil
+	}
+	return "", auth_service.ErrUserNotRegistered
+}
+
 func setupMux(svc user_service.Service) *http.ServeMux {
-	h := user_handler.NewUserHandler(svc)
+	h := user_handler.NewUserHandler(svc, fakeResolver{})
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
 	return mux
@@ -122,7 +138,7 @@ func setupMux(svc user_service.Service) *http.ServeMux {
 func TestGetMyProfile_Success(t *testing.T) {
 	svc := &fakeUserService{
 		profiles: map[string]user_model.UserProfile{
-			"alice-uid": {
+			aliceID: {
 				ID:             testID(1),
 				Username:       "alice",
 				Name:           "Alice Smith",
@@ -137,7 +153,7 @@ func TestGetMyProfile_Success(t *testing.T) {
 	mux := setupMux(svc)
 
 	req := httptest.NewRequest(http.MethodGet, "/users/me", nil)
-	req.Header.Set("X-User-ID", "alice-uid")
+	req.Header.Set("X-User-ID", aliceID)
 	w := httptest.NewRecorder()
 
 	mux.ServeHTTP(w, req)
@@ -159,7 +175,7 @@ func TestGetMyProfile_Success(t *testing.T) {
 func TestGetMyProfile_WithAuthContext(t *testing.T) {
 	svc := &fakeUserService{
 		profiles: map[string]user_model.UserProfile{
-			"alice-uid": {
+			aliceID: {
 				ID:             testID(1),
 				Username:       "alice",
 				Email:          "alice@example.com",
@@ -172,7 +188,7 @@ func TestGetMyProfile_WithAuthContext(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/users/me", nil)
 	ctx := auth_middleware.ContextWithUser(req.Context(), firebase_client.User{
-		UID:   "alice-uid",
+		UID:   aliceFirebaseUID,
 		Email: "alice@example.com",
 	})
 	req = req.WithContext(ctx)
@@ -183,6 +199,49 @@ func TestGetMyProfile_WithAuthContext(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
+}
+
+func TestGetMyProfile_UnregisteredFirebaseUser(t *testing.T) {
+	mux := setupMux(&fakeUserService{profiles: make(map[string]user_model.UserProfile)})
+
+	req := httptest.NewRequest(http.MethodGet, "/users/me", nil)
+	req = req.WithContext(auth_middleware.ContextWithUser(req.Context(), firebase_client.User{UID: "not-synced"}))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// The requester is optional in a public profile, but a signed in user is translated to the database ID.
+func TestGetUserProfile_ResolvesRequester(t *testing.T) {
+	svc := &recordingUserService{fakeUserService: fakeUserService{
+		profiles: map[string]user_model.UserProfile{"bob": {ID: testID(2), Username: "bob"}},
+	}}
+	mux := setupMux(svc)
+
+	req := httptest.NewRequest(http.MethodGet, "/users/bob", nil)
+	req = req.WithContext(auth_middleware.ContextWithUser(req.Context(), firebase_client.User{UID: aliceFirebaseUID}))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if svc.gotRequester != aliceID {
+		t.Errorf("requester = %q, want %q", svc.gotRequester, aliceID)
+	}
+}
+
+type recordingUserService struct {
+	fakeUserService
+	gotRequester string
+}
+
+func (r *recordingUserService) GetUserProfile(ctx context.Context, target, requester string) (user_model.UserProfile, error) {
+	r.gotRequester = requester
+	return r.fakeUserService.GetUserProfile(ctx, target, requester)
 }
 
 func TestGetMyProfile_Unauthorized(t *testing.T) {
@@ -249,7 +308,7 @@ func TestGetUserProfile_NotFound(t *testing.T) {
 func TestUpdateMyProfile_Success(t *testing.T) {
 	svc := &fakeUserService{
 		profiles: map[string]user_model.UserProfile{
-			"alice-uid": {
+			aliceID: {
 				ID:             testID(1),
 				Username:       "alice",
 				Name:           "Alice Smith",
@@ -262,7 +321,7 @@ func TestUpdateMyProfile_Success(t *testing.T) {
 
 	body := []byte(`{"name":"Alice Updated","biography":"New bio","show-plans":false}`)
 	req := httptest.NewRequest(http.MethodPatch, "/users/me", bytes.NewReader(body))
-	req.Header.Set("X-User-ID", "alice-uid")
+	req.Header.Set("X-User-ID", aliceID)
 	w := httptest.NewRecorder()
 
 	mux.ServeHTTP(w, req)
@@ -284,14 +343,14 @@ func TestUpdateMyProfile_UsernameConflict(t *testing.T) {
 	svc := &fakeUserService{
 		failUsername: true,
 		profiles: map[string]user_model.UserProfile{
-			"alice-uid": {ID: testID(1), Username: "alice", DateRegistered: time.Now()},
+			aliceID: {ID: testID(1), Username: "alice", DateRegistered: time.Now()},
 		},
 	}
 	mux := setupMux(svc)
 
 	body := []byte(`{"username":"taken_name"}`)
 	req := httptest.NewRequest(http.MethodPatch, "/users/me", bytes.NewReader(body))
-	req.Header.Set("X-User-ID", "alice-uid")
+	req.Header.Set("X-User-ID", aliceID)
 	w := httptest.NewRecorder()
 
 	mux.ServeHTTP(w, req)
@@ -304,7 +363,7 @@ func TestUpdateMyProfile_UsernameConflict(t *testing.T) {
 func TestUploadAvatar_Success(t *testing.T) {
 	svc := &fakeUserService{
 		profiles: map[string]user_model.UserProfile{
-			"alice-uid": {ID: testID(1), Username: "alice"},
+			aliceID: {ID: testID(1), Username: "alice"},
 		},
 	}
 	mux := setupMux(svc)
@@ -320,7 +379,7 @@ func TestUploadAvatar_Success(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/users/me/avatar", &buf)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
-	req.Header.Set("X-User-ID", "alice-uid")
+	req.Header.Set("X-User-ID", aliceID)
 
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
@@ -354,7 +413,7 @@ func TestUploadAvatar_Unauthorized(t *testing.T) {
 
 func TestUploadAvatar_MissingField(t *testing.T) {
 	svc := &fakeUserService{
-		profiles: map[string]user_model.UserProfile{"alice-uid": {ID: testID(1)}},
+		profiles: map[string]user_model.UserProfile{aliceID: {ID: testID(1)}},
 	}
 	mux := setupMux(svc)
 
@@ -364,7 +423,7 @@ func TestUploadAvatar_MissingField(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/users/me/avatar", &buf)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
-	req.Header.Set("X-User-ID", "alice-uid")
+	req.Header.Set("X-User-ID", aliceID)
 
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)

@@ -244,7 +244,7 @@ func main() {
 	assistantHandler := assistant_handler.NewAssistantHandler(assistantService, authService)
 	signUpHandler := signup_handler.NewSignUpHandler(signUpService, authService)
 	authHandler := auth_handler.NewAuthHandler(authService)
-	userHandler := user_handler.NewUserHandler(userService)
+	userHandler := user_handler.NewUserHandler(userService, authService)
 	notificationHandler := notification_handler.NewNotificationHandler(notificationService)
 	preferenceHandler := preference_handler.NewPreferenceHandler(preferenceService, authService)
 
