@@ -9,7 +9,6 @@ import (
 
 	"api-aprop/internal/handlers/requester"
 	"api-aprop/internal/handlers/response"
-	"api-aprop/internal/middleware/auth_middleware"
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/services/event_service"
 )
@@ -19,15 +18,13 @@ const maxBodyBytes = 1 << 20
 // maxImageBytes is the largest event image. The request can be a bit larger because of the multipart form.
 const maxImageBytes = 5 << 20
 
-// UserIDHeader carries the user identity until authentication exists.
-const UserIDHeader = "X-User-ID"
-
 type EventHandler struct {
 	eventService event_service.Service
+	resolver     requester.Resolver
 }
 
-func NewEventHandler(eventService event_service.Service) *EventHandler {
-	return &EventHandler{eventService: eventService}
+func NewEventHandler(eventService event_service.Service, resolver requester.Resolver) *EventHandler {
+	return &EventHandler{eventService: eventService, resolver: resolver}
 }
 
 // RegisterRoutes registers the event endpoints.
@@ -48,24 +45,11 @@ func (h *EventHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /events/popular", h.GetPopularEvents)
 }
 
-func getUserID(r *http.Request) string {
-	if u, ok := auth_middleware.UserFromContext(r.Context()); ok && u.UID != "" {
-		return u.UID
-	}
-	return r.Header.Get(UserIDHeader)
-}
-
-// requesterID returns the database ID (UUID) of the user making the request.
-func (h *EventHandler) requesterID(r *http.Request) (string, error) {
-	return h.eventService.ResolveUserID(r.Context(), getUserID(r))
-}
-
 // authorizeCreator checks that the requester is the creator of the event. Official events have no creator,
 // so nobody can modify or delete them. It writes the error response and returns false when not allowed.
 func (h *EventHandler) authorizeCreator(w http.ResponseWriter, r *http.Request, id int) bool {
-	requester, err := h.requesterID(r)
-	if err != nil {
-		writeServiceError(w, err)
+	userID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
 		return false
 	}
 
@@ -75,7 +59,7 @@ func (h *EventHandler) authorizeCreator(w http.ResponseWriter, r *http.Request, 
 		return false
 	}
 
-	if event.IsOfficial || !event.Creator.Valid || event.Creator.String() != requester {
+	if event.IsOfficial || !event.Creator.Valid || event.Creator.String() != userID {
 		response.WriteError(w, http.StatusForbidden, "only the creator can modify this event")
 		return false
 	}
@@ -151,13 +135,12 @@ func (h *EventHandler) GetRecommendedEvents(w http.ResponseWriter, r *http.Reque
 		response.WriteError(w, http.StatusBadRequest, "invalid page num")
 		return
 	}
-	requester, err := h.requesterID(r)
-	if err != nil {
-		writeServiceError(w, err)
+	userID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
 		return
 	}
 
-	ev, err := h.eventService.GetRecommendedEvents(r.Context(), requester, pageSize, pageNum)
+	ev, err := h.eventService.GetRecommendedEvents(r.Context(), userID, pageSize, pageNum)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -190,13 +173,12 @@ func (h *EventHandler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Users can only create unofficial events, so the creator is required
-	requester, err := h.requesterID(r)
-	if err != nil {
-		writeServiceError(w, err)
+	userID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
 		return
 	}
 
-	created, err := h.eventService.CreateUnofficialEvent(r.Context(), requester, e)
+	created, err := h.eventService.CreateUnofficialEvent(r.Context(), userID, e)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -322,7 +304,7 @@ func (h *EventHandler) ListMapEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if requester.Present(r) {
-		if filter.UserID, ok = requester.ID(w, r, h.eventService); !ok {
+		if filter.UserID, ok = requester.ID(w, r, h.resolver); !ok {
 			return
 		}
 	}

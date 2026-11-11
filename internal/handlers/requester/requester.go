@@ -9,7 +9,7 @@ import (
 
 	"api-aprop/internal/handlers/response"
 	"api-aprop/internal/middleware/auth_middleware"
-	"api-aprop/internal/services/event_service"
+	"api-aprop/internal/services/auth_service"
 )
 
 // UserIDHeader carries the user identity (a UUID) when the API runs without the auth middleware.
@@ -30,12 +30,12 @@ func Present(r *http.Request) bool {
 
 // ID returns the database ID (UUID) of the requester. The Firebase UID verified by the auth middleware is
 // always translated; the header is only read when there is no middleware and the service validates it.
-// It writes the error response and returns false when the requester cannot be identified.
+// It writes the error response (401 without identity) and returns false when the requester cannot be identified.
 func ID(w http.ResponseWriter, r *http.Request, resolver Resolver) (string, bool) {
 	if u, ok := auth_middleware.UserFromContext(r.Context()); ok && u.UID != "" {
 		id, err := resolver.ResolveUserID(r.Context(), u.UID)
 		switch {
-		case errors.Is(err, event_service.ErrUserNotRegistered):
+		case errors.Is(err, auth_service.ErrUserNotRegistered):
 			response.WriteError(w, http.StatusUnauthorized, "user not registered")
 			return "", false
 		case err != nil:
@@ -48,7 +48,7 @@ func ID(w http.ResponseWriter, r *http.Request, resolver Resolver) (string, bool
 
 	id := r.Header.Get(UserIDHeader)
 	if id == "" {
-		response.WriteError(w, http.StatusBadRequest, "missing "+UserIDHeader+" header")
+		response.WriteError(w, http.StatusUnauthorized, "missing "+UserIDHeader+" header")
 		return "", false
 	}
 	return id, true

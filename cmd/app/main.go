@@ -228,7 +228,7 @@ func main() {
 	preferenceRepository := postgres_repository.NewPreferenceRepository(postgresDriver.Pool())
 
 	// Services
-	eventService := event_service.NewEventService(eventRepository, authRepository, preferenceRepository, gencatClient, s3Client)
+	eventService := event_service.NewEventService(eventRepository, preferenceRepository, gencatClient, s3Client)
 	assistantService := assistant_service.NewAssistantService(
 		chatbotRepository, catalogueRepository, groqClient, mcpClient,
 		func() time.Time { return time.Now().In(location) }, assistant_service.ReplyTimeout,
@@ -240,13 +240,13 @@ func main() {
 	preferenceService := preference_service.NewPreferenceService(preferenceRepository)
 
 	// Handlers
-	eventHandler := event_handler.NewEventHandler(eventService)
-	assistantHandler := assistant_handler.NewAssistantHandler(assistantService, eventService)
-	signUpHandler := signup_handler.NewSignUpHandler(signUpService, eventService)
+	eventHandler := event_handler.NewEventHandler(eventService, authService)
+	assistantHandler := assistant_handler.NewAssistantHandler(assistantService, authService)
+	signUpHandler := signup_handler.NewSignUpHandler(signUpService, authService)
 	authHandler := auth_handler.NewAuthHandler(authService)
 	userHandler := user_handler.NewUserHandler(userService)
 	notificationHandler := notification_handler.NewNotificationHandler(notificationService)
-	preferenceHandler := preference_handler.NewPreferenceHandler(preferenceService, eventService)
+	preferenceHandler := preference_handler.NewPreferenceHandler(preferenceService, authService)
 
 	// Initial data
 	go func() {

@@ -16,7 +16,7 @@ import (
 	"api-aprop/internal/models/chatbot_model"
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/services/assistant_service"
-	"api-aprop/internal/services/event_service"
+	"api-aprop/internal/services/auth_service"
 )
 
 const validUserID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
@@ -113,7 +113,7 @@ func TestSendMessage_Created(t *testing.T) {
 }
 
 func TestSendMessage_BadRequest(t *testing.T) {
-	if rec := sendMessage(t, &fakeService{}, "", `{"text":"hola"}`); rec.Code != http.StatusBadRequest {
+	if rec := sendMessage(t, &fakeService{}, "", `{"text":"hola"}`); rec.Code != http.StatusUnauthorized {
 		t.Errorf("missing header: status = %d", rec.Code)
 	}
 	if rec := sendMessage(t, &fakeService{}, validUserID, `{"text":`); rec.Code != http.StatusBadRequest {
@@ -219,7 +219,7 @@ func TestGetConversation_TranslatesFirebaseUID(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	NewAssistantHandler(service, fakeResolver{err: event_service.ErrUserNotRegistered}).GetConversation(rec, withFirebaseUser(httptest.NewRequest(http.MethodGet, "/assistant/conversation", nil)))
+	NewAssistantHandler(service, fakeResolver{err: auth_service.ErrUserNotRegistered}).GetConversation(rec, withFirebaseUser(httptest.NewRequest(http.MethodGet, "/assistant/conversation", nil)))
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("not registered: status = %d, want 401", rec.Code)
 	}

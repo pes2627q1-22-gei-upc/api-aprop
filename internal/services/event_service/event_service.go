@@ -17,7 +17,6 @@ import (
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/models/preference_model"
 	"api-aprop/internal/models/user_model"
-	"api-aprop/internal/repositories/auth_repository"
 	"api-aprop/internal/repositories/event_repository"
 	"api-aprop/internal/repositories/preference_repository"
 )
@@ -64,42 +63,18 @@ func (pq *PriorityQueue) Pop() any {
 
 type EventService struct {
 	eventRepository      event_repository.Repository
-	authRepository       auth_repository.Repository
 	gencatClient         gencat_client.Client
 	preferenceRepository preference_repository.Repository
 	s3Client             s3_client.Client
 }
 
-func NewEventService(eventRepository event_repository.Repository, authRepository auth_repository.Repository, preferenceRepository preference_repository.Repository, gencatClient gencat_client.Client, s3Client s3_client.Client) *EventService {
+func NewEventService(eventRepository event_repository.Repository, preferenceRepository preference_repository.Repository, gencatClient gencat_client.Client, s3Client s3_client.Client) *EventService {
 	return &EventService{
 		eventRepository:      eventRepository,
-		authRepository:       authRepository,
 		preferenceRepository: preferenceRepository,
 		gencatClient:         gencatClient,
 		s3Client:             s3Client,
 	}
-}
-
-// ResolveUserID returns the database ID (UUID) of the requester. The identifier is the Firebase UID set by
-// the auth middleware, or directly a UUID when the API runs without authentication (local development and tests).
-func (s *EventService) ResolveUserID(ctx context.Context, identifier string) (string, error) {
-	if identifier == "" {
-		return "", ErrUserNotRegistered
-	}
-	if uid, err := user_model.NormalizeID(identifier); err == nil {
-		return uid, nil
-	}
-	if s.authRepository == nil {
-		return "", ErrUserNotRegistered
-	}
-	user, err := s.authRepository.GetByFirebaseUID(ctx, identifier)
-	if errors.Is(err, auth_repository.ErrUserNotFound) {
-		return "", fmt.Errorf("%w: %w", ErrUserNotRegistered, err)
-	}
-	if err != nil {
-		return "", fmt.Errorf("resolve user: %w", err)
-	}
-	return user.ID.String(), nil
 }
 
 func (s *EventService) GetEvent(id int) (event_model.Event, error) {

@@ -14,7 +14,7 @@ import (
 	"api-aprop/internal/handlers/requester"
 	"api-aprop/internal/middleware/auth_middleware"
 	"api-aprop/internal/models/preference_model"
-	"api-aprop/internal/services/event_service"
+	"api-aprop/internal/services/auth_service"
 	"api-aprop/internal/services/preference_service"
 )
 
@@ -106,8 +106,8 @@ func TestGetQuestions(t *testing.T) {
 			wantCount:  2,
 		},
 		{
-			name:       "missing X-User-ID header returns 400",
-			wantStatus: http.StatusBadRequest,
+			name:       "missing X-User-ID header returns 401",
+			wantStatus: http.StatusUnauthorized,
 			wantCalls:  0,
 			wantError:  "missing X-User-ID header",
 		},
@@ -190,9 +190,9 @@ func TestSubmitTest(t *testing.T) {
 			wantCalls:  1,
 		},
 		{
-			name:       "missing X-User-ID header returns 400",
+			name:       "missing X-User-ID header returns 401",
 			body:       `{"answers":[{"event-id":1,"likes":true}]}`,
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusUnauthorized,
 			wantCalls:  0,
 			wantError:  "missing X-User-ID header",
 		},
@@ -272,8 +272,8 @@ func TestGetUserPreferences(t *testing.T) {
 			wantCount:  1,
 		},
 		{
-			name:       "missing header returns 400",
-			wantStatus: http.StatusBadRequest,
+			name:       "missing header returns 401",
+			wantStatus: http.StatusUnauthorized,
 			wantCalls:  0,
 			wantError:  "missing X-User-ID header",
 		},
@@ -341,7 +341,7 @@ func TestGetUserPreferences_TranslatesFirebaseUID(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	NewPreferenceHandler(s, fakeResolver{err: event_service.ErrUserNotRegistered}).GetUserPreferences(rec, withFirebaseUser(httptest.NewRequest(http.MethodGet, "/preferences", nil)))
+	NewPreferenceHandler(s, fakeResolver{err: auth_service.ErrUserNotRegistered}).GetUserPreferences(rec, withFirebaseUser(httptest.NewRequest(http.MethodGet, "/preferences", nil)))
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("not registered: status = %d, want 401", rec.Code)
 	}

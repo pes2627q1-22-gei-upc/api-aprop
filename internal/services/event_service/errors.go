@@ -18,7 +18,6 @@ var (
 	ErrInvalidCoordinates      = errors.New("coordinates are out of valid range")
 	ErrInvalidBoundingBox      = errors.New("invalid bounding box")
 	ErrInvalidUserID           = user_model.ErrInvalidID
-	ErrUserNotRegistered       = errors.New("user not registered")
 	ErrInvalidContentType      = errors.New("invalid content type, must be image/jpeg, image/png, or image/webp")
 	ErrImageUploadFailed       = errors.New("failed to upload event image")
 )
