@@ -58,6 +58,8 @@ func (h *NotificationHandler) GetNotificationTypes(w http.ResponseWriter, r *htt
 	response.WriteJSON(w, http.StatusOK, types)
 }
 
+// TODO(DP-011): {id} is not checked against the requester, so any signed in user can read (and mark as
+// read) the notifications of another user. It should use requester.ID like the other handlers.
 func (h *NotificationHandler) GetUserNotifications(w http.ResponseWriter, r *http.Request) {
 	tmp := r.PathValue("id")
 	id, err := user_model.ParseID(tmp)
