@@ -167,10 +167,6 @@ func (m *mockUserRepo) Unfriend(ctx context.Context, userid pgtype.UUID, targetu
 type mockNotificationRepo struct {
 }
 
-func newMockNotificationRepo() *mockNotificationRepo {
-	return &mockNotificationRepo{}
-}
-
 func (m *mockNotificationRepo) Get(id int) (notification_model.Notification, error) {
 	return notification_model.Notification{}, nil
 }

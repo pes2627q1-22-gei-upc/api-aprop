@@ -12,8 +12,6 @@ import (
 	"api-aprop/internal/services/notification_service"
 )
 
-const maxBodyBytes = 1 << 20
-
 const UserIDHeader = "X-User-ID"
 
 type NotificationHandler struct {

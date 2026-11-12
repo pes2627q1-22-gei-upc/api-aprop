@@ -61,7 +61,7 @@ func (s *SignUpService) SignUp(ctx context.Context, userID string, eventID int) 
 	} else {
 		uuid, err := uuid.FromString(userID)
 		if err == nil {
-			s.notificationRepository.CreateFriendSignupNotifications(pgtype.UUID{Bytes: [16]byte(uuid), Valid: true}, eventID, "apuntat a")
+			_, _ = s.notificationRepository.CreateFriendSignupNotifications(pgtype.UUID{Bytes: [16]byte(uuid), Valid: true}, eventID, "apuntat a")
 		}
 	}
 	return signup_model.SignUp{UserID: userID, EventID: eventID, Created: created}, nil
@@ -91,7 +91,7 @@ func (s *SignUpService) Unenroll(ctx context.Context, userID string, eventID int
 	} else {
 		uuid, err := uuid.FromString(userID)
 		if err == nil {
-			s.notificationRepository.CreateFriendSignupNotifications(pgtype.UUID{Bytes: [16]byte(uuid), Valid: true}, eventID, "desapuntat de")
+			_, _ = s.notificationRepository.CreateFriendSignupNotifications(pgtype.UUID{Bytes: [16]byte(uuid), Valid: true}, eventID, "desapuntat de")
 		}
 	}
 	return signup_model.Unenroll{UserID: userID, EventID: eventID, Enrolled: false, Deleted: deleted}, nil

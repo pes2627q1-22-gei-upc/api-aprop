@@ -354,7 +354,7 @@ func (s *userService) AcceptFriendRequest(ctx context.Context, userid string, ta
 		// If it fails to create the notification, the AcceptFriendRequest operation should still return properly if accepting succeeded
 		nottype, err := s.notificationRepo.GetNotificationTypeByName("Social")
 		if err == nil {
-			s.notificationRepo.Create(notification_model.Notification{
+			_, _ = s.notificationRepo.Create(notification_model.Notification{
 				UserID:      targetuuid,
 				Friend:      id,
 				Type:        nottype,
@@ -393,7 +393,7 @@ func (s *userService) DenyFriendRequest(ctx context.Context, userid string, targ
 		// If it fails to create the notification, the AcceptFriendRequest operation should still return properly if accepting succeeded
 		nottype, err := s.notificationRepo.GetNotificationTypeByName("Social")
 		if err == nil {
-			s.notificationRepo.Create(notification_model.Notification{
+			_, _ = s.notificationRepo.Create(notification_model.Notification{
 				UserID:      targetuuid,
 				Friend:      id,
 				Type:        nottype,
@@ -437,7 +437,7 @@ func (s *userService) Unfriend(ctx context.Context, userid string, targetid stri
 		// If it fails to create the notification, the Unfriend operation should still return properly if unfriending succeeded
 		nottype, err := s.notificationRepo.GetNotificationTypeByName("Social")
 		if err == nil {
-			s.notificationRepo.Create(notification_model.Notification{
+			_, _ = s.notificationRepo.Create(notification_model.Notification{
 				UserID: targetuuid,
 				Friend: id,
 				Type:   nottype,
