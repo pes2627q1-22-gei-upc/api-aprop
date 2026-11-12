@@ -14,4 +14,5 @@ type Repository interface {
 	GetNotificationTypes() ([]notification_model.NotificationType, error)
 	GetNotificationTypeByName(name string) (int, error)
 	CreateReminders() ([]int32, error)
+	CreateFriendSignupNotifications(id pgtype.UUID, event int, text string) ([]int32, error)
 }

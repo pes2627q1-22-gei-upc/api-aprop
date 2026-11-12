@@ -11,6 +11,41 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const createFriendSignupNotifications = `-- name: CreateFriendSignupNotifications :many
+INSERT INTO notifications (userid, notificationdate, type, event, friend, text)
+SELECT user2, now(), (select id from notificationtypes where name='Social'), $1::integer, $2::uuid,
+CONCAT((select username from users where id = $2::uuid), ' s''ha ', $3::varchar, ' ', (select title from events where id = $1::integer))
+FROM friendships
+WHERE user1 = $2::uuid
+RETURNING id
+`
+
+type CreateFriendSignupNotificationsParams struct {
+	Event      int32
+	Userid     pgtype.UUID
+	Signuptext string
+}
+
+func (q *Queries) CreateFriendSignupNotifications(ctx context.Context, arg CreateFriendSignupNotificationsParams) ([]int32, error) {
+	rows, err := q.db.Query(ctx, createFriendSignupNotifications, arg.Event, arg.Userid, arg.Signuptext)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int32
+	for rows.Next() {
+		var id int32
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createNotification = `-- name: CreateNotification :one
 INSERT INTO notifications (userid, notificationdate, friend, requestdate, event, type, text) VALUES ($1, now(), $2, $3, $4, $5, $6) RETURNING id
 `

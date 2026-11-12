@@ -185,6 +185,9 @@ func (m *mockNotificationRepo) GetNotificationTypes() ([]notification_model.Noti
 }
 func (m *mockNotificationRepo) GetNotificationTypeByName(name string) (int, error) { return 0, nil }
 func (m *mockNotificationRepo) CreateReminders() ([]int32, error)                  { return []int32{}, nil }
+func (f *mockNotificationRepo) CreateFriendSignupNotifications(id pgtype.UUID, event int, text string) ([]int32, error) {
+	return []int32{}, nil
+}
 
 type mockS3Client struct {
 	uploadedURL string

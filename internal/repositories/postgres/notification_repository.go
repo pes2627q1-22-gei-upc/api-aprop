@@ -168,3 +168,12 @@ func (r *NotificationRepository) GetNotificationTypeByName(name string) (int, er
 
 	return int(id), nil
 }
+
+func (r *NotificationRepository) CreateFriendSignupNotifications(id pgtype.UUID, event int, text string) ([]int32, error) {
+	ids, err := r.queries.CreateFriendSignupNotifications(context.Background(), sqlc.CreateFriendSignupNotificationsParams{Event: int32(event), Userid: id, Signuptext: text})
+	if err != nil {
+		return []int32{}, err
+	}
+
+	return ids, nil
+}

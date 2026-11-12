@@ -37,3 +37,11 @@ from signup su join events e on e.id=su.event join users u on u.id=su.userid joi
 left join notifications n on (n.event=e.id and n.userid=su.userid)
 where n.id is null and e.startdate - now() > '0 seconds'::interval and e.startdate - now() < st.notificationbefore
 returning id;
+
+-- name: CreateFriendSignupNotifications :many
+INSERT INTO notifications (userid, notificationdate, type, event, friend, text)
+SELECT user2, now(), (select id from notificationtypes where name='Social'), @event::integer, @userid::uuid,
+CONCAT((select username from users where id = @userid::uuid), ' s''ha ', @signuptext::varchar, ' ', (select title from events where id = @event::integer))
+FROM friendships
+WHERE user1 = @userid::uuid
+RETURNING id;

@@ -6,7 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"api-aprop/internal/models/event_model"
+	"api-aprop/internal/models/notification_model"
 	"api-aprop/internal/models/signup_model"
 	"api-aprop/internal/repositories/signup_repository"
 )
@@ -81,6 +84,31 @@ func (f *fakeEventRepository) ListMapEvents(ctx context.Context, filter event_mo
 	return []event_model.MapEvent{}, nil
 }
 
+type fakeNotificationRepository struct {
+}
+
+func (f *fakeNotificationRepository) Get(id int) (notification_model.Notification, error) {
+	return notification_model.Notification{}, nil
+}
+func (f *fakeNotificationRepository) Create(notification_model.Notification) (int, error) {
+	return 0, nil
+}
+func (f *fakeNotificationRepository) GetUserNotifications(id pgtype.UUID, params map[string]any) ([]notification_model.Notification, error) {
+	return []notification_model.Notification{}, nil
+}
+func (f *fakeNotificationRepository) ReadNotification(id int) error              { return nil }
+func (f *fakeNotificationRepository) ReadUserNotifications(id pgtype.UUID) error { return nil }
+func (f *fakeNotificationRepository) GetNotificationTypes() ([]notification_model.NotificationType, error) {
+	return []notification_model.NotificationType{}, nil
+}
+func (f *fakeNotificationRepository) GetNotificationTypeByName(name string) (int, error) {
+	return 0, nil
+}
+func (f *fakeNotificationRepository) CreateReminders() ([]int32, error) { return []int32{}, nil }
+func (f *fakeNotificationRepository) CreateFriendSignupNotifications(id pgtype.UUID, event int, text string) ([]int32, error) {
+	return []int32{}, nil
+}
+
 func (f *fakeRepository) Create(_ context.Context, userID string, eventID int) (bool, error) {
 	f.createCalls++
 	f.gotUserID = userID
@@ -149,7 +177,7 @@ func TestSignUp(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := tt.repo
 			eventRepo := tt.eventRepo
-			s := NewSignUpService(&repo, &eventRepo)
+			s := NewSignUpService(&repo, &eventRepo, &fakeNotificationRepository{})
 
 			got, err := s.SignUp(context.Background(), tt.userID, tt.eventID)
 
@@ -173,7 +201,7 @@ func TestSignUp(t *testing.T) {
 func TestSignUpNormalizesUserID(t *testing.T) {
 	repo := fakeRepository{created: true}
 	eventRepo := fakeEventRepository{exists: true}
-	s := NewSignUpService(&repo, &eventRepo)
+	s := NewSignUpService(&repo, &eventRepo, &fakeNotificationRepository{})
 
 	got, err := s.SignUp(context.Background(), "3F2504E0-4F89-11D3-9A0C-0305E82C3301", 1)
 	if err != nil {
@@ -211,7 +239,7 @@ func TestListUserEvents(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := tt.repo
 			eventRepo := fakeEventRepository{}
-			s := NewSignUpService(&repo, &eventRepo)
+			s := NewSignUpService(&repo, &eventRepo, &fakeNotificationRepository{})
 
 			got, err := s.ListUserEvents(context.Background(), tt.userID, tt.dateRange)
 
@@ -266,7 +294,7 @@ func TestUnenroll(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := tt.repo
 			eventRepo := tt.eventRepo
-			s := NewSignUpService(&repo, &eventRepo)
+			s := NewSignUpService(&repo, &eventRepo, &fakeNotificationRepository{})
 
 			got, err := s.Unenroll(context.Background(), tt.userID, tt.eventID)
 
@@ -351,7 +379,7 @@ func TestGetEnrollmentStatus(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := tt.repo
 			eventRepo := tt.eventRepo
-			s := NewSignUpService(&repo, &eventRepo)
+			s := NewSignUpService(&repo, &eventRepo, &fakeNotificationRepository{})
 
 			got, err := s.GetEnrollmentStatus(context.Background(), tt.userID, tt.eventID)
 
