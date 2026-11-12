@@ -420,7 +420,7 @@ func TestMessageValidate_R12(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if err := tt.m.Validate(); !errors.Is(err, tt.want) {
+			if err := validateMessage(tt.m); !errors.Is(err, tt.want) {
 				t.Fatalf("error = %v, want %v", err, tt.want)
 			}
 		})

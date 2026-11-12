@@ -13,7 +13,7 @@ const ToolGetAppHelp = "get_app_help"
 
 // guide is the user guide of the app. Each "## topic" heading starts a topic the model can ask for.
 //
-//go:embed help/guide.md
+//go:embed help_guide.md
 var guide string
 
 // topicScreens maps a guide topic to the screen the reply suggests opening (the reply action).

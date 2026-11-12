@@ -84,7 +84,7 @@ func toMessageResponse(m chatbot_model.Message) messageResponse {
 	if m.Action != "" {
 		r.Action = &actionResponse{Screen: m.Action}
 	}
-	if i := m.Interpretation; i != nil && !i.IsEmpty() {
+	if i := m.Interpretation; i != nil && (*i != chatbot_model.Interpretation{}) {
 		r.Interpretation = &interpretationResponse{
 			Category:     i.Category,
 			Municipality: i.Municipality,

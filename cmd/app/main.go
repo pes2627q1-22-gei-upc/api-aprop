@@ -118,10 +118,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("invalid GENCAT_PAGE_SIZE: %v", err)
 	}
-	groqAPIKey := os.Getenv("GROQ_API_KEYS")
-	if groqAPIKey == "" {
-		groqAPIKey = getEnv("GROQ_API_KEY")
-	}
+	groqAPIKey := getEnv("GROQ_API_KEYS")
 	groqModel := getEnv("GROQ_MODEL")
 	location, err := time.LoadLocation(timeZone)
 	if err != nil {
@@ -218,8 +215,8 @@ func main() {
 		}
 		authMiddleware = auth_middleware.NewAuthMiddleware(firebaseClient)
 	} else {
-		slog.Warn("Firebase credentials file not found; running with dev auth middleware for local development", "file", firebaseCredentialsFile)
-		authMiddleware = auth_middleware.NewDevAuthMiddleware()
+		slog.Warn("Firebase credentials file not found; running without auth middleware for local development", "file", firebaseCredentialsFile)
+		authMiddleware = func(next http.Handler) http.Handler { return next }
 	}
 
 	// Repositories

@@ -31,11 +31,6 @@ type Interpretation struct {
 	DateTo       *time.Time
 }
 
-// IsEmpty reports whether no criterion was interpreted.
-func (i Interpretation) IsEmpty() bool {
-	return i.Category == "" && i.Municipality == "" && i.DateFrom == nil && i.DateTo == nil
-}
-
 // Message is a message of a chatbot conversation (MissatgeXatbot).
 type Message struct {
 	SentAt            time.Time
@@ -47,29 +42,6 @@ type Message struct {
 	// Action is the app screen the reply suggests opening (see assistant_service.ScreenFor).
 	// Only chatbot messages; it is not stored, so it is empty in a loaded conversation.
 	Action string
-}
-
-// Validate checks the domain restriction R12.
-func (m Message) Validate() error {
-	switch m.Sender {
-	case SenderUser:
-		if m.Interpretation != nil {
-			return ErrOnlyAssistantInterprets
-		}
-		if len(m.RecommendedEvents) > 0 {
-			return ErrOnlyAssistantRecommends
-		}
-		if m.Action != "" {
-			return ErrOnlyAssistantRecommends
-		}
-	case SenderAssistant:
-		if m.ByVoice {
-			return ErrOnlyUserByVoice
-		}
-	default:
-		return ErrInvalidSender
-	}
-	return nil
 }
 
 // Conversation is a chatbot conversation of a user (ConversaXatbot).

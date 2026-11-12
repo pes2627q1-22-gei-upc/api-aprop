@@ -108,7 +108,7 @@ func (s *AssistantService) SendMessage(ctx context.Context, userID string, text 
 	}
 
 	for _, m := range []chatbot_model.Message{userMessage, assistantMessage} {
-		if err := m.Validate(); err != nil {
+		if err := validateMessage(m); err != nil {
 			return chatbot_model.Exchange{}, err
 		}
 	}
@@ -340,4 +340,24 @@ func normalizeUserID(userID string) (string, error) {
 
 func isHex(c rune) bool {
 	return ('0' <= c && c <= '9') || ('a' <= c && c <= 'f') || ('A' <= c && c <= 'F')
+}
+
+// validateMessage checks the domain restriction R12.
+func validateMessage(m chatbot_model.Message) error {
+	switch m.Sender {
+	case chatbot_model.SenderUser:
+		if m.Interpretation != nil {
+			return chatbot_model.ErrOnlyAssistantInterprets
+		}
+		if len(m.RecommendedEvents) > 0 || m.Action != "" {
+			return chatbot_model.ErrOnlyAssistantRecommends
+		}
+	case chatbot_model.SenderAssistant:
+		if m.ByVoice {
+			return chatbot_model.ErrOnlyUserByVoice
+		}
+	default:
+		return chatbot_model.ErrInvalidSender
+	}
+	return nil
 }
