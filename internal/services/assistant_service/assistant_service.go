@@ -77,7 +77,7 @@ func (s *AssistantService) SendMessage(ctx context.Context, userID string, text 
 	if !s.limiter.allow(userID, now) {
 		return chatbot_model.Exchange{}, ErrTooManyMessages
 	}
-	userMessage :=chatbot_model.Message{SentAt: timestamp(now), Sender: chatbot_model.SenderUser, Text: text, ByVoice: byVoice}
+	userMessage := chatbot_model.Message{SentAt: timestamp(now), Sender: chatbot_model.SenderUser, Text: text, ByVoice: byVoice}
 
 	// TODO(DP-017): a conversation never ends; every message goes to the latest one.
 	startedAt, err := s.chatbotRepository.LatestConversation(ctx, userID)

@@ -22,9 +22,9 @@ var fixedNow = time.Date(2026, 10, 19, 16, 30, 0, 123456789, time.UTC)
 // --- fakes ---
 
 type fakeChatbotRepository struct {
-	startedAt time.Time // zero: no conversation
-	history   []chatbot_model.Message
-	saveErr   error
+	startedAt   time.Time // zero: no conversation
+	history     []chatbot_model.Message
+	saveErr     error
 	feedback    *bool
 	feedbackErr error
 
@@ -510,7 +510,7 @@ func TestSendMessage_HelpSuggestsScreen(t *testing.T) {
 	}
 	// a topic without a screen, or a plain search, suggests none
 	for _, topic := range []string{"sign-up", "nope"} {
-		if helpScreen(`{"topic":"` + topic + `"}`) != "" {
+		if helpScreen(`{"topic":"`+topic+`"}`) != "" {
 			t.Errorf("topic %q must not suggest a screen", topic)
 		}
 	}

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"api-aprop/internal/clients/s3_client"
@@ -19,13 +20,26 @@ import (
 )
 
 type mockUserRepo struct {
-	usersByID      map[pgtype.UUID]*user_model.User
-	showPlans      map[int]bool
-	friends        map[pgtype.UUID]map[pgtype.UUID]bool
-	plansCount     map[pgtype.UUID]int
-	completedPlans map[pgtype.UUID]int
-	reliability    map[pgtype.UUID]*float32
-	createdEvents  map[pgtype.UUID][]event_model.Event
+	usersByID               map[pgtype.UUID]*user_model.User
+	showPlans               map[int]bool
+	friends                 map[pgtype.UUID]map[pgtype.UUID]bool
+	plansCount              map[pgtype.UUID]int
+	completedPlans          map[pgtype.UUID]int
+	reliability             map[pgtype.UUID]*float32
+	createdEvents           map[pgtype.UUID][]event_model.Event
+	getUserFriendsResult    []string
+	getUserFriendsErr       error
+	getFriendRequestsResult []user_model.FriendRequest
+	getFriendRequestsErr    error
+	pendingRequestExists    bool
+	pendingRequestErr       error
+	isBlockedResult         bool
+	isBlockedErr            error
+	areFriendsErr           error
+	sendFriendRequestErr    error
+	acceptFriendRequestErr  error
+	denyFriendRequestErr    error
+	unfriendErr             error
 }
 
 func newMockUserRepo() *mockUserRepo {
@@ -84,12 +98,18 @@ func (m *mockUserRepo) CountFriends(_ context.Context, userUUID pgtype.UUID) (in
 }
 
 func (m *mockUserRepo) AreFriends(_ context.Context, user1UUID, user2UUID pgtype.UUID) (bool, error) {
+	if m.areFriendsErr != nil {
+		return false, m.areFriendsErr
+	}
+
 	if m.friends[user1UUID] != nil && m.friends[user1UUID][user2UUID] {
 		return true, nil
 	}
+
 	if m.friends[user2UUID] != nil && m.friends[user2UUID][user1UUID] {
 		return true, nil
 	}
+
 	return false, nil
 }
 
@@ -139,50 +159,66 @@ func (m *mockUserRepo) UpdateSettings(_ context.Context, settingsID int, showPla
 	return nil
 }
 
-func (m *mockUserRepo) GetUserFriends(ctx context.Context, userid pgtype.UUID) ([]string, error) {
-	return []string{}, nil
+func (m *mockUserRepo) GetUserFriends(_ context.Context, _ pgtype.UUID) ([]string, error) {
+	return m.getUserFriendsResult, m.getUserFriendsErr
 }
-func (m *mockUserRepo) GetFriendRequests(ctx context.Context, userid pgtype.UUID) ([]user_model.FriendRequest, error) {
-	return []user_model.FriendRequest{}, nil
+func (m *mockUserRepo) GetFriendRequests(_ context.Context, _ pgtype.UUID) ([]user_model.FriendRequest, error) {
+	return m.getFriendRequestsResult, m.getFriendRequestsErr
 }
-func (m *mockUserRepo) PendingRequestExists(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID) (bool, error) {
-	return false, nil
+
+func (m *mockUserRepo) PendingRequestExists(_ context.Context, _, _ pgtype.UUID) (bool, error) {
+	return m.pendingRequestExists, m.pendingRequestErr
 }
-func (m *mockUserRepo) IsBlocked(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID) (bool, error) {
-	return false, nil
+
+func (m *mockUserRepo) IsBlocked(_ context.Context, _, _ pgtype.UUID) (bool, error) {
+	return m.isBlockedResult, m.isBlockedErr
 }
-func (m *mockUserRepo) SendFriendRequest(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID) (user_model.FriendRequest, error) {
-	return user_model.FriendRequest{}, nil
+
+func (m *mockUserRepo) SendFriendRequest(_ context.Context, _, _ pgtype.UUID) (user_model.FriendRequest, error) {
+	return user_model.FriendRequest{}, m.sendFriendRequestErr
 }
-func (m *mockUserRepo) AcceptFriendRequest(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID, date time.Time) (user_model.FriendRequest, error) {
-	return user_model.FriendRequest{}, nil
+
+func (m *mockUserRepo) AcceptFriendRequest(_ context.Context, _, _ pgtype.UUID, _ time.Time) (user_model.FriendRequest, error) {
+	return user_model.FriendRequest{}, m.acceptFriendRequestErr
 }
-func (m *mockUserRepo) DenyFriendRequest(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID, date time.Time) (user_model.FriendRequest, error) {
-	return user_model.FriendRequest{}, nil
+
+func (m *mockUserRepo) DenyFriendRequest(_ context.Context, _, _ pgtype.UUID, _ time.Time) (user_model.FriendRequest, error) {
+	return user_model.FriendRequest{}, m.denyFriendRequestErr
 }
-func (m *mockUserRepo) Unfriend(ctx context.Context, userid pgtype.UUID, targetuuid pgtype.UUID) error {
-	return nil
+
+func (m *mockUserRepo) Unfriend(_ context.Context, _, _ pgtype.UUID) error {
+	return m.unfriendErr
 }
 
 type mockNotificationRepo struct {
+	getTypeErr error
+	createErr  error
+	created    []notification_model.Notification
 }
 
 func (m *mockNotificationRepo) Get(id int) (notification_model.Notification, error) {
 	return notification_model.Notification{}, nil
-}
-func (m *mockNotificationRepo) Create(notification_model.Notification) (int, error) { return 0, nil }
-func (m *mockNotificationRepo) GetUserNotifications(id pgtype.UUID, params map[string]any) ([]notification_model.Notification, error) {
-	return []notification_model.Notification{}, nil
 }
 func (m *mockNotificationRepo) ReadNotification(id int) error              { return nil }
 func (m *mockNotificationRepo) ReadUserNotifications(id pgtype.UUID) error { return nil }
 func (m *mockNotificationRepo) GetNotificationTypes() ([]notification_model.NotificationType, error) {
 	return []notification_model.NotificationType{}, nil
 }
-func (m *mockNotificationRepo) GetNotificationTypeByName(name string) (int, error) { return 0, nil }
-func (m *mockNotificationRepo) CreateReminders() ([]int32, error)                  { return []int32{}, nil }
+func (m *mockNotificationRepo) CreateReminders() ([]int32, error) { return []int32{}, nil }
 func (f *mockNotificationRepo) CreateFriendSignupNotifications(id pgtype.UUID, event int, text string) ([]int32, error) {
 	return []int32{}, nil
+}
+func (m *mockNotificationRepo) GetUserNotifications(id pgtype.UUID, params map[string]any) ([]notification_model.Notification, error) {
+	return []notification_model.Notification{}, nil
+}
+
+func (m *mockNotificationRepo) Create(n notification_model.Notification) (int, error) {
+	m.created = append(m.created, n)
+	return 1, m.createErr
+}
+
+func (m *mockNotificationRepo) GetNotificationTypeByName(name string) (int, error) {
+	return 1, m.getTypeErr
 }
 
 type mockS3Client struct {
@@ -522,4 +558,293 @@ func TestListCreatedEvents(t *testing.T) {
 // testID builds a deterministic user UUID for the mocks.
 func testID(n byte) pgtype.UUID {
 	return pgtype.UUID{Bytes: [16]byte{15: n}, Valid: true}
+}
+
+var errDatabase = errors.New("database error")
+
+func TestGetUserFriends(t *testing.T) {
+	tests := []struct {
+		name    string
+		userID  string
+		result  []string
+		repoErr error
+		wantErr error
+		wantLen int
+	}{
+		{"success", "fb-alice", []string{"bob", "charlie"}, nil, nil, 2},
+		{"user not found", "unknown", nil, nil, user_service.ErrUserNotFound, 0},
+		{"repository error", "fb-alice", nil, errDatabase, errDatabase, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := newMockUserRepo()
+			repo.addUser(user_model.User{ID: testID(1), FirebaseUID: "fb-alice"}, true)
+			repo.getUserFriendsResult = tt.result
+			repo.getUserFriendsErr = tt.repoErr
+
+			svc := user_service.NewUserService(repo, &mockNotificationRepo{}, &mockS3Client{})
+			friends, err := svc.GetUserFriends(context.Background(), tt.userID)
+
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("expected error %v, got %v", tt.wantErr, err)
+			}
+			if len(friends) != tt.wantLen {
+				t.Errorf("expected %d friends, got %d", tt.wantLen, len(friends))
+			}
+		})
+	}
+}
+
+func TestGetFriendRequests(t *testing.T) {
+	tests := []struct {
+		name    string
+		userID  string
+		result  []user_model.FriendRequest
+		repoErr error
+		wantErr error
+		wantLen int
+	}{
+		{"success", "fb-alice", []user_model.FriendRequest{{}}, nil, nil, 1},
+		{"user not found", "unknown", nil, nil, user_service.ErrUserNotFound, 0},
+		{"repository error", "fb-alice", nil, errDatabase, errDatabase, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := newMockUserRepo()
+			repo.addUser(user_model.User{ID: testID(1), FirebaseUID: "fb-alice"}, true)
+			repo.getFriendRequestsResult = tt.result
+			repo.getFriendRequestsErr = tt.repoErr
+
+			svc := user_service.NewUserService(repo, &mockNotificationRepo{}, &mockS3Client{})
+			requests, err := svc.GetFriendRequests(context.Background(), tt.userID)
+
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("expected error %v, got %v", tt.wantErr, err)
+			}
+			if len(requests) != tt.wantLen {
+				t.Errorf("expected %d requests, got %d", tt.wantLen, len(requests))
+			}
+		})
+	}
+}
+
+func TestSendFriendRequest(t *testing.T) {
+	tests := []struct {
+		name     string
+		userID   string
+		targetID string
+		friends  bool
+		pending  bool
+		blocked  bool
+		repoErr  error
+		wantErr  error
+	}{
+		{"success", "fb-alice", "fb-bob", false, false, false, nil, nil},
+		{"user not found", "unknown", "fb-bob", false, false, false, nil, user_service.ErrUserNotFound},
+		{"target not found", "fb-alice", "unknown", false, false, false, nil, user_service.ErrUserNotFound},
+		{"same user", "fb-alice", "fb-alice", false, false, false, nil, user_service.ErrSameUser},
+		{"already friends", "fb-alice", "fb-bob", true, false, false, nil, user_service.ErrAlreadyFriends},
+		{"request already exists", "fb-alice", "fb-bob", false, true, false, nil, user_service.ErrRequestAlreadyExists},
+		{"blocked", "fb-alice", "fb-bob", false, false, true, nil, user_service.ErrIsBlocked},
+		{"are friends error", "fb-alice", "fb-bob", false, false, false, errDatabase, errDatabase},
+		{"pending request error", "fb-alice", "fb-bob", false, false, false, errDatabase, errDatabase},
+		{"blocked check error", "fb-alice", "fb-bob", false, false, false, errDatabase, errDatabase},
+		{"send request error", "fb-alice", "fb-bob", false, false, false, errDatabase, errDatabase},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := newMockUserRepo()
+			repo.addUser(user_model.User{ID: testID(1), FirebaseUID: "fb-alice"}, true)
+			repo.addUser(user_model.User{ID: testID(2), FirebaseUID: "fb-bob"}, true)
+
+			if tt.friends {
+				repo.friends[testID(1)] = map[pgtype.UUID]bool{testID(2): true}
+			}
+			repo.pendingRequestExists = tt.pending
+			repo.isBlockedResult = tt.blocked
+
+			switch tt.name {
+			case "are friends error":
+				repo.areFriendsErr = tt.repoErr
+			case "pending request error":
+				repo.pendingRequestErr = tt.repoErr
+			case "blocked check error":
+				repo.isBlockedErr = tt.repoErr
+			case "send request error":
+				repo.sendFriendRequestErr = tt.repoErr
+			}
+
+			svc := user_service.NewUserService(repo, &mockNotificationRepo{}, &mockS3Client{})
+			_, err := svc.SendFriendRequest(context.Background(), tt.userID, tt.targetID)
+
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("expected error %v, got %v", tt.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestFriendRequestActions(t *testing.T) {
+	actions := []struct {
+		name   string
+		call   func(user_service.Service, string, string, time.Time) (user_model.FriendRequest, error)
+		setErr func(*mockUserRepo, error)
+	}{
+		{
+			"accept",
+			func(s user_service.Service, u, target string, d time.Time) (user_model.FriendRequest, error) {
+				return s.AcceptFriendRequest(context.Background(), u, target, d)
+			},
+			func(r *mockUserRepo, err error) { r.acceptFriendRequestErr = err },
+		},
+		{
+			"deny",
+			func(s user_service.Service, u, target string, d time.Time) (user_model.FriendRequest, error) {
+				return s.DenyFriendRequest(context.Background(), u, target, d)
+			},
+			func(r *mockUserRepo, err error) { r.denyFriendRequestErr = err },
+		},
+	}
+
+	tests := []struct {
+		name     string
+		userID   string
+		targetID string
+		repoErr  error
+		wantErr  error
+	}{
+		{"success", "fb-alice", "fb-bob", nil, nil},
+		{"user not found", "unknown", "fb-bob", nil, user_service.ErrUserNotFound},
+		{"target not found", "fb-alice", "unknown", nil, user_service.ErrUserNotFound},
+		{"same user", "fb-alice", "fb-alice", nil, user_service.ErrSameUser},
+		{"request not found", "fb-alice", "fb-bob", pgx.ErrNoRows, user_service.ErrRequestNotFound},
+		{"repository error", "fb-alice", "fb-bob", errDatabase, errDatabase},
+	}
+
+	for _, action := range actions {
+		t.Run(action.name, func(t *testing.T) {
+			for _, tt := range tests {
+				t.Run(tt.name, func(t *testing.T) {
+					repo := newMockUserRepo()
+					notifRepo := &mockNotificationRepo{}
+
+					repo.addUser(user_model.User{ID: testID(1), FirebaseUID: "fb-alice", Username: "alice"}, true)
+					repo.addUser(user_model.User{ID: testID(2), FirebaseUID: "fb-bob", Username: "bob"}, true)
+
+					if tt.repoErr != nil {
+						action.setErr(repo, tt.repoErr)
+					}
+
+					svc := user_service.NewUserService(repo, notifRepo, &mockS3Client{})
+					_, err := action.call(svc, tt.userID, tt.targetID, time.Now())
+
+					if !errors.Is(err, tt.wantErr) {
+						t.Errorf("expected error %v, got %v", tt.wantErr, err)
+					}
+
+					if tt.wantErr == nil && len(notifRepo.created) != 1 {
+						t.Errorf("expected 1 notification, got %d", len(notifRepo.created))
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestUnfriend(t *testing.T) {
+	tests := []struct {
+		name     string
+		userID   string
+		targetID string
+		friends  bool
+		repoErr  error
+		wantErr  error
+	}{
+		{"success", "fb-alice", "fb-bob", true, nil, nil},
+		{"user not found", "unknown", "fb-bob", false, nil, user_service.ErrUserNotFound},
+		{"target not found", "fb-alice", "unknown", false, nil, user_service.ErrUserNotFound},
+		{"same user", "fb-alice", "fb-alice", false, nil, user_service.ErrSameUser},
+		{"not friends", "fb-alice", "fb-bob", false, nil, user_service.ErrNotFriends},
+		{"are friends error", "fb-alice", "fb-bob", false, errDatabase, errDatabase},
+		{"unfriend error", "fb-alice", "fb-bob", true, errDatabase, errDatabase},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := newMockUserRepo()
+			notifRepo := &mockNotificationRepo{}
+
+			repo.addUser(user_model.User{ID: testID(1), FirebaseUID: "fb-alice", Username: "alice"}, true)
+			repo.addUser(user_model.User{ID: testID(2), FirebaseUID: "fb-bob", Username: "bob"}, true)
+
+			if tt.friends {
+				repo.friends[testID(1)] = map[pgtype.UUID]bool{testID(2): true}
+			}
+
+			if tt.name == "are friends error" {
+				repo.areFriendsErr = tt.repoErr
+			} else {
+				repo.unfriendErr = tt.repoErr
+			}
+
+			svc := user_service.NewUserService(repo, notifRepo, &mockS3Client{})
+			err := svc.Unfriend(context.Background(), tt.userID, tt.targetID)
+
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("expected error %v, got %v", tt.wantErr, err)
+			}
+
+			if tt.wantErr == nil && len(notifRepo.created) != 1 {
+				t.Errorf("expected 1 notification, got %d", len(notifRepo.created))
+			}
+		})
+	}
+}
+
+func TestFriendActions_NotificationFailure(t *testing.T) {
+	tests := []struct {
+		name       string
+		getTypeErr error
+		createErr  error
+	}{
+		{"type lookup fails", errors.New("type error"), nil},
+		{"creation fails", nil, errors.New("creation error")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := newMockUserRepo()
+			alice := user_model.User{ID: testID(1), FirebaseUID: "fb-alice", Username: "alice"}
+			bob := user_model.User{ID: testID(2), FirebaseUID: "fb-bob", Username: "bob"}
+
+			repo.addUser(alice, true)
+			repo.addUser(bob, true)
+			repo.friends[alice.ID] = map[pgtype.UUID]bool{bob.ID: true}
+
+			notifRepo := &mockNotificationRepo{
+				getTypeErr: tt.getTypeErr,
+				createErr:  tt.createErr,
+			}
+
+			svc := user_service.NewUserService(repo, notifRepo, &mockS3Client{})
+
+			_, acceptErr := svc.AcceptFriendRequest(context.Background(), "fb-alice", "fb-bob", time.Now())
+			if acceptErr != nil {
+				t.Errorf("accept should succeed despite notification failure: %v", acceptErr)
+			}
+
+			_, denyErr := svc.DenyFriendRequest(context.Background(), "fb-alice", "fb-bob", time.Now())
+			if denyErr != nil {
+				t.Errorf("deny should succeed despite notification failure: %v", denyErr)
+			}
+
+			err := svc.Unfriend(context.Background(), "fb-alice", "fb-bob")
+			if err != nil {
+				t.Errorf("unfriend should succeed despite notification failure: %v", err)
+			}
+		})
+	}
 }
