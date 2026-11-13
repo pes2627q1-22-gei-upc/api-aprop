@@ -22,9 +22,11 @@ func NewAssistantHandler(assistantService assistant_service.Service, resolver re
 
 // RegisterRoutes registers the assistant endpoints.
 func (h *AssistantHandler) RegisterRoutes(mux *http.ServeMux) {
-	// Assistant handler: chatbot that recommends events of the catalogue (Gemini + MCP)
+	// Assistant handler: chatbot that recommends events of the catalogue (Groq with Gemini as backup, tool calling)
 	mux.HandleFunc("POST /assistant/messages", h.SendMessage)
 	mux.HandleFunc("GET /assistant/conversation", h.GetConversation)
+	mux.HandleFunc("GET /assistant/suggestions", h.GetSuggestions)
+	mux.HandleFunc("POST /assistant/feedback", h.SendFeedback)
 }
 
 // SendMessage handles POST /assistant/messages
@@ -59,4 +61,23 @@ func (h *AssistantHandler) GetConversation(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	response.WriteJSON(w, http.StatusOK, toConversationResponse(conversation))
+}
+
+// SendFeedback handles POST /assistant/feedback
+func (h *AssistantHandler) SendFeedback(w http.ResponseWriter, r *http.Request) {
+	userID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
+		return
+	}
+	var req feedbackRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodyBytes)).Decode(&req); err != nil ||
+		req.ConversationStartedAt.IsZero() || req.SentAt.IsZero() || req.Helpful == nil {
+		response.WriteError(w, http.StatusBadRequest, "invalid request body: conversation-started-at, sent-at and helpful are required")
+		return
+	}
+	if err := h.assistantService.SendFeedback(r.Context(), userID, req.ConversationStartedAt, req.SentAt, *req.Helpful); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

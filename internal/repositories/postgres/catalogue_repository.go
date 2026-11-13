@@ -34,6 +34,13 @@ func (r *CatalogueRepository) Search(ctx context.Context, filter catalogue_repos
 	if filter.To != nil {
 		params.ToDate = toDate(*filter.To)
 	}
+	if filter.UserID != "" {
+		uid, err := parseUUID(filter.UserID)
+		if err != nil {
+			return nil, err
+		}
+		params.UserID = uid
+	}
 	rows, err := r.queries.SearchEvents(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("search events: %w", err)

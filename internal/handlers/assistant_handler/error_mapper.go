@@ -19,6 +19,10 @@ func writeServiceError(w http.ResponseWriter, err error) {
 	case errors.Is(err, assistant_service.ErrInvalidMessage):
 		response.WriteError(w, http.StatusBadRequest,
 			fmt.Sprintf("invalid message: the text must have between 1 and %d characters", assistant_service.MaxMessageRunes))
+	case errors.Is(err, assistant_service.ErrTooManyMessages):
+		response.WriteError(w, http.StatusTooManyRequests, "too many messages, wait a minute and try again")
+	case errors.Is(err, assistant_service.ErrMessageNotFound):
+		response.WriteError(w, http.StatusNotFound, "assistant message not found")
 	case errors.Is(err, assistant_service.ErrConversationNotFound):
 		response.WriteError(w, http.StatusNotFound, "conversation not found")
 	case errors.Is(err, assistant_service.ErrAssistantTimeout):
