@@ -108,10 +108,11 @@ func (f *fakeNotificationRepository) GetNotificationTypeByName(name string) (int
 }
 func (f *fakeNotificationRepository) CreateReminders() ([]int32, error) { return []int32{}, nil }
 func (f *fakeNotificationRepository) CreateFriendSignupNotifications(id pgtype.UUID, event int, text string) ([]int32, error) {
-	if text == "apuntat a" {
-		f.created_on_signup++
-	} else if text == "desapuntat de" {
-		f.created_on_unenroll++
+	switch text {
+		case "apuntat a":
+			f.created_on_signup++
+		case "desapuntat de":
+			f.created_on_unenroll++
 	}
 	return []int32{}, nil
 }
