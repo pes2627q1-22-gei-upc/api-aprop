@@ -13,10 +13,10 @@ import (
 
 const createFriendSignupNotifications = `-- name: CreateFriendSignupNotifications :many
 INSERT INTO notifications (userid, notificationdate, type, event, friend, text)
-SELECT user2, now(), (select id from notificationtypes where name='Social'), $1::integer, $2::uuid,
+SELECT f.user2, now(), (select id from notificationtypes where name='Social'), $1::integer, $2::uuid,
 CONCAT((select username from users where id = $2::uuid), ' s''ha ', $3::varchar, ' ', (select title from events where id = $1::integer))
-FROM friendships
-WHERE user1 = $2::uuid
+FROM friendships f join users u on f.user1=u.id join settings s on u.settings=s.id
+WHERE f.user1 = $2::uuid and s.showplans
 RETURNING id
 `
 

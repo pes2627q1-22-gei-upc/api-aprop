@@ -40,8 +40,8 @@ returning id;
 
 -- name: CreateFriendSignupNotifications :many
 INSERT INTO notifications (userid, notificationdate, type, event, friend, text)
-SELECT user2, now(), (select id from notificationtypes where name='Social'), @event::integer, @userid::uuid,
+SELECT f.user2, now(), (select id from notificationtypes where name='Social'), @event::integer, @userid::uuid,
 CONCAT((select username from users where id = @userid::uuid), ' s''ha ', @signuptext::varchar, ' ', (select title from events where id = @event::integer))
-FROM friendships
-WHERE user1 = @userid::uuid
+FROM friendships f join users u on f.user1=u.id join settings s on u.settings=s.id
+WHERE f.user1 = @userid::uuid and s.showplans
 RETURNING id;
