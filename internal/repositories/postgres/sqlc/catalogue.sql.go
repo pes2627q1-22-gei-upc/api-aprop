@@ -66,21 +66,38 @@ func (q *Queries) ListEventsByIDs(ctx context.Context, ids []int32) ([]Event, er
 
 const searchEvents = `-- name: SearchEvents :many
 SELECT e.id, e.title, e.subtitle, e.description, e.schedule, e.url, e.tickets, e.ticketsurl, e.free, e.permanent, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone, e.activityurl, e.startdate, e.enddate, e.modality, e.place, e.latitude, e.longitude, e.postalcode, e.municipality, e.region, e.address FROM Events e
-WHERE ($1::text IS NULL OR e.Municipality ILIKE '%' || $1::text || '%')
+WHERE ($1::text IS NULL OR unaccent(e.Municipality) ILIKE '%' || unaccent($1::text) || '%')
 AND (
     $2::text IS NULL
     OR EXISTS (
         SELECT 1 FROM EventCategories ec
         JOIN Categories c ON c.ID = ec.Category
-        WHERE ec.Event = e.ID AND c.Name ILIKE '%' || $2::text || '%'
+        WHERE ec.Event = e.ID AND unaccent(c.Name) ILIKE '%' || unaccent($2::text) || '%'
     )
-    OR e.Title ILIKE '%' || $2::text || '%'
-    OR e.Subtitle ILIKE '%' || $2::text || '%'
-    OR e.Description ILIKE '%' || $2::text || '%'
+    OR unaccent(e.Title) ILIKE '%' || unaccent($2::text) || '%'
+    OR unaccent(e.Subtitle) ILIKE '%' || unaccent($2::text) || '%'
+    OR unaccent(e.Description) ILIKE '%' || unaccent($2::text) || '%'
 )
 AND ($3::date IS NULL OR e.StartDate <= $3::date)
 AND ($4::date IS NULL OR COALESCE(e.EndDate, e.StartDate) >= $4::date)
-ORDER BY e.StartDate NULLS LAST, e.ID
+-- Relevance of the text (title 3, category 2, subtitle 1, description 1) plus the largest preference weight
+-- of the user over the event categories (1 when unknown), then soonest first.
+ORDER BY (
+    CASE WHEN $2::text IS NULL THEN 0 ELSE
+        (CASE WHEN unaccent(e.Title) ILIKE '%' || unaccent($2::text) || '%' THEN 3 ELSE 0 END)
+        + (CASE WHEN EXISTS (
+            SELECT 1 FROM EventCategories ec JOIN Categories c ON c.ID = ec.Category
+            WHERE ec.Event = e.ID AND unaccent(c.Name) ILIKE '%' || unaccent($2::text) || '%'
+        ) THEN 2 ELSE 0 END)
+        + (CASE WHEN unaccent(e.Subtitle) ILIKE '%' || unaccent($2::text) || '%' THEN 1 ELSE 0 END)
+        + (CASE WHEN unaccent(e.Description) ILIKE '%' || unaccent($2::text) || '%' THEN 1 ELSE 0 END)
+    END
+    + COALESCE((
+        SELECT MAX(up.Weight) FROM EventCategories ec
+        JOIN UserPreferences up ON up.Category = ec.Category
+        WHERE ec.Event = e.ID AND up.UserID = $6::uuid
+    ), 1)
+) DESC, e.StartDate NULLS LAST, e.ID
 LIMIT $5::integer
 `
 
@@ -90,11 +107,11 @@ type SearchEventsParams struct {
 	ToDate       pgtype.Date
 	FromDate     pgtype.Date
 	MaxResults   int32
+	UserID       pgtype.UUID
 }
 
 // Events matching the optional filters that overlap the [from_date, to_date] range.
-// Categories are not imported from the open data yet, so the category also matches the title and description.
-// TODO(DP-018): matching is accent sensitive (needs the unaccent extension or a normalized column).
+// The category also matches the title and description; matching ignores accents (unaccent extension).
 func (q *Queries) SearchEvents(ctx context.Context, arg SearchEventsParams) ([]Event, error) {
 	rows, err := q.db.Query(ctx, searchEvents,
 		arg.Municipality,
@@ -102,6 +119,7 @@ func (q *Queries) SearchEvents(ctx context.Context, arg SearchEventsParams) ([]E
 		arg.ToDate,
 		arg.FromDate,
 		arg.MaxResults,
+		arg.UserID,
 	)
 	if err != nil {
 		return nil, err

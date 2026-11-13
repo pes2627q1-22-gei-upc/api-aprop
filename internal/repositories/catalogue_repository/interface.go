@@ -14,12 +14,14 @@ type SearchFilter struct {
 	From         *time.Time
 	To           *time.Time
 	Limit        int
+	// UserID, when set, ranks the events of the categories the user prefers first.
+	UserID string
 }
 
 // Repository reads the events catalogue for the chatbot.
 type Repository interface {
 	// Search returns the events matching the filter that overlap the date range,
-	// ordered by start date and id.
+	// ranked by text relevance and the preferences of the user, then by start date and id.
 	Search(ctx context.Context, filter SearchFilter) ([]event_model.Event, error)
 	// ListByIDs returns the existing events in the order of ids. Missing ids are skipped.
 	ListByIDs(ctx context.Context, ids []int) ([]event_model.Event, error)
