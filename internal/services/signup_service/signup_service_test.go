@@ -6,7 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"api-aprop/internal/models/event_model"
+	"api-aprop/internal/models/notification_model"
 	"api-aprop/internal/models/signup_model"
 	"api-aprop/internal/repositories/signup_repository"
 )
@@ -81,6 +84,39 @@ func (f *fakeEventRepository) ListMapEvents(ctx context.Context, filter event_mo
 	return []event_model.MapEvent{}, nil
 }
 
+type fakeNotificationRepository struct {
+	created_on_signup   int
+	created_on_unenroll int
+}
+
+func (f *fakeNotificationRepository) Get(id int) (notification_model.Notification, error) {
+	return notification_model.Notification{}, nil
+}
+func (f *fakeNotificationRepository) Create(notification_model.Notification) (int, error) {
+	return 0, nil
+}
+func (f *fakeNotificationRepository) GetUserNotifications(id pgtype.UUID, params map[string]any) ([]notification_model.Notification, error) {
+	return []notification_model.Notification{}, nil
+}
+func (f *fakeNotificationRepository) ReadNotification(id int) error              { return nil }
+func (f *fakeNotificationRepository) ReadUserNotifications(id pgtype.UUID) error { return nil }
+func (f *fakeNotificationRepository) GetNotificationTypes() ([]notification_model.NotificationType, error) {
+	return []notification_model.NotificationType{}, nil
+}
+func (f *fakeNotificationRepository) GetNotificationTypeByName(name string) (int, error) {
+	return 0, nil
+}
+func (f *fakeNotificationRepository) CreateReminders() ([]int32, error) { return []int32{}, nil }
+func (f *fakeNotificationRepository) CreateFriendSignupNotifications(id pgtype.UUID, event int, text string) ([]int32, error) {
+	switch text {
+	case "apuntat a":
+		f.created_on_signup++
+	case "desapuntat de":
+		f.created_on_unenroll++
+	}
+	return []int32{}, nil
+}
+
 func (f *fakeRepository) Create(_ context.Context, userID string, eventID int) (bool, error) {
 	f.createCalls++
 	f.gotUserID = userID
@@ -149,7 +185,7 @@ func TestSignUp(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := tt.repo
 			eventRepo := tt.eventRepo
-			s := NewSignUpService(&repo, &eventRepo)
+			s := NewSignUpService(&repo, &eventRepo, &fakeNotificationRepository{})
 
 			got, err := s.SignUp(context.Background(), tt.userID, tt.eventID)
 
@@ -173,7 +209,7 @@ func TestSignUp(t *testing.T) {
 func TestSignUpNormalizesUserID(t *testing.T) {
 	repo := fakeRepository{created: true}
 	eventRepo := fakeEventRepository{exists: true}
-	s := NewSignUpService(&repo, &eventRepo)
+	s := NewSignUpService(&repo, &eventRepo, &fakeNotificationRepository{})
 
 	got, err := s.SignUp(context.Background(), "3F2504E0-4F89-11D3-9A0C-0305E82C3301", 1)
 	if err != nil {
@@ -211,7 +247,7 @@ func TestListUserEvents(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := tt.repo
 			eventRepo := fakeEventRepository{}
-			s := NewSignUpService(&repo, &eventRepo)
+			s := NewSignUpService(&repo, &eventRepo, &fakeNotificationRepository{})
 
 			got, err := s.ListUserEvents(context.Background(), tt.userID, tt.dateRange)
 
@@ -266,7 +302,7 @@ func TestUnenroll(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := tt.repo
 			eventRepo := tt.eventRepo
-			s := NewSignUpService(&repo, &eventRepo)
+			s := NewSignUpService(&repo, &eventRepo, &fakeNotificationRepository{})
 
 			got, err := s.Unenroll(context.Background(), tt.userID, tt.eventID)
 
@@ -351,7 +387,7 @@ func TestGetEnrollmentStatus(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := tt.repo
 			eventRepo := tt.eventRepo
-			s := NewSignUpService(&repo, &eventRepo)
+			s := NewSignUpService(&repo, &eventRepo, &fakeNotificationRepository{})
 
 			got, err := s.GetEnrollmentStatus(context.Background(), tt.userID, tt.eventID)
 
@@ -363,6 +399,104 @@ func TestGetEnrollmentStatus(t *testing.T) {
 			}
 			if got != tt.wantStatus {
 				t.Errorf("GetEnrollmentStatus = %+v, want %+v", got, tt.wantStatus)
+			}
+		})
+	}
+}
+
+func TestSignupNotifications(t *testing.T) {
+	tests := []struct {
+		name               string
+		userID             string
+		eventID            int
+		repo               fakeRepository
+		eventRepo          fakeEventRepository
+		wantErr            error
+		wantCreated        bool
+		wantCreate         int
+		notifRepo          fakeNotificationRepository
+		wantSignupNotifs   int
+		wantUnenrollNotifs int
+	}{
+		{name: "new sign up", userID: validUserID, eventID: 1, repo: fakeRepository{created: true}, eventRepo: fakeEventRepository{exists: true}, wantCreated: true, wantCreate: 1, notifRepo: fakeNotificationRepository{}, wantSignupNotifs: 1, wantUnenrollNotifs: 0},
+		{name: "signup fails", userID: "bad-id", eventID: 1, repo: fakeRepository{created: true}, eventRepo: fakeEventRepository{exists: true}, wantErr: ErrInvalidUserID, wantCreated: false, wantCreate: 0, notifRepo: fakeNotificationRepository{}, wantSignupNotifs: 0, wantUnenrollNotifs: 0},
+		{name: "signup already exists", userID: validUserID, eventID: 1, repo: fakeRepository{created: false}, eventRepo: fakeEventRepository{exists: true}, wantCreated: false, wantCreate: 1, notifRepo: fakeNotificationRepository{}, wantSignupNotifs: 0, wantUnenrollNotifs: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := tt.repo
+			eventRepo := tt.eventRepo
+			s := NewSignUpService(&repo, &eventRepo, &tt.notifRepo)
+
+			got, err := s.SignUp(context.Background(), tt.userID, tt.eventID)
+
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("error = %v, want %v", err, tt.wantErr)
+			}
+			if repo.createCalls != tt.wantCreate {
+				t.Errorf("Create calls = %d, want %d", repo.createCalls, tt.wantCreate)
+			}
+			if tt.wantErr != nil {
+				return
+			}
+			want := signup_model.SignUp{UserID: tt.userID, EventID: tt.eventID, Created: tt.wantCreated}
+			if got != want {
+				t.Errorf("SignUp = %+v, want %+v", got, want)
+			}
+			if tt.notifRepo.created_on_signup != tt.wantSignupNotifs {
+				t.Errorf("Create notification calls for signup = %d, want %d", tt.notifRepo.created_on_signup, tt.wantSignupNotifs)
+			}
+			if tt.notifRepo.created_on_unenroll != tt.wantUnenrollNotifs {
+				t.Errorf("Create notification calls for unenroll = %d, want %d", tt.notifRepo.created_on_unenroll, tt.wantUnenrollNotifs)
+			}
+		})
+	}
+}
+
+func TestUnenrollNotifications(t *testing.T) {
+	tests := []struct {
+		name               string
+		userID             string
+		eventID            int
+		repo               fakeRepository
+		eventRepo          fakeEventRepository
+		wantErr            error
+		wantDeleted        bool
+		wantDelete         int
+		notifRepo          fakeNotificationRepository
+		wantSignupNotifs   int
+		wantUnenrollNotifs int
+	}{
+		{name: "new unenroll", userID: validUserID, eventID: 1, repo: fakeRepository{deleted: true}, eventRepo: fakeEventRepository{exists: true}, wantDeleted: true, wantDelete: 1, notifRepo: fakeNotificationRepository{}, wantSignupNotifs: 0, wantUnenrollNotifs: 1},
+		{name: "unenroll fails", userID: "bad-id", eventID: 1, repo: fakeRepository{deleted: true}, eventRepo: fakeEventRepository{exists: true}, wantErr: ErrInvalidUserID, wantDeleted: false, wantDelete: 0, notifRepo: fakeNotificationRepository{}, wantSignupNotifs: 0, wantUnenrollNotifs: 0},
+		{name: "not enrolled", userID: validUserID, eventID: 1, repo: fakeRepository{deleted: false}, eventRepo: fakeEventRepository{exists: true}, wantDeleted: false, wantDelete: 1, notifRepo: fakeNotificationRepository{}, wantSignupNotifs: 0, wantUnenrollNotifs: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := tt.repo
+			eventRepo := tt.eventRepo
+			s := NewSignUpService(&repo, &eventRepo, &tt.notifRepo)
+
+			got, err := s.Unenroll(context.Background(), tt.userID, tt.eventID)
+
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("error = %v, want %v", err, tt.wantErr)
+			}
+			if repo.deleteCalls != tt.wantDelete {
+				t.Errorf("Delete calls = %d, want %d", repo.deleteCalls, tt.wantDelete)
+			}
+			if tt.wantErr != nil {
+				return
+			}
+			want := signup_model.Unenroll{UserID: tt.userID, EventID: tt.eventID, Deleted: tt.wantDeleted}
+			if got != want {
+				t.Errorf("Unenroll = %+v, want %+v", got, want)
+			}
+			if tt.notifRepo.created_on_signup != tt.wantSignupNotifs {
+				t.Errorf("Create notification calls for signup = %d, want %d", tt.notifRepo.created_on_signup, tt.wantSignupNotifs)
+			}
+			if tt.notifRepo.created_on_unenroll != tt.wantUnenrollNotifs {
+				t.Errorf("Create notification calls for unenroll = %d, want %d", tt.notifRepo.created_on_unenroll, tt.wantUnenrollNotifs)
 			}
 		})
 	}

@@ -11,27 +11,62 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const createFriendSignupNotifications = `-- name: CreateFriendSignupNotifications :many
+INSERT INTO notifications (userid, notificationdate, type, event, friend, text)
+SELECT f.user2, now(), (select id from notificationtypes where name='Social'), $1::integer, $2::uuid,
+CONCAT((select username from users where id = $2::uuid), ' s''ha ', $3::varchar, ' ', (select title from events where id = $1::integer))
+FROM friendships f join users u on f.user1=u.id join settings s on u.settings=s.id
+WHERE f.user1 = $2::uuid and s.showplans
+RETURNING id
+`
+
+type CreateFriendSignupNotificationsParams struct {
+	Event      int32
+	Userid     pgtype.UUID
+	Signuptext string
+}
+
+func (q *Queries) CreateFriendSignupNotifications(ctx context.Context, arg CreateFriendSignupNotificationsParams) ([]int32, error) {
+	rows, err := q.db.Query(ctx, createFriendSignupNotifications, arg.Event, arg.Userid, arg.Signuptext)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int32
+	for rows.Next() {
+		var id int32
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createNotification = `-- name: CreateNotification :one
-INSERT INTO notifications (userid, notificationdate, friend, requestdate, event, type) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id
+INSERT INTO notifications (userid, notificationdate, friend, requestdate, event, type, text) VALUES ($1, now(), $2, $3, $4, $5, $6) RETURNING id
 `
 
 type CreateNotificationParams struct {
-	Userid           pgtype.UUID
-	Notificationdate pgtype.Timestamp
-	Friend           pgtype.UUID
-	Requestdate      pgtype.Timestamp
-	Event            pgtype.Int4
-	Type             int32
+	Userid      pgtype.UUID
+	Friend      pgtype.UUID
+	Requestdate pgtype.Timestamp
+	Event       pgtype.Int4
+	Type        int32
+	Text        string
 }
 
 func (q *Queries) CreateNotification(ctx context.Context, arg CreateNotificationParams) (int32, error) {
 	row := q.db.QueryRow(ctx, createNotification,
 		arg.Userid,
-		arg.Notificationdate,
 		arg.Friend,
 		arg.Requestdate,
 		arg.Event,
 		arg.Type,
+		arg.Text,
 	)
 	var id int32
 	err := row.Scan(&id)
@@ -39,8 +74,8 @@ func (q *Queries) CreateNotification(ctx context.Context, arg CreateNotification
 }
 
 const createReminders = `-- name: CreateReminders :many
-INSERT INTO notifications (userid, notificationdate, type, event)
-SELECT su.userid, now(), (SELECT id from notificationtypes where name='Recordatori'), e.id
+INSERT INTO notifications (userid, notificationdate, type, event, text)
+SELECT su.userid, now(), (SELECT id from notificationtypes where name='Recordatori'), e.id, CONCAT(e.title, ' comença aviat. No hi faltis!')
 from signup su join events e on e.id=su.event join users u on u.id=su.userid join settings st on st.id=u.settings
 left join notifications n on (n.event=e.id and n.userid=su.userid)
 where n.id is null and e.startdate - now() > '0 seconds'::interval and e.startdate - now() < st.notificationbefore
@@ -68,7 +103,7 @@ func (q *Queries) CreateReminders(ctx context.Context) ([]int32, error) {
 }
 
 const getNotification = `-- name: GetNotification :one
-SELECT notificationdate, requestdate, event, type, id, read, userid, friend FROM notifications where id = $1
+SELECT notificationdate, requestdate, event, type, id, read, userid, friend, text FROM notifications where id = $1
 `
 
 func (q *Queries) GetNotification(ctx context.Context, id int32) (Notification, error) {
@@ -83,8 +118,20 @@ func (q *Queries) GetNotification(ctx context.Context, id int32) (Notification, 
 		&i.Read,
 		&i.Userid,
 		&i.Friend,
+		&i.Text,
 	)
 	return i, err
+}
+
+const getNotificationTypeByName = `-- name: GetNotificationTypeByName :one
+SELECT id FROM notificationtypes where name = $1
+`
+
+func (q *Queries) GetNotificationTypeByName(ctx context.Context, name string) (int32, error) {
+	row := q.db.QueryRow(ctx, getNotificationTypeByName, name)
+	var id int32
+	err := row.Scan(&id)
+	return id, err
 }
 
 const getNotificationTypes = `-- name: GetNotificationTypes :many
@@ -112,8 +159,9 @@ func (q *Queries) GetNotificationTypes(ctx context.Context) ([]Notificationtype,
 }
 
 const getUserNotifications = `-- name: GetUserNotifications :many
-SELECT notificationdate, requestdate, event, type, id, read, userid, friend FROM notifications where userid = $1
+SELECT notificationdate, requestdate, event, type, id, read, userid, friend, text FROM notifications where userid = $1
 and ($2::integer = 0 or type = $2::integer)
+ORDER BY notificationdate desc
 `
 
 type GetUserNotificationsParams struct {
@@ -139,6 +187,7 @@ func (q *Queries) GetUserNotifications(ctx context.Context, arg GetUserNotificat
 			&i.Read,
 			&i.Userid,
 			&i.Friend,
+			&i.Text,
 		); err != nil {
 			return nil, err
 		}

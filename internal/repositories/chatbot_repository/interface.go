@@ -17,4 +17,7 @@ type Repository interface {
 	SaveMessages(ctx context.Context, userID string, conversationStartedAt time.Time, messages ...chatbot_model.Message) error
 	// ListMessages returns the messages of the conversation ordered by date, with their recommended events.
 	ListMessages(ctx context.Context, userID string, conversationStartedAt time.Time) ([]chatbot_model.Message, error)
+	// SaveFeedback stores (or replaces) the rating of an assistant message,
+	// or returns ErrMessageNotFound if the user has no assistant message with that key.
+	SaveFeedback(ctx context.Context, userID string, conversationStartedAt, sentAt time.Time, helpful bool) error
 }

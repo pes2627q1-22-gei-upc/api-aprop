@@ -225,3 +225,26 @@ func (q *Queries) ListChatbotRecommendations(ctx context.Context, arg ListChatbo
 	}
 	return items, nil
 }
+
+const upsertChatbotFeedback = `-- name: UpsertChatbotFeedback :exec
+INSERT INTO ChatbotFeedback (UserID, ConversationStartedAt, SentAt, Helpful)
+VALUES ($1::uuid, $2::timestamptz, $3::timestamptz, $4::boolean)
+ON CONFLICT (UserID, ConversationStartedAt, SentAt) DO UPDATE SET Helpful = EXCLUDED.Helpful, CreatedAt = now()
+`
+
+type UpsertChatbotFeedbackParams struct {
+	UserID                pgtype.UUID
+	ConversationStartedAt pgtype.Timestamptz
+	SentAt                pgtype.Timestamptz
+	Helpful               bool
+}
+
+func (q *Queries) UpsertChatbotFeedback(ctx context.Context, arg UpsertChatbotFeedbackParams) error {
+	_, err := q.db.Exec(ctx, upsertChatbotFeedback,
+		arg.UserID,
+		arg.ConversationStartedAt,
+		arg.SentAt,
+		arg.Helpful,
+	)
+	return err
+}

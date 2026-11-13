@@ -81,7 +81,7 @@ RETURNING *;
 SELECT user2 from friendships where user1=$1;
 
 -- name: GetFriendRequests :many
-SELECT * from friendrequests where state='Pending'::friendrequeststate and receiver=$1;
+SELECT * from friendrequests where state='Pending'::friendrequeststate and receiver=$1 ORDER BY datesent DESC;
 
 -- name: IsBlocked :one
 SELECT EXISTS (SELECT 1 from blocked where (blockeduser = $1 and blockinguser = $2) or (blockeduser = $2 and blockinguser = $1) limit 1);

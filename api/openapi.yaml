@@ -1040,8 +1040,16 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '500':
           $ref: '#/components/responses/InternalError'
+        '429':
+          description: Massa missatges (màxim 20 per minut per usuari); es pot reintentar passat un minut
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: too many messages, wait a minute and try again
         '502':
-          description: Groq AI o el servidor MCP no responen correctament
+          description: Groq AI (i Gemini, si està configurat) no responen correctament
           content:
             application/json:
               schema:
@@ -1081,6 +1089,70 @@ paths:
                 error: conversation not found
         '500':
           $ref: '#/components/responses/InternalError'
+
+  /assistant/feedback:
+    post:
+      tags: [assistant]
+      operationId: sendAssistantFeedback
+      summary: Valora una resposta del xatbot (útil o no)
+      description: |
+        Identifica la resposta amb `conversation-started-at` i el `sent-at` del missatge del xatbot,
+        tal com es van retornar en enviar-lo. Valorar-la una altra vegada substitueix la valoració.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeedbackRequest'
+      responses:
+        '204':
+          description: Valoració desada
+        '400':
+          description: Cos invàlid (falta `conversation-started-at`, `sent-at` o `helpful`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: L'usuari no té cap missatge del xatbot amb aquesta clau
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: assistant message not found
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /assistant/suggestions:
+    get:
+      tags: [assistant]
+      operationId: getAssistantSuggestions
+      summary: Preguntes d'exemple per mostrar com a respostes ràpides
+      parameters:
+        - name: lang
+          in: query
+          description: Idioma (`ca` per defecte)
+          schema:
+            type: string
+            enum: [ca, es, en]
+      responses:
+        '200':
+          description: Llista de preguntes
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [suggestions]
+                properties:
+                  suggestions:
+                    type: array
+                    items:
+                      type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
 components:
   securitySchemes:
@@ -1931,6 +2003,34 @@ components:
           description: Només als missatges del xatbot (R12)
           items:
             $ref: '#/components/schemas/Event'
+        action:
+          $ref: '#/components/schemas/AssistantAction'
+
+    AssistantAction:
+      type: object
+      required: [screen]
+      description: |
+        Pantalla de l'app que la resposta suggereix obrir (p. ex. un botó «Obre Perfil»). Només hi és a la
+        resposta que s'acaba d'enviar; no es desa, així que `GET /assistant/conversation` no el retorna.
+        El client ha d'ignorar els valors que no coneix.
+      properties:
+        screen:
+          type: string
+          enum: [home, agenda, discover, notifications, profile, settings, interest-test]
+
+    FeedbackRequest:
+      type: object
+      required: [conversation-started-at, sent-at, helpful]
+      properties:
+        conversation-started-at:
+          type: string
+          format: date-time
+        sent-at:
+          type: string
+          format: date-time
+          description: '`sent-at` del missatge del xatbot que es valora'
+        helpful:
+          type: boolean
 
     Exchange:
       type: object

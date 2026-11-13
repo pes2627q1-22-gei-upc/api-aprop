@@ -31,10 +31,8 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Compile executables (cmd/app, cmd/mcp)
-        run: |
-          go build -v ./cmd/app
-          go build -v ./cmd/mcp
+      - name: Compile executable (cmd/app)
+        run: go build -v ./cmd/app
 
       - name: Run unit and integration tests
         run: go test -race -coverprofile=coverage.out ./...
