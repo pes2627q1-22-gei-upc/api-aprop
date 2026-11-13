@@ -341,7 +341,7 @@ func (r *UserRepository) AcceptFriendRequest(ctx context.Context, userid pgtype.
 		return user_model.FriendRequest{}, err
 	}
 	defer func() {
-    	_ = tx.Rollback(ctx)
+		_ = tx.Rollback(ctx)
 	}()
 
 	qtx := r.queries.WithTx(tx)

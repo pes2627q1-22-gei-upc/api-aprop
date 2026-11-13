@@ -7,19 +7,24 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gofrs/uuid/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/models/signup_model"
 	"api-aprop/internal/repositories/event_repository"
+	"api-aprop/internal/repositories/notification_repository"
 	"api-aprop/internal/repositories/signup_repository"
 )
 
 type SignUpService struct {
-	signUpRepository signup_repository.Repository
-	eventRepository  event_repository.Repository
+	signUpRepository       signup_repository.Repository
+	eventRepository        event_repository.Repository
+	notificationRepository notification_repository.Repository
 }
 
-func NewSignUpService(signUpRepository signup_repository.Repository, eventRepository event_repository.Repository) *SignUpService {
-	return &SignUpService{signUpRepository: signUpRepository, eventRepository: eventRepository}
+func NewSignUpService(signUpRepository signup_repository.Repository, eventRepository event_repository.Repository, notificationRepository notification_repository.Repository) *SignUpService {
+	return &SignUpService{signUpRepository: signUpRepository, eventRepository: eventRepository, notificationRepository: notificationRepository}
 }
 
 // SignUp signs the user up to the event. Signing up twice is not an error: Created is false.
@@ -53,6 +58,11 @@ func (s *SignUpService) SignUp(ctx context.Context, userID string, eventID int) 
 	}
 	if err != nil {
 		return signup_model.SignUp{}, err
+	} else if created {
+		uuid, err := uuid.FromString(userID)
+		if err == nil {
+			_, _ = s.notificationRepository.CreateFriendSignupNotifications(pgtype.UUID{Bytes: [16]byte(uuid), Valid: true}, eventID, "apuntat a")
+		}
 	}
 	return signup_model.SignUp{UserID: userID, EventID: eventID, Created: created}, nil
 }
@@ -78,6 +88,11 @@ func (s *SignUpService) Unenroll(ctx context.Context, userID string, eventID int
 	deleted, err := s.signUpRepository.Delete(ctx, userID, eventID)
 	if err != nil {
 		return signup_model.Unenroll{}, err
+	} else if deleted {
+		uuid, err := uuid.FromString(userID)
+		if err == nil {
+			_, _ = s.notificationRepository.CreateFriendSignupNotifications(pgtype.UUID{Bytes: [16]byte(uuid), Valid: true}, eventID, "desapuntat de")
+		}
 	}
 	return signup_model.Unenroll{UserID: userID, EventID: eventID, Enrolled: false, Deleted: deleted}, nil
 }

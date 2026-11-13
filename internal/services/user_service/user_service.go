@@ -16,7 +16,9 @@ import (
 
 	"api-aprop/internal/clients/s3_client"
 	"api-aprop/internal/models/event_model"
+	"api-aprop/internal/models/notification_model"
 	"api-aprop/internal/models/user_model"
+	"api-aprop/internal/repositories/notification_repository"
 	"api-aprop/internal/repositories/user_repository"
 )
 
@@ -28,16 +30,18 @@ const (
 )
 
 type userService struct {
-	userRepo user_repository.Repository
-	s3Client s3_client.Client
+	userRepo         user_repository.Repository
+	notificationRepo notification_repository.Repository
+	s3Client         s3_client.Client
 }
 
 var _ Service = (*userService)(nil)
 
-func NewUserService(userRepo user_repository.Repository, s3Client s3_client.Client) Service {
+func NewUserService(userRepo user_repository.Repository, notificationRepo notification_repository.Repository, s3Client s3_client.Client) Service {
 	return &userService{
-		userRepo: userRepo,
-		s3Client: s3Client,
+		userRepo:         userRepo,
+		notificationRepo: notificationRepo,
+		s3Client:         s3Client,
 	}
 }
 
@@ -346,6 +350,18 @@ func (s *userService) AcceptFriendRequest(ctx context.Context, userid string, ta
 		return user_model.FriendRequest{}, ErrRequestNotFound
 	} else if err != nil {
 		return user_model.FriendRequest{}, err
+	} else {
+		// If it fails to create the notification, the AcceptFriendRequest operation should still return properly if accepting succeeded
+		nottype, err := s.notificationRepo.GetNotificationTypeByName("Social")
+		if err == nil {
+			_, _ = s.notificationRepo.Create(notification_model.Notification{
+				UserID:      targetuuid,
+				Friend:      id,
+				Type:        nottype,
+				RequestDate: pgtype.Timestamp{Time: date, Valid: true},
+				Text:        fmt.Sprintf("%s ha acceptat la teva sol·licitud d'amistat", user.Username),
+			})
+		}
 	}
 
 	return friendreq, nil
@@ -373,6 +389,18 @@ func (s *userService) DenyFriendRequest(ctx context.Context, userid string, targ
 		return user_model.FriendRequest{}, ErrRequestNotFound
 	} else if err != nil {
 		return user_model.FriendRequest{}, err
+	} else {
+		// If it fails to create the notification, the AcceptFriendRequest operation should still return properly if accepting succeeded
+		nottype, err := s.notificationRepo.GetNotificationTypeByName("Social")
+		if err == nil {
+			_, _ = s.notificationRepo.Create(notification_model.Notification{
+				UserID:      targetuuid,
+				Friend:      id,
+				Type:        nottype,
+				RequestDate: pgtype.Timestamp{Time: date, Valid: true},
+				Text:        fmt.Sprintf("%s ha rebutjat la teva sol·licitud d'amistat", user.Username),
+			})
+		}
 	}
 
 	return friendreq, nil
@@ -404,6 +432,20 @@ func (s *userService) Unfriend(ctx context.Context, userid string, targetid stri
 	}
 
 	err = s.userRepo.Unfriend(ctx, id, targetuuid)
+
+	if err == nil {
+		// If it fails to create the notification, the Unfriend operation should still return properly if unfriending succeeded
+		nottype, err := s.notificationRepo.GetNotificationTypeByName("Social")
+		if err == nil {
+			_, _ = s.notificationRepo.Create(notification_model.Notification{
+				UserID: targetuuid,
+				Friend: id,
+				Type:   nottype,
+				Text:   fmt.Sprintf("%s ha eliminat la seva amistat amb tu", user.Username),
+			})
+		}
+	}
+
 	return err
 }
 

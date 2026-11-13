@@ -155,7 +155,7 @@ func (q *Queries) DenyFriendRequest(ctx context.Context, arg DenyFriendRequestPa
 }
 
 const getFriendRequests = `-- name: GetFriendRequests :many
-SELECT sender, receiver, datesent, state, dateresolved from friendrequests where state='Pending'::friendrequeststate and receiver=$1
+SELECT sender, receiver, datesent, state, dateresolved from friendrequests where state='Pending'::friendrequeststate and receiver=$1 ORDER BY datesent DESC
 `
 
 func (q *Queries) GetFriendRequests(ctx context.Context, receiver pgtype.UUID) ([]Friendrequest, error) {

@@ -235,9 +235,9 @@ func main() {
 		chatbotRepository, catalogueRepository, chatClient,
 		func() time.Time { return time.Now().In(location) }, assistant_service.ReplyTimeout,
 	).WithPreferences(preferenceRepository)
-	signUpService := signup_service.NewSignUpService(signUpRepository, eventRepository)
+	signUpService := signup_service.NewSignUpService(signUpRepository, eventRepository, notificationRepository)
 	authService := auth_service.NewAuthService(authRepository)
-	userService := user_service.NewUserService(userRepository, s3Client)
+	userService := user_service.NewUserService(userRepository, notificationRepository, s3Client)
 	notificationService := notification_service.NewNotificationService(notificationRepository)
 	preferenceService := preference_service.NewPreferenceService(preferenceRepository)
 
