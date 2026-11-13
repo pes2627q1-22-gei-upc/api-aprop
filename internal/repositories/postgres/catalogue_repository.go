@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"api-aprop/internal/models/event_model"
+	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/repositories/catalogue_repository"
 	"api-aprop/internal/repositories/postgres/sqlc"
 )
@@ -35,7 +36,7 @@ func (r *CatalogueRepository) Search(ctx context.Context, filter catalogue_repos
 		params.ToDate = toDate(*filter.To)
 	}
 	if filter.UserID != "" {
-		uid, err := parseUUID(filter.UserID)
+		uid, err := user_model.ParseID(filter.UserID)
 		if err != nil {
 			return nil, err
 		}

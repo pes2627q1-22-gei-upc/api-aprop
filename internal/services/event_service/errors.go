@@ -1,6 +1,10 @@
 package event_service
 
-import "errors"
+import (
+	"errors"
+
+	"api-aprop/internal/models/user_model"
+)
 
 var (
 	ErrEventNotFound           = errors.New("event not found")
@@ -13,8 +17,7 @@ var (
 	ErrInvalidEventDates       = errors.New("invalid event dates: start date must be in the future and end date after start date")
 	ErrInvalidCoordinates      = errors.New("coordinates are out of valid range")
 	ErrInvalidBoundingBox      = errors.New("invalid bounding box")
-	ErrInvalidUserID           = errors.New("invalid user id")
-	ErrUserNotRegistered       = errors.New("user not registered")
+	ErrInvalidUserID           = user_model.ErrInvalidID
 	ErrInvalidContentType      = errors.New("invalid content type, must be image/jpeg, image/png, or image/webp")
 	ErrImageUploadFailed       = errors.New("failed to upload event image")
 )

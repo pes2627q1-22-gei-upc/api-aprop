@@ -3,10 +3,10 @@ package preference_service
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"api-aprop/internal/models/preference_model"
+	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/repositories/preference_repository"
 )
 
@@ -33,7 +33,7 @@ func NewPreferenceService(repo preference_repository.Repository) *PreferenceServ
 }
 
 func (s *PreferenceService) GetQuestions(ctx context.Context, userID string) ([]preference_model.TestQuestion, error) {
-	if _, err := normalizeUserID(userID); err != nil {
+	if _, err := user_model.NormalizeID(userID); err != nil {
 		return nil, err
 	}
 
@@ -48,7 +48,7 @@ func (s *PreferenceService) GetQuestions(ctx context.Context, userID string) ([]
 }
 
 func (s *PreferenceService) SubmitTest(ctx context.Context, userID string, answers []preference_model.TestAnswer) (preference_model.SubmitTestResponse, error) {
-	normalizedUID, err := normalizeUserID(userID)
+	normalizedUID, err := user_model.NormalizeID(userID)
 	if err != nil {
 		return preference_model.SubmitTestResponse{}, err
 	}
@@ -132,7 +132,7 @@ func (s *PreferenceService) SubmitTest(ctx context.Context, userID string, answe
 }
 
 func (s *PreferenceService) GetUserPreferences(ctx context.Context, userID string) ([]preference_model.UserPreference, error) {
-	normalizedUID, err := normalizeUserID(userID)
+	normalizedUID, err := user_model.NormalizeID(userID)
 	if err != nil {
 		return nil, err
 	}
@@ -145,25 +145,4 @@ func (s *PreferenceService) GetUserPreferences(ctx context.Context, userID strin
 		prefs = []preference_model.UserPreference{}
 	}
 	return prefs, nil
-}
-
-func normalizeUserID(userID string) (string, error) {
-	if len(userID) != 36 {
-		return "", fmt.Errorf("%w: %q", ErrInvalidUserID, userID)
-	}
-	for i, c := range userID {
-		switch {
-		case i == 8 || i == 13 || i == 18 || i == 23:
-			if c != '-' {
-				return "", fmt.Errorf("%w: %q", ErrInvalidUserID, userID)
-			}
-		case !isHex(c):
-			return "", fmt.Errorf("%w: %q", ErrInvalidUserID, userID)
-		}
-	}
-	return strings.ToLower(userID), nil
-}
-
-func isHex(c rune) bool {
-	return ('0' <= c && c <= '9') || ('a' <= c && c <= 'f') || ('A' <= c && c <= 'F')
 }

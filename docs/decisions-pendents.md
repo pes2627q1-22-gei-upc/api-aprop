@@ -146,6 +146,7 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Opcions:** A) validar el token de Firebase en un middleware i obtenir-ne l'usuari (eliminar `X-User-ID` i comprovar que `{userId}` és el de la sessió) · B) mantenir-ho només en desenvolupament
 - **Provisionalment:** l'UUID arriba a la capçalera o a la ruta sense autorització; `TODO(DP-011)` als handlers. El frontend continua amb el repositori de demostració (DP-010).
 - **Actualització 2026-10-26** (Claude Code, branca `fix/resolve-user-id`): inscripcions (`signup`/`enroll` i estat), xatbot i preferències apliquen l'opció A: amb el middleware, l'usuari surt del token de Firebase i es tradueix a UUID (`internal/handlers/requester`), i `X-User-ID` s'ignora; només es llegeix sense middleware. Queda oberta per a `GET /users/{userId}/events` (no es comprova que `{userId}` sigui el de la sessió), les notificacions (`/notifications/user/{id}`) i el `userId` del mapa.
+- **Actualització 2026-11-11** (Claude Code, branca `feature/unificar-usuari`, Taiga #246): events i users també identifiquen el requester amb `internal/handlers/requester`, el resolver és únic (`auth_service.ResolveUserID`) i sense identitat sempre es respon `401`. Per decisió de l'usuari, les notificacions **no** s'han tocat: `GET /notifications/user/{id}` i `POST /notifications/user/{id}/read` continuen sense comprovar que `{id}` sigui el de la sessió (`TODO(DP-011)` al handler).
 - **Qui decideix:** backend + equip (ADR-0003)
 - **Resolució:**
 

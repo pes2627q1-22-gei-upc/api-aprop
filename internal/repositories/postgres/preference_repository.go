@@ -11,6 +11,7 @@ import (
 
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/models/preference_model"
+	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/repositories/postgres/sqlc"
 	"api-aprop/internal/repositories/preference_repository"
 )
@@ -58,7 +59,7 @@ func (r *PreferenceRepository) GetQuestions(ctx context.Context, limit int) ([]p
 }
 
 func (r *PreferenceRepository) HasCompletedTest(ctx context.Context, userID string) (bool, error) {
-	uid, err := toUUID(userID)
+	uid, err := user_model.ParseID(userID)
 	if err != nil {
 		return false, err
 	}
@@ -72,7 +73,7 @@ func (r *PreferenceRepository) SaveTestAndPreferences(
 	answers []preference_model.TestAnswer,
 	preferences []preference_model.UserPreference,
 ) error {
-	uid, err := toUUID(userID)
+	uid, err := user_model.ParseID(userID)
 	if err != nil {
 		return err
 	}
@@ -161,7 +162,7 @@ func (r *PreferenceRepository) ListAllCategories(ctx context.Context) ([]event_m
 }
 
 func (r *PreferenceRepository) GetUserPreferences(ctx context.Context, userID string) ([]preference_model.UserPreference, error) {
-	uid, err := toUUID(userID)
+	uid, err := user_model.ParseID(userID)
 	if err != nil {
 		return nil, err
 	}

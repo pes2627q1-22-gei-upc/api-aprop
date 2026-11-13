@@ -99,7 +99,7 @@ func TestRouter_MapRoutesAndEventDetailRoute(t *testing.T) {
 			mux := NewRouter(
 				noopCORS,
 				noopAuth,
-				event_handler.NewEventHandler(svc),
+				event_handler.NewEventHandler(svc, svc),
 				assistant_handler.NewAssistantHandler(nil, nil),
 				signup_handler.NewSignUpHandler(nil, nil),
 			)
@@ -129,7 +129,7 @@ func TestRouter_MapRoutesAndEventDetailRoute(t *testing.T) {
 		mux := NewRouter(
 			noopCORS,
 			noopAuth,
-			event_handler.NewEventHandler(svc),
+			event_handler.NewEventHandler(svc, svc),
 			assistant_handler.NewAssistantHandler(nil, nil),
 			signup_handler.NewSignUpHandler(nil, nil),
 		)
@@ -157,7 +157,7 @@ func TestRouter_CORSPreflightSkipsAuth(t *testing.T) {
 	mux := NewRouter(
 		cors.AllowAll().Handler,
 		rejectAuth,
-		event_handler.NewEventHandler(&stubEventService{}),
+		event_handler.NewEventHandler(&stubEventService{}, &stubEventService{}),
 	)
 
 	req := httptest.NewRequest(http.MethodOptions, "/events", nil)

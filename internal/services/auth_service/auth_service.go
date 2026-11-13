@@ -61,6 +61,25 @@ func (s *AuthService) Sync(ctx context.Context, firebaseUID, email, username str
 	return user_model.SyncResult{User: user, Created: true}, nil
 }
 
+// ResolveUserID returns the database ID (UUID) of the requester. The identifier is the Firebase UID set by
+// the auth middleware, or directly a UUID when the API runs without authentication (local development and tests).
+func (s *AuthService) ResolveUserID(ctx context.Context, identifier string) (string, error) {
+	if identifier == "" {
+		return "", ErrUserNotRegistered
+	}
+	if uid, err := user_model.NormalizeID(identifier); err == nil {
+		return uid, nil
+	}
+	user, err := s.authRepository.GetByFirebaseUID(ctx, identifier)
+	if errors.Is(err, auth_repository.ErrUserNotFound) {
+		return "", fmt.Errorf("%w: %w", ErrUserNotRegistered, err)
+	}
+	if err != nil {
+		return "", fmt.Errorf("resolve user: %w", err)
+	}
+	return user.ID.String(), nil
+}
+
 // syncEmail stores the Firebase email when the user changed it there.
 func (s *AuthService) syncEmail(ctx context.Context, user user_model.User, email string) (user_model.User, error) {
 	if email == "" || email == user.Email {

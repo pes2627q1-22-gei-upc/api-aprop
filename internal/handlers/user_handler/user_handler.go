@@ -8,22 +8,20 @@ import (
 	"path/filepath"
 	"time"
 
+	"api-aprop/internal/handlers/requester"
 	"api-aprop/internal/handlers/response"
-	"api-aprop/internal/middleware/auth_middleware"
 	"api-aprop/internal/services/user_service"
 )
 
-const (
-	UserIDHeader  = "X-User-ID"
-	maxUploadSize = 5 << 20 // 5 MB
-)
+const maxUploadSize = 5 << 20 // 5 MB
 
 type UserHandler struct {
 	userService user_service.Service
+	resolver    requester.Resolver
 }
 
-func NewUserHandler(userService user_service.Service) *UserHandler {
-	return &UserHandler{userService: userService}
+func NewUserHandler(userService user_service.Service, resolver requester.Resolver) *UserHandler {
+	return &UserHandler{userService: userService, resolver: resolver}
 }
 
 func (h *UserHandler) RegisterRoutes(mux *http.ServeMux) {
@@ -41,9 +39,8 @@ func (h *UserHandler) RegisterRoutes(mux *http.ServeMux) {
 }
 
 func (h *UserHandler) GetMyProfile(w http.ResponseWriter, r *http.Request) {
-	requesterID := getRequesterID(r)
-	if requesterID == "" {
-		response.WriteError(w, http.StatusUnauthorized, "unauthorized: missing auth token or "+UserIDHeader)
+	requesterID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
 		return
 	}
 
@@ -67,7 +64,14 @@ func (h *UserHandler) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	requesterID := getRequesterID(r)
+	// Anyone can see a profile; the requester is optional and only used to know the friendship
+	var requesterID string
+	if requester.Present(r) {
+		var ok bool
+		if requesterID, ok = requester.ID(w, r, h.resolver); !ok {
+			return
+		}
+	}
 	profile, err := h.userService.GetUserProfile(r.Context(), id, requesterID)
 	if err != nil {
 		writeServiceError(w, err)
@@ -78,9 +82,8 @@ func (h *UserHandler) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *UserHandler) UpdateMyProfile(w http.ResponseWriter, r *http.Request) {
-	requesterID := getRequesterID(r)
-	if requesterID == "" {
-		response.WriteError(w, http.StatusUnauthorized, "unauthorized: missing auth token or "+UserIDHeader)
+	requesterID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
 		return
 	}
 
@@ -113,9 +116,8 @@ func (h *UserHandler) UpdateMyProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *UserHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
-	requesterID := getRequesterID(r)
-	if requesterID == "" {
-		response.WriteError(w, http.StatusUnauthorized, "unauthorized: missing auth token or "+UserIDHeader)
+	requesterID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
 		return
 	}
 
@@ -157,9 +159,8 @@ func (h *UserHandler) ListCreatedEvents(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if id == "me" {
-		requesterID := getRequesterID(r)
-		if requesterID == "" {
-			response.WriteError(w, http.StatusUnauthorized, "unauthorized: missing auth token or "+UserIDHeader)
+		requesterID, ok := requester.ID(w, r, h.resolver)
+		if !ok {
 			return
 		}
 		id = requesterID
@@ -175,9 +176,8 @@ func (h *UserHandler) ListCreatedEvents(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *UserHandler) GetFriendRequests(w http.ResponseWriter, r *http.Request) {
-	requesterID := getRequesterID(r)
-	if requesterID == "" {
-		response.WriteError(w, http.StatusUnauthorized, "unauthorized: missing auth token or "+UserIDHeader)
+	requesterID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
 		return
 	}
 
@@ -197,9 +197,8 @@ func (h *UserHandler) SendFriendRequest(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	requesterID := getRequesterID(r)
-	if requesterID == "" {
-		response.WriteError(w, http.StatusUnauthorized, "unauthorized: missing auth token or "+UserIDHeader)
+	requesterID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
 		return
 	}
 
@@ -219,9 +218,8 @@ func (h *UserHandler) AcceptFriendRequest(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	requesterID := getRequesterID(r)
-	if requesterID == "" {
-		response.WriteError(w, http.StatusUnauthorized, "unauthorized: missing auth token or "+UserIDHeader)
+	requesterID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
 		return
 	}
 
@@ -253,9 +251,8 @@ func (h *UserHandler) DenyFriendRequest(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	requesterID := getRequesterID(r)
-	if requesterID == "" {
-		response.WriteError(w, http.StatusUnauthorized, "unauthorized: missing auth token or "+UserIDHeader)
+	requesterID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
 		return
 	}
 
@@ -287,9 +284,8 @@ func (h *UserHandler) Unfriend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	requesterID := getRequesterID(r)
-	if requesterID == "" {
-		response.WriteError(w, http.StatusUnauthorized, "unauthorized: missing auth token or "+UserIDHeader)
+	requesterID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
 		return
 	}
 
@@ -313,9 +309,8 @@ func (h *UserHandler) GetUserFriends(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if id == "me" {
-		requesterID := getRequesterID(r)
-		if requesterID == "" {
-			response.WriteError(w, http.StatusUnauthorized, "unauthorized: missing auth token or "+UserIDHeader)
+		requesterID, ok := requester.ID(w, r, h.resolver)
+		if !ok {
 			return
 		}
 		id = requesterID
@@ -328,11 +323,4 @@ func (h *UserHandler) GetUserFriends(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response.WriteJSON(w, http.StatusOK, friends)
-}
-
-func getRequesterID(r *http.Request) string {
-	if u, ok := auth_middleware.UserFromContext(r.Context()); ok && u.UID != "" {
-		return u.UID
-	}
-	return r.Header.Get(UserIDHeader)
 }

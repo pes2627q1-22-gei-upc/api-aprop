@@ -25,6 +25,10 @@ type fakeService struct {
 	gotUID, gotEmail, gotUsername string
 }
 
+func (f *fakeService) ResolveUserID(_ context.Context, identifier string) (string, error) {
+	return identifier, nil
+}
+
 func (f *fakeService) Sync(_ context.Context, uid, email, username string) (user_model.SyncResult, error) {
 	f.gotUID, f.gotEmail, f.gotUsername = uid, email, username
 	return f.result, f.err

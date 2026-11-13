@@ -16,7 +16,7 @@ import (
 	"api-aprop/internal/middleware/auth_middleware"
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/models/signup_model"
-	"api-aprop/internal/services/event_service"
+	"api-aprop/internal/services/auth_service"
 	"api-aprop/internal/services/signup_service"
 )
 
@@ -122,7 +122,7 @@ func TestSignUp(t *testing.T) {
 		{
 			name:       "missing user header",
 			path:       "/events/7/signup",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusUnauthorized,
 			wantError:  "missing X-User-ID header",
 		},
 		{
@@ -393,7 +393,7 @@ func TestUnenroll(t *testing.T) {
 			name:       "missing user header",
 			method:     http.MethodDelete,
 			path:       "/events/7/signup",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusUnauthorized,
 			wantError:  "missing X-User-ID header",
 		},
 		{
@@ -536,7 +536,7 @@ func TestSignUp_TranslatesFirebaseUID(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	h := NewSignUpHandler(s, fakeResolver{err: event_service.ErrUserNotRegistered})
+	h := NewSignUpHandler(s, fakeResolver{err: auth_service.ErrUserNotRegistered})
 	mux = http.NewServeMux()
 	h.RegisterRoutes(mux)
 	mux.ServeHTTP(rec, withFirebaseUser(httptest.NewRequest(http.MethodDelete, "/events/7/signup", nil)))

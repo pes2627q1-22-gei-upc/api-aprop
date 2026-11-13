@@ -17,8 +17,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"api-aprop/internal/clients/firebase_client"
+	"api-aprop/internal/handlers/requester"
 	"api-aprop/internal/middleware/auth_middleware"
 	"api-aprop/internal/models/event_model"
+	"api-aprop/internal/services/auth_service"
 	"api-aprop/internal/services/event_service"
 )
 
@@ -102,10 +104,13 @@ func (f *fakeEventService) ListMapEvents(_ context.Context, filter event_model.M
 	return f.mapEvents, f.mapErr
 }
 
-// ResolveUserID accepts the test UUIDs as they are, like the real service does without authentication.
-func (f *fakeEventService) ResolveUserID(_ context.Context, identifier string) (string, error) {
+// fakeResolver translates the Firebase UID of the test user and accepts the test UUIDs as they are,
+// like auth_service does.
+type fakeResolver struct{}
+
+func (fakeResolver) ResolveUserID(_ context.Context, identifier string) (string, error) {
 	if identifier == "" {
-		return "", event_service.ErrUserNotRegistered
+		return "", auth_service.ErrUserNotRegistered
 	}
 	if identifier == firebaseUID {
 		return validUserID, nil
@@ -147,7 +152,7 @@ func (f *fakeEventService) UploadEventImage(_ context.Context, _ int, _ string, 
 }
 
 func newMux(s event_service.Service) *http.ServeMux {
-	h := NewEventHandler(s)
+	h := NewEventHandler(s, fakeResolver{})
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
 	return mux
@@ -292,7 +297,7 @@ func TestListMapEvents(t *testing.T) {
 			s := tt.service
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
 			if tt.userHeader != "" {
-				req.Header.Set(UserIDHeader, tt.userHeader)
+				req.Header.Set(requester.UserIDHeader, tt.userHeader)
 			}
 
 			rec := serve(&s, req)
@@ -410,7 +415,7 @@ func TestCreateUnofficialEventHandler(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/events", strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/json")
 			if tt.userID != "" {
-				req.Header.Set(UserIDHeader, tt.userID)
+				req.Header.Set(requester.UserIDHeader, tt.userID)
 			}
 
 			rec := serve(&s, req)
@@ -501,7 +506,7 @@ func TestUploadEventImageHandler(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, tt.path, bytes.NewReader(body.Bytes()))
 			req.Header.Set("Content-Type", writer.FormDataContentType())
 			if tt.userID != "" {
-				req.Header.Set(UserIDHeader, tt.userID)
+				req.Header.Set(requester.UserIDHeader, tt.userID)
 			}
 
 			rec := serve(&s, req)
@@ -606,7 +611,7 @@ func TestUpdateEventHandler(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPut, tt.path, strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/json")
 			if tt.userID != "" {
-				req.Header.Set(UserIDHeader, tt.userID)
+				req.Header.Set(requester.UserIDHeader, tt.userID)
 			}
 
 			rec := serve(&s, req)
@@ -682,7 +687,7 @@ func TestDeleteEventHandler(t *testing.T) {
 			s := tt.service
 			req := httptest.NewRequest(http.MethodDelete, tt.path, nil)
 			if tt.userID != "" {
-				req.Header.Set(UserIDHeader, tt.userID)
+				req.Header.Set(requester.UserIDHeader, tt.userID)
 			}
 
 			rec := serve(&s, req)
@@ -763,7 +768,7 @@ func TestListMapEvents_SignedInUser(t *testing.T) {
 	s := fakeEventService{mapEvents: []event_model.MapEvent{}}
 	req := httptest.NewRequest(http.MethodGet, "/events/map", nil)
 	// A signed in user cannot ask for the friends of another user with the header
-	req.Header.Set(UserIDHeader, otherUserID)
+	req.Header.Set(requester.UserIDHeader, otherUserID)
 	req = req.WithContext(auth_middleware.ContextWithUser(req.Context(), firebase_client.User{UID: firebaseUID}))
 
 	rec := serve(&s, req)
@@ -795,7 +800,7 @@ func TestUploadEventImageHandler_TooLarge(t *testing.T) {
 			s := fakeEventService{event: unofficialEvent(t, 15, validUserID)}
 			req := httptest.NewRequest(http.MethodPost, "/events/15/image", body)
 			req.Header.Set("Content-Type", writer.FormDataContentType())
-			req.Header.Set(UserIDHeader, validUserID)
+			req.Header.Set(requester.UserIDHeader, validUserID)
 
 			rec := serve(&s, req)
 			if rec.Code != http.StatusBadRequest {

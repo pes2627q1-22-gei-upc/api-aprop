@@ -10,7 +10,7 @@ import (
 
 	"api-aprop/internal/clients/firebase_client"
 	"api-aprop/internal/middleware/auth_middleware"
-	"api-aprop/internal/services/event_service"
+	"api-aprop/internal/services/auth_service"
 )
 
 const (
@@ -66,7 +66,7 @@ func TestID(t *testing.T) {
 		{
 			name:       "user not synced returns 401",
 			req:        request("", true),
-			resolver:   &fakeResolver{err: fmt.Errorf("%w: not found", event_service.ErrUserNotRegistered)},
+			resolver:   &fakeResolver{err: fmt.Errorf("%w: not found", auth_service.ErrUserNotRegistered)},
 			wantStatus: http.StatusUnauthorized, wantUID: firebaseUID,
 		},
 		{
@@ -82,10 +82,10 @@ func TestID(t *testing.T) {
 			wantID:   userUUID, wantStatus: http.StatusOK,
 		},
 		{
-			name:       "no identity returns 400",
+			name:       "no identity returns 401",
 			req:        request("", false),
 			resolver:   &fakeResolver{},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusUnauthorized,
 		},
 	}
 	for _, tt := range tests {

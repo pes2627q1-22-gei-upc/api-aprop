@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofrs/uuid/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -219,7 +218,7 @@ func (s *userService) UpdateProfile(ctx context.Context, requesterIdentifier str
 		user = updatedUser
 	}
 
-	return s.GetUserProfile(ctx, uuidToString(user.ID), requesterIdentifier)
+	return s.GetUserProfile(ctx, user.ID.String(), requesterIdentifier)
 }
 
 func (s *userService) UploadAvatar(ctx context.Context, requesterIdentifier string, filename string, contentType string, reader io.Reader) (user_model.UserProfile, error) {
@@ -237,7 +236,7 @@ func (s *userService) UploadAvatar(ctx context.Context, requesterIdentifier stri
 
 	targetUID := user.ID
 
-	avatarURL, err := s.s3Client.UploadAvatar(ctx, uuidToString(targetUID), filename, contentType, reader)
+	avatarURL, err := s.s3Client.UploadAvatar(ctx, targetUID.String(), filename, contentType, reader)
 	if err != nil {
 		return user_model.UserProfile{}, fmt.Errorf("%w: %v", ErrInvalidInput, err)
 	}
@@ -247,7 +246,7 @@ func (s *userService) UploadAvatar(ctx context.Context, requesterIdentifier stri
 		return user_model.UserProfile{}, err
 	}
 
-	return s.GetUserProfile(ctx, uuidToString(updatedUser.ID), requesterIdentifier)
+	return s.GetUserProfile(ctx, updatedUser.ID.String(), requesterIdentifier)
 }
 
 func (s *userService) GetUserFriends(ctx context.Context, userid string) ([]string, error) {
@@ -454,8 +453,8 @@ func (s *userService) findUser(ctx context.Context, identifier string) (user_mod
 		return user_model.User{}, false, ErrUserNotFound
 	}
 	// Try ID first
-	if id, err := uuid.FromString(identifier); err == nil {
-		u, showPlans, err := s.userRepo.GetByID(ctx, toPGUUID(id))
+	if id, err := user_model.ParseID(identifier); err == nil {
+		u, showPlans, err := s.userRepo.GetByID(ctx, id)
 		if err == nil {
 			return u, showPlans, nil
 		}
@@ -469,20 +468,4 @@ func (s *userService) findUser(ctx context.Context, identifier string) (user_mod
 		return u, showPlans, nil
 	}
 	return user_model.User{}, false, ErrUserNotFound
-}
-
-func uuidToString(u pgtype.UUID) string {
-	if !u.Valid {
-		return ""
-	}
-	src := u.Bytes
-	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
-		src[0:4], src[4:6], src[6:8], src[8:10], src[10:16])
-}
-
-func toPGUUID(id uuid.UUID) pgtype.UUID {
-	return pgtype.UUID{
-		Bytes: [16]byte(id),
-		Valid: true,
-	}
 }
