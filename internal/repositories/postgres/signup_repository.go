@@ -59,6 +59,22 @@ func (r *SignUpRepository) Delete(ctx context.Context, userID string, eventID in
 	return rows > 0, nil
 }
 
+func (r *SignUpRepository) SetAttendance(ctx context.Context, userID string, eventID int, attendance *bool) (bool, error) {
+	uid, err := user_model.ParseID(userID)
+	if err != nil {
+		return false, err
+	}
+	params := sqlc.SetSignUpAttendanceParams{UserID: uid, EventID: int32(eventID)}
+	if attendance != nil {
+		params.Attendance = pgtype.Bool{Bool: *attendance, Valid: true}
+	}
+	rows, err := r.queries.SetSignUpAttendance(ctx, params)
+	if err != nil {
+		return false, fmt.Errorf("set attendance for event %d: %w", eventID, err)
+	}
+	return rows > 0, nil
+}
+
 func (r *SignUpRepository) CountSignUps(ctx context.Context, eventID int) (int, error) {
 	count, err := r.queries.CountEventSignUps(ctx, int32(eventID))
 	if err != nil {

@@ -18,10 +18,11 @@ type SignUpService struct {
 	signUpRepository       signup_repository.Repository
 	eventRepository        event_repository.Repository
 	notificationRepository notification_repository.Repository
+	now                    func() time.Time // injectable clock for tests
 }
 
 func NewSignUpService(signUpRepository signup_repository.Repository, eventRepository event_repository.Repository, notificationRepository notification_repository.Repository) *SignUpService {
-	return &SignUpService{signUpRepository: signUpRepository, eventRepository: eventRepository, notificationRepository: notificationRepository}
+	return &SignUpService{signUpRepository: signUpRepository, eventRepository: eventRepository, notificationRepository: notificationRepository, now: time.Now}
 }
 
 // SignUp signs the user up to the event. Signing up twice is not an error: Created is false.
@@ -92,6 +93,49 @@ func (s *SignUpService) Unenroll(ctx context.Context, userID string, eventID int
 		}
 	}
 	return signup_model.Unenroll{UserID: userID, EventID: eventID, Enrolled: false, Deleted: deleted}, nil
+}
+
+// SetAttendance records whether the user attended the event (nil = unknown).
+// R8: a value (true/false) can only be set once the event has started.
+func (s *SignUpService) SetAttendance(ctx context.Context, userID string, eventID int, attendance *bool) (signup_model.Attendance, error) {
+	userID, err := user_model.NormalizeID(userID)
+	if err != nil {
+		return signup_model.Attendance{}, err
+	}
+	if eventID <= 0 {
+		return signup_model.Attendance{}, fmt.Errorf("%w: %d", ErrInvalidEventID, eventID)
+	}
+	exists, err := s.eventRepository.EventExists(eventID)
+	if err != nil {
+		return signup_model.Attendance{}, err
+	}
+	if !exists {
+		return signup_model.Attendance{}, fmt.Errorf("set attendance for event %d: %w", eventID, ErrEventNotFound)
+	}
+	enrolled, err := s.signUpRepository.IsSignedUp(ctx, userID, eventID)
+	if err != nil {
+		return signup_model.Attendance{}, err
+	}
+	if !enrolled {
+		return signup_model.Attendance{}, fmt.Errorf("set attendance for event %d: %w", eventID, ErrNotEnrolled)
+	}
+	if attendance != nil {
+		event, err := s.eventRepository.Get(eventID)
+		if err != nil {
+			return signup_model.Attendance{}, err
+		}
+		if !event.StartDate.Before(s.now()) {
+			return signup_model.Attendance{}, fmt.Errorf("set attendance for event %d: %w", eventID, ErrEventNotStarted)
+		}
+	}
+	updated, err := s.signUpRepository.SetAttendance(ctx, userID, eventID, attendance)
+	if err != nil {
+		return signup_model.Attendance{}, err
+	}
+	if !updated { // unenrolled between the check and the update
+		return signup_model.Attendance{}, fmt.Errorf("set attendance for event %d: %w", eventID, ErrNotEnrolled)
+	}
+	return signup_model.Attendance{UserID: userID, EventID: eventID, Attendance: attendance}, nil
 }
 
 // GetEnrollmentStatus returns whether the user is enrolled and the total count of sign ups.

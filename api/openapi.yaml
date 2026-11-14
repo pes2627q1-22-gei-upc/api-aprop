@@ -534,6 +534,55 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /events/{id}/enrollment/attendance:
+    parameters:
+      - $ref: '#/components/parameters/EventId'
+    patch:
+      tags: [signups]
+      operationId: setAttendance
+      summary: Confirma l'assistència de l'usuari a l'esdeveniment
+      description: >
+        Desa `attendance` (`true`/`false`; `null` = desconeguda) a la inscripció de l'usuari.
+        Regla R8: només es pot fixar `true`/`false` si l'esdeveniment ja ha començat; si no, `409`.
+        Esborrar el valor (`null`) sempre és permès. `404` si l'usuari no hi està inscrit (o l'esdeveniment no existeix).
+        Veure DP-029.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [attendance]
+              properties:
+                attendance:
+                  type: boolean
+                  nullable: true
+      responses:
+        '200':
+          description: Assistència desada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attendance'
+        '400':
+          $ref: '#/components/responses/InvalidSignUp'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: L'esdeveniment no existeix o l'usuari no hi està inscrit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: L'esdeveniment encara no ha començat (R8)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /categories:
     get:
       tags: [categories]
@@ -1685,6 +1734,18 @@ components:
           type: boolean
         enrolled-count:
           type: integer
+
+    Attendance:
+      type: object
+      required: [user-id, event-id, attendance]
+      properties:
+        user-id:
+          type: string
+        event-id:
+          type: integer
+        attendance:
+          type: boolean
+          nullable: true
 
     SyncRequest:
       type: object

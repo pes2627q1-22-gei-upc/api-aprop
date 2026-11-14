@@ -1,6 +1,7 @@
 package signup_handler
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
@@ -31,6 +32,8 @@ func (h *SignUpHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /events/{id}/enroll", h.Unenroll)
 	mux.HandleFunc("GET /events/{id}/signup", h.GetEnrollmentStatus)
 	mux.HandleFunc("GET /events/{id}/enrollment", h.GetEnrollmentStatus)
+
+	mux.HandleFunc("PATCH /events/{id}/enrollment/attendance", h.SetAttendance)
 
 	// User events calendar
 	mux.HandleFunc("GET /users/{userId}/events", h.ListUserEvents)
@@ -73,6 +76,36 @@ func (h *SignUpHandler) Unenroll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res, err := h.signUpService.Unenroll(r.Context(), userID, eventID)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	response.WriteJSON(w, http.StatusOK, res)
+}
+
+// SetAttendance handles PATCH /events/{id}/enrollment/attendance with body {"attendance": true|false|null}.
+func (h *SignUpHandler) SetAttendance(w http.ResponseWriter, r *http.Request) {
+	eventID, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil {
+		response.WriteError(w, http.StatusBadRequest, "invalid event id")
+		return
+	}
+	userID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
+		return
+	}
+	var body map[string]*bool
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		response.WriteError(w, http.StatusBadRequest, `invalid body, expected {"attendance": true|false|null}`)
+		return
+	}
+	attendance, present := body["attendance"]
+	if !present {
+		response.WriteError(w, http.StatusBadRequest, "missing attendance field")
+		return
+	}
+
+	res, err := h.signUpService.SetAttendance(r.Context(), userID, eventID, attendance)
 	if err != nil {
 		writeServiceError(w, err)
 		return

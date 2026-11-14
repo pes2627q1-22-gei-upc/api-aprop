@@ -39,3 +39,9 @@ WHERE EXISTS (
 AND (sqlc.narg(from_date)::timestamptz IS NULL OR e.EndDate >= sqlc.narg(from_date))
 AND (sqlc.narg(to_date)::timestamptz IS NULL OR e.StartDate <= sqlc.narg(to_date))
 ORDER BY e.StartDate ASC, e.id ASC;
+
+-- name: SetSignUpAttendance :execrows
+-- Sets the attendance (NULL = unknown) of the user's sign up for the event.
+UPDATE SignUp
+SET Attendance = sqlc.narg(attendance)::boolean
+WHERE UserID = sqlc.arg(user_id)::uuid AND Event = sqlc.arg(event_id)::integer;

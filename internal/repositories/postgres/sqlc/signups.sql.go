@@ -186,3 +186,24 @@ func (q *Queries) ListUserSignedUpEvents(ctx context.Context, arg ListUserSigned
 	}
 	return items, nil
 }
+
+const setSignUpAttendance = `-- name: SetSignUpAttendance :execrows
+UPDATE SignUp
+SET Attendance = $1::boolean
+WHERE UserID = $2::uuid AND Event = $3::integer
+`
+
+type SetSignUpAttendanceParams struct {
+	Attendance pgtype.Bool
+	UserID     pgtype.UUID
+	EventID    int32
+}
+
+// Sets the attendance (NULL = unknown) of the user's sign up for the event.
+func (q *Queries) SetSignUpAttendance(ctx context.Context, arg SetSignUpAttendanceParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setSignUpAttendance, arg.Attendance, arg.UserID, arg.EventID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}

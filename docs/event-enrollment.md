@@ -122,3 +122,7 @@ flutter build apk --debug
 Local verification on 2026-10-18: formatting clean, `flutter analyze` reported no issues, all 84 repository tests passed, and the Android debug APK built successfully. Additional rendered previews confirmed the list/detail button states at 390 × 844. Device testing, peer review and backend integration remain pending.
 
 Manual check: sign in with the README demo account. Join Jazz al parc from the list, open its title and confirm Apuntat in details. Return, open another event, join it from details and return to the list. Switch tabs and sign out/in: the same account keeps its demo plans during this run. A newly created and verified demo account starts with its own empty set. Agenda shows the same plans in its calendar (see `calendar.md`).
+
+## Backend: confirm attendance — Taiga #211
+
+`PATCH /events/{id}/enrollment/attendance` with `{"attendance": true|false|null}` stores `SignUp.Attendance` for the authenticated user (`null` = unknown). Rule R8: `true`/`false` only if the event start date is before now, otherwise `409`; `404` if the event does not exist or the user is not enrolled; `400` for a bad id or body. Clearing (`null`) is always allowed. See DP-029.
