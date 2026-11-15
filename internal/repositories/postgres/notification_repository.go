@@ -133,7 +133,14 @@ func (r *NotificationRepository) ReadNotification(id int) error {
 }
 
 func (r *NotificationRepository) ReadUserNotifications(id pgtype.UUID) error {
-	err := r.queries.ReadUserNotifications(context.Background(), id)
+	_, err := r.queries.GetUserByUUID(context.Background(), id)
+	if errors.Is(err, pgx.ErrNoRows){
+		return notification_repository.ErrUserNotFound
+	} else if err!=nil{
+		return fmt.Errorf("get notification from user %s: %w", id.String(), err)
+	}
+	
+	err = r.queries.ReadUserNotifications(context.Background(), id)
 	if err != nil {
 		return fmt.Errorf("read notifications from user %s: %w", id.String(), err)
 	}

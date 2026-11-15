@@ -38,9 +38,7 @@ func (s *NotificationService) GetNotificationTypes() ([]notification_model.Notif
 
 func (s *NotificationService) GetUserNotifications(id pgtype.UUID, params map[string]any) ([]notification_model.Notification, error) {
 	notifs, err := s.notificationRepository.GetUserNotifications(id, params)
-	if errors.Is(err, notification_repository.ErrNotificationNotFound) {
-		return []notification_model.Notification{}, ErrNotificationNotFound
-	} else if errors.Is(err, notification_repository.ErrUserNotFound){
+	if errors.Is(err, notification_repository.ErrUserNotFound){
 		return []notification_model.Notification{}, ErrUserNotFound
 	} else if err != nil {
 		return []notification_model.Notification{}, err
@@ -57,7 +55,14 @@ func (s *NotificationService) CreateNotification(n notification_model.Notificati
 }
 
 func (s *NotificationService) ReadNotification(id int) error {
-	err := s.notificationRepository.ReadNotification(id)
+	_, err := s.notificationRepository.Get(id)
+	if errors.Is(err, notification_repository.ErrNotificationNotFound){
+		return ErrNotificationNotFound
+	} else if err!=nil{
+		return err
+	}
+	
+	err = s.notificationRepository.ReadNotification(id)
 	if err != nil {
 		return err
 	}
@@ -66,7 +71,9 @@ func (s *NotificationService) ReadNotification(id int) error {
 
 func (s *NotificationService) ReadUserNotifications(id pgtype.UUID) error {
 	err := s.notificationRepository.ReadUserNotifications(id)
-	if err != nil {
+	if errors.Is(err, notification_repository.ErrUserNotFound){
+		return ErrUserNotFound
+	} else if err != nil {
 		return err
 	}
 	return nil
