@@ -50,7 +50,7 @@ func TestMapEventRowToModel(t *testing.T) {
 		HasFriends:   true,
 	}
 
-	got := mapEventRowToModel(row)
+	got := mapEventRowToModel(row, []string{})
 
 	if got.ID != 42 || got.Title != "Castellers a la plaça" {
 		t.Errorf("unexpected ID/Title: %+v", got)

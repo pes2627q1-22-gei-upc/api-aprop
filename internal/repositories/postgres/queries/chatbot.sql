@@ -40,5 +40,5 @@ ORDER BY r.SentAt, r.Position;
 
 -- name: UpsertChatbotFeedback :exec
 INSERT INTO ChatbotFeedback (UserID, ConversationStartedAt, SentAt, Helpful)
-VALUES ($1::uuid, $2::timestamptz, $3::timestamptz, $4::boolean)
+VALUES (@UserID::uuid, @ConversationStartedAt::timestamptz, @SentAt::timestamptz, @Helpful::boolean)
 ON CONFLICT (UserID, ConversationStartedAt, SentAt) DO UPDATE SET Helpful = EXCLUDED.Helpful, CreatedAt = now();

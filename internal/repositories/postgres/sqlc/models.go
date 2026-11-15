@@ -117,6 +117,15 @@ type Chatbotconversation struct {
 	Startedat pgtype.Timestamptz
 }
 
+type Chatbotfeedback struct {
+	Userid                pgtype.UUID
+	Conversationstartedat pgtype.Timestamptz
+	Sentat                pgtype.Timestamptz
+	Sender                string
+	Helpful               bool
+	Createdat             pgtype.Timestamptz
+}
+
 type Chatbotmessage struct {
 	Userid                pgtype.UUID
 	Conversationstartedat pgtype.Timestamptz
