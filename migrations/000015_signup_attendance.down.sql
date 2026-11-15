@@ -1,0 +1,1 @@
+ALTER TABLE SignUp DROP COLUMN IF EXISTS Attendance;

@@ -23,14 +23,16 @@ import (
 const validUserID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
 
 type fakeService struct {
-	signUp      signup_model.SignUp
-	signUpErr   error
-	unenroll    signup_model.Unenroll
-	unenrollErr error
-	status      signup_model.EnrollmentStatus
-	statusErr   error
-	events      []event_model.Event
-	listErr     error
+	signUp          signup_model.SignUp
+	signUpErr       error
+	unenroll        signup_model.Unenroll
+	unenrollErr     error
+	status          signup_model.EnrollmentStatus
+	statusErr       error
+	events          []event_model.Event
+	listErr         error
+	attendanceErr   error
+	attendanceCalls int
 
 	calls         int
 	unenrollCalls int
@@ -542,5 +544,45 @@ func TestSignUp_TranslatesFirebaseUID(t *testing.T) {
 	mux.ServeHTTP(rec, withFirebaseUser(httptest.NewRequest(http.MethodDelete, "/events/7/signup", nil)))
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("not registered: status = %d, want 401", rec.Code)
+	}
+}
+
+func (f *fakeService) SetAttendance(_ context.Context, userID string, eventID int, attendance *bool) (signup_model.Attendance, error) {
+	f.attendanceCalls++
+	f.gotUserID = userID
+	f.gotEventID = eventID
+	return signup_model.Attendance{UserID: userID, EventID: eventID, Attendance: attendance}, f.attendanceErr
+}
+
+func TestSetAttendance(t *testing.T) {
+	tests := []struct {
+		name       string
+		body       string
+		userID     string
+		err        error
+		wantStatus int
+		wantCalls  int
+	}{
+		{"true", `{"attendance": true}`, validUserID, nil, http.StatusOK, 1},
+		{"null clears", `{"attendance": null}`, validUserID, nil, http.StatusOK, 1},
+		{"missing field", `{}`, validUserID, nil, http.StatusBadRequest, 0},
+		{"bad json", `nope`, validUserID, nil, http.StatusBadRequest, 0},
+		{"non boolean", `{"attendance": "yes"}`, validUserID, nil, http.StatusBadRequest, 0},
+		{"no user", `{"attendance": true}`, "", nil, http.StatusUnauthorized, 0},
+		{"not enrolled", `{"attendance": true}`, validUserID, signup_service.ErrNotEnrolled, http.StatusNotFound, 1},
+		{"R8 not started", `{"attendance": true}`, validUserID, signup_service.ErrEventNotStarted, http.StatusConflict, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &fakeService{attendanceErr: tt.err}
+			req := httptest.NewRequest(http.MethodPatch, "/events/7/enrollment/attendance", strings.NewReader(tt.body))
+			if tt.userID != "" {
+				req.Header.Set(requester.UserIDHeader, tt.userID)
+			}
+			rec := serve(svc, req)
+			if rec.Code != tt.wantStatus || svc.attendanceCalls != tt.wantCalls {
+				t.Fatalf("status = %d calls = %d, want %d / %d (%s)", rec.Code, svc.attendanceCalls, tt.wantStatus, tt.wantCalls, rec.Body.String())
+			}
+		})
 	}
 }

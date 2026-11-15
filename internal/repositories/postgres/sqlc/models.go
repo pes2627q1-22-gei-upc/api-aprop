@@ -251,6 +251,7 @@ type Signup struct {
 	Userid     pgtype.UUID
 	Event      int32
 	Signupdate pgtype.Timestamp
+	Attendance pgtype.Bool
 }
 
 type Unofficialevent struct {

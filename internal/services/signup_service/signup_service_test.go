@@ -35,6 +35,11 @@ type fakeRepository struct {
 	events       []event_model.Event
 	listErr      error
 
+	attendanceUpdated bool
+	attendanceErr     error
+	attendanceCalls   int
+	gotAttendance     *bool
+
 	createCalls int
 	deleteCalls int
 	listCalls   int
@@ -499,5 +504,65 @@ func TestUnenrollNotifications(t *testing.T) {
 				t.Errorf("Create notification calls for unenroll = %d, want %d", tt.notifRepo.created_on_unenroll, tt.wantUnenrollNotifs)
 			}
 		})
+	}
+}
+
+func (f *fakeRepository) SetAttendance(_ context.Context, userID string, eventID int, attendance *bool) (bool, error) {
+	f.attendanceCalls++
+	f.gotAttendance = attendance
+	return f.attendanceUpdated, f.attendanceErr
+}
+
+// startEventRepository returns an event with a fixed start date.
+type startEventRepository struct {
+	fakeEventRepository
+	start time.Time
+}
+
+func (f *startEventRepository) Get(id int) (event_model.Event, error) {
+	return event_model.Event{StartDate: f.start}, nil
+}
+
+func TestR8_AttendanceAfterStart(t *testing.T) {
+	now := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+	yes := true
+	tests := []struct {
+		name        string
+		start       time.Time
+		enrolled    bool
+		attendance  *bool
+		wantErr     error
+		wantUpdates int
+	}{
+		{"started event accepts attendance", now.Add(-time.Hour), true, &yes, nil, 1},
+		{"future event rejects attendance", now.Add(time.Hour), true, &yes, ErrEventNotStarted, 0},
+		{"event starting exactly now rejects attendance", now, true, &yes, ErrEventNotStarted, 0},
+		{"future event allows clearing to unknown", now.Add(time.Hour), true, nil, nil, 1},
+		{"not enrolled", now.Add(-time.Hour), false, &yes, ErrNotEnrolled, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := fakeRepository{isSignedUp: tt.enrolled, attendanceUpdated: true}
+			s := NewSignUpService(&repo, &startEventRepository{fakeEventRepository: fakeEventRepository{exists: true}, start: tt.start}, &fakeNotificationRepository{})
+			s.now = func() time.Time { return now }
+
+			res, err := s.SetAttendance(context.Background(), validUserID, 7, tt.attendance)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("err = %v, want %v", err, tt.wantErr)
+			}
+			if repo.attendanceCalls != tt.wantUpdates {
+				t.Fatalf("repository updates = %d, want %d", repo.attendanceCalls, tt.wantUpdates)
+			}
+			if err == nil && (res.EventID != 7 || res.Attendance != tt.attendance) {
+				t.Fatalf("result = %+v", res)
+			}
+		})
+	}
+}
+
+func TestSetAttendanceEventNotFound(t *testing.T) {
+	s := NewSignUpService(&fakeRepository{}, &fakeEventRepository{exists: false}, &fakeNotificationRepository{})
+	if _, err := s.SetAttendance(context.Background(), validUserID, 7, nil); !errors.Is(err, ErrEventNotFound) {
+		t.Fatalf("err = %v, want ErrEventNotFound", err)
 	}
 }

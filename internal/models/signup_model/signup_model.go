@@ -17,6 +17,13 @@ type Unenroll struct {
 	Deleted  bool   `json:"deleted"`  // false when the user was not enrolled
 }
 
+// Attendance is the result of confirming whether a user attended an event.
+type Attendance struct {
+	UserID     string `json:"user-id"`
+	EventID    int    `json:"event-id"`
+	Attendance *bool  `json:"attendance"` // null = unknown
+}
+
 // EnrollmentStatus represents the current enrollment state and total attendees of an event.
 type EnrollmentStatus struct {
 	EventID       int  `json:"event-id"`

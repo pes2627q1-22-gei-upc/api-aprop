@@ -1,0 +1,1 @@
+ALTER TABLE SignUp ADD COLUMN IF NOT EXISTS Attendance boolean;
