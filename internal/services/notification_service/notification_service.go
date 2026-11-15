@@ -2,7 +2,6 @@ package notification_service
 
 import (
 	"errors"
-	"fmt"
 
 	"api-aprop/internal/models/notification_model"
 	"api-aprop/internal/repositories/notification_repository"
@@ -22,9 +21,8 @@ func NewNotificationService(notificationRepository notification_repository.Repos
 func (s *NotificationService) GetNotification(id int) (notification_model.Notification, error) {
 	n, err := s.notificationRepository.Get(id)
 	if errors.Is(err, notification_repository.ErrNotificationNotFound) {
-		return notification_model.Notification{}, fmt.Errorf("%w: %w", notification_repository.ErrNotificationNotFound, err)
-	}
-	if err != nil {
+		return notification_model.Notification{}, ErrNotificationNotFound
+	} else if err != nil {
 		return notification_model.Notification{}, err
 	}
 	return n, nil
@@ -41,9 +39,10 @@ func (s *NotificationService) GetNotificationTypes() ([]notification_model.Notif
 func (s *NotificationService) GetUserNotifications(id pgtype.UUID, params map[string]any) ([]notification_model.Notification, error) {
 	notifs, err := s.notificationRepository.GetUserNotifications(id, params)
 	if errors.Is(err, notification_repository.ErrNotificationNotFound) {
-		return []notification_model.Notification{}, fmt.Errorf("%w: %w", notification_repository.ErrUserNotFound, err)
-	}
-	if err != nil {
+		return []notification_model.Notification{}, ErrNotificationNotFound
+	} else if errors.Is(err, notification_repository.ErrUserNotFound){
+		return []notification_model.Notification{}, ErrUserNotFound
+	} else if err != nil {
 		return []notification_model.Notification{}, err
 	}
 	return notifs, nil
