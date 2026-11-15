@@ -125,4 +125,4 @@ Manual check: sign in with the README demo account. Join Jazz al parc from the l
 
 ## Backend: confirm attendance — Taiga #211
 
-`PATCH /events/{id}/enrollment/attendance` with `{"attendance": true|false|null}` stores `SignUp.Attendance` for the authenticated user (`null` = unknown). Rule R8: `true`/`false` only if the event start date is before now, otherwise `409`; `404` if the event does not exist or the user is not enrolled; `400` for a bad id or body. Clearing (`null`) is always allowed. See DP-029.
+`PATCH /events/{id}/enrollment/attendance` (alias: `/signup/attendance`) with `{"attendance": true|false|null}` stores `SignUp.Attendance` for the authenticated user (`null` = unknown). Rule R8: `true`/`false` only if the event start date is before now, otherwise `409`; `404` if the event does not exist or the user is not enrolled; `400` for a bad id or body. Clearing (`null`) is always allowed. See DP-029.

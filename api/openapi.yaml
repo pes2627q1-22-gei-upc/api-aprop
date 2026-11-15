@@ -545,7 +545,7 @@ paths:
         Desa `attendance` (`true`/`false`; `null` = desconeguda) a la inscripció de l'usuari.
         Regla R8: només es pot fixar `true`/`false` si l'esdeveniment ja ha començat; si no, `409`.
         Esborrar el valor (`null`) sempre és permès. `404` si l'usuari no hi està inscrit (o l'esdeveniment no existeix).
-        Veure DP-029.
+        Veure DP-029. Alias equivalent: `PATCH /events/{id}/signup/attendance`.
       requestBody:
         required: true
         content:

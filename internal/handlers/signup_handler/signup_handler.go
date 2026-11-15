@@ -34,6 +34,7 @@ func (h *SignUpHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /events/{id}/enrollment", h.GetEnrollmentStatus)
 
 	mux.HandleFunc("PATCH /events/{id}/enrollment/attendance", h.SetAttendance)
+	mux.HandleFunc("PATCH /events/{id}/signup/attendance", h.SetAttendance)
 
 	// User events calendar
 	mux.HandleFunc("GET /users/{userId}/events", h.ListUserEvents)

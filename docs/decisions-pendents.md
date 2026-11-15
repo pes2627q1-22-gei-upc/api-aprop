@@ -325,7 +325,7 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 ### DP-029 · Confirmar l'assistència: codi d'error R8, camp i esquema
 - **Estat:** oberta
 - **Obert per:** 2026-11-14 · Claude Code (Sonnet 5.5) · branca `feature/attendance-confirmation` (Taiga #211, US #64)
-- **Context:** `PATCH /events/{id}/enrollment/attendance` amb cos `{"attendance": true|false|null}` (el camp ha de ser present). Migració 000015: `SignUp.Attendance boolean` nul·lable (`null` = desconeguda). El codi sqlc s'ha editat a mà (no s'ha executat `sqlc generate`).
+- **Context:** `PATCH /events/{id}/enrollment/attendance` amb cos `{"attendance": true|false|null}` (el camp ha de ser present). Migració 000015: `SignUp.Attendance boolean` nul·lable (`null` = desconeguda). El codi sqlc afegit coincideix amb la sortida de `sqlc generate` v1.31.1 (verificat en una còpia; la resta de diferències de `sqlc` són prèvies).
 - **Dubte:** (1) R8 viola → `409 Conflict` (alternativa `422`); (2) esborrar el valor (`null`) es permet abans de l'inici; (3) no inscrit → `404`; (4) el nom del camp i la forma de la resposta no tenen contracte amb el frontend; (5) la migració 000015 s'ha provat en un PostgreSQL 16 local (migracions 1–15 + SQL i servei reals), però no s'ha aplicat a Supabase; (6) es compara `StartDate < ara` amb l'hora del servidor, sense zona horària d'esdeveniment; com que `Events.StartDate` és de tipus `date` (sense hora), un esdeveniment d'avui ja compta com a començat des de les 00:00.
 - **Opcions:** A) 409 · B) 422.
 - **Provisionalment:** A.
