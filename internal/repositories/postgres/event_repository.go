@@ -627,10 +627,10 @@ func (r *EventRepository) ListMapEvents(ctx context.Context, filter event_model.
 	lastevent := sqlc.ListMapEventsRow{}
 	cats := []string{}
 	for _, row := range rows {
-		if lastevent==(sqlc.ListMapEventsRow{}){
-			lastevent=row
+		if lastevent == (sqlc.ListMapEventsRow{}) {
+			lastevent = row
 		}
-		if lastevent.ID!=row.ID{
+		if lastevent.ID != row.ID {
 			events = append(events, mapEventRowToModel(lastevent, cats))
 			lastevent = row
 			cats = []string{row.Category.String}
@@ -638,7 +638,7 @@ func (r *EventRepository) ListMapEvents(ctx context.Context, filter event_model.
 			cats = append(cats, row.Category.String)
 		}
 	}
-	if lastevent!=(sqlc.ListMapEventsRow{}){
+	if lastevent != (sqlc.ListMapEventsRow{}) {
 		events = append(events, mapEventRowToModel(lastevent, cats))
 	}
 
