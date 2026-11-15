@@ -131,9 +131,9 @@ func (r *ChatbotRepository) SaveFeedback(ctx context.Context, userID string, con
 		return err
 	}
 	err = r.queries.UpsertChatbotFeedback(ctx, sqlc.UpsertChatbotFeedbackParams{
-		UserID:                uid,
-		ConversationStartedAt: toTimestamptz(conversationStartedAt),
-		SentAt:                toTimestamptz(sentAt),
+		Userid:                uid,
+		Conversationstartedat: toTimestamptz(conversationStartedAt),
+		Sentat:                toTimestamptz(sentAt),
 		Helpful:               helpful,
 	})
 	var pgErr *pgconn.PgError

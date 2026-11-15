@@ -624,9 +624,24 @@ func (r *EventRepository) ListMapEvents(ctx context.Context, filter event_model.
 		return nil, fmt.Errorf("list map events: %w", err)
 	}
 	events := make([]event_model.MapEvent, 0, len(rows))
+	lastevent := sqlc.ListMapEventsRow{}
+	cats := []string{}
 	for _, row := range rows {
-		events = append(events, mapEventRowToModel(row))
+		if lastevent==(sqlc.ListMapEventsRow{}){
+			lastevent=row
+		}
+		if lastevent.ID!=row.ID{
+			events = append(events, mapEventRowToModel(lastevent, cats))
+			lastevent = row
+			cats = []string{row.Category.String}
+		} else {
+			cats = append(cats, row.Category.String)
+		}
 	}
+	if lastevent!=(sqlc.ListMapEventsRow{}){
+		events = append(events, mapEventRowToModel(lastevent, cats))
+	}
+
 	return events, nil
 }
 
@@ -700,9 +715,9 @@ func (r *EventRepository) EventExists(eventID int) (bool, error) {
 	return exists, nil
 }
 
-func mapEventRowToModel(row sqlc.ListMapEventsRow) event_model.MapEvent {
+func mapEventRowToModel(row sqlc.ListMapEventsRow, cats []string) event_model.MapEvent {
 	return event_model.MapEvent{
-		Event: toModel(sqlc.Event{
+		Event: toModelExtended(sqlc.GetEventRow{
 			ID:           row.ID,
 			Title:        row.Title,
 			Subtitle:     row.Subtitle,
@@ -730,7 +745,7 @@ func mapEventRowToModel(row sqlc.ListMapEventsRow) event_model.MapEvent {
 			Activityurl:  row.Activityurl,
 			Startdate:    row.Startdate,
 			Enddate:      row.Enddate,
-		}, 0),
+		}, cats),
 		IsOfficial: row.IsOfficial,
 		HasFriends: row.HasFriends,
 	}

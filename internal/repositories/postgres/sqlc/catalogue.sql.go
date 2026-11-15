@@ -80,8 +80,6 @@ AND (
 )
 AND ($3::date IS NULL OR e.StartDate <= $3::date)
 AND ($4::date IS NULL OR COALESCE(e.EndDate, e.StartDate) >= $4::date)
--- Relevance of the text (title 3, category 2, subtitle 1, description 1) plus the largest preference weight
--- of the user over the event categories (1 when unknown), then soonest first.
 ORDER BY (
     CASE WHEN $2::text IS NULL THEN 0 ELSE
         (CASE WHEN unaccent(e.Title) ILIKE '%' || unaccent($2::text) || '%' THEN 3 ELSE 0 END)
@@ -95,10 +93,10 @@ ORDER BY (
     + COALESCE((
         SELECT MAX(up.Weight) FROM EventCategories ec
         JOIN UserPreferences up ON up.Category = ec.Category
-        WHERE ec.Event = e.ID AND up.UserID = $6::uuid
+        WHERE ec.Event = e.ID AND up.UserID = $5::uuid
     ), 1)
 ) DESC, e.StartDate NULLS LAST, e.ID
-LIMIT $5::integer
+LIMIT $6::integer
 `
 
 type SearchEventsParams struct {
@@ -106,20 +104,22 @@ type SearchEventsParams struct {
 	Category     pgtype.Text
 	ToDate       pgtype.Date
 	FromDate     pgtype.Date
-	MaxResults   int32
 	UserID       pgtype.UUID
+	MaxResults   int32
 }
 
 // Events matching the optional filters that overlap the [from_date, to_date] range.
 // The category also matches the title and description; matching ignores accents (unaccent extension).
+// Relevance of the text (title 3, category 2, subtitle 1, description 1) plus the largest preference weight
+// of the user over the event categories (1 when unknown), then soonest first.
 func (q *Queries) SearchEvents(ctx context.Context, arg SearchEventsParams) ([]Event, error) {
 	rows, err := q.db.Query(ctx, searchEvents,
 		arg.Municipality,
 		arg.Category,
 		arg.ToDate,
 		arg.FromDate,
-		arg.MaxResults,
 		arg.UserID,
+		arg.MaxResults,
 	)
 	if err != nil {
 		return nil, err

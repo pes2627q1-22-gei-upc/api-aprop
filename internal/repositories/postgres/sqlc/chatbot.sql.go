@@ -233,17 +233,17 @@ ON CONFLICT (UserID, ConversationStartedAt, SentAt) DO UPDATE SET Helpful = EXCL
 `
 
 type UpsertChatbotFeedbackParams struct {
-	UserID                pgtype.UUID
-	ConversationStartedAt pgtype.Timestamptz
-	SentAt                pgtype.Timestamptz
+	Userid                pgtype.UUID
+	Conversationstartedat pgtype.Timestamptz
+	Sentat                pgtype.Timestamptz
 	Helpful               bool
 }
 
 func (q *Queries) UpsertChatbotFeedback(ctx context.Context, arg UpsertChatbotFeedbackParams) error {
 	_, err := q.db.Exec(ctx, upsertChatbotFeedback,
-		arg.UserID,
-		arg.ConversationStartedAt,
-		arg.SentAt,
+		arg.Userid,
+		arg.Conversationstartedat,
+		arg.Sentat,
 		arg.Helpful,
 	)
 	return err

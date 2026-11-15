@@ -5,7 +5,7 @@ SELECT
     e.id, e.title, e.subtitle, e.description, e.schedule, e.url, e.tickets, e.ticketsurl,
     e.free, e.permanent, COALESCE(e.modality::text, '')::text AS modality, e.relatedurls, e.urlnames, e.images,
     e.videos, e.email, e.place, e.latitude, e.longitude, e.postalcode, e.municipality,
-    e.region, e.address, e.phone, e.activityurl, e.startdate, e.enddate,
+    e.region, e.address, e.phone, e.activityurl, e.startdate, e.enddate, c.name as category,
     (
         EXISTS (SELECT 1 FROM OfficialEvents oe WHERE oe.ID = e.ID)
         OR (
@@ -34,7 +34,7 @@ SELECT
             )
         )
     )::boolean AS has_friends
-FROM Events e
+FROM Events e left join eventcategories ec on ec.event = e.ID left join categories c on ec.category = c.id
 WHERE e.Latitude IS NOT NULL
   AND e.Longitude IS NOT NULL
   AND NOT (e.Latitude = 0 AND e.Longitude = 0)
