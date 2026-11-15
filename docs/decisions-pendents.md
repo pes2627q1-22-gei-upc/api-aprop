@@ -94,7 +94,7 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Context:** `docs/ai/40-api-i-serveis.md`
 - **Dubte:** rutes, formats, autenticació i versionat dels serveis que intercanviem.
 - **Opcions:** —
-- **Provisionalment:** interfície + fake al backend quan es comenci la integració.
+- **Provisionalment:** interfície + fake al backend quan es comenci la integració. Mobilicat: primer endpoint `POST /api/v1/congestion/estimate` implementat; supòsits a DP-030.
 - **Qui decideix:** altre equip + backend
 - **Resolució:**
 
@@ -330,6 +330,24 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Opcions:** A) 409 · B) 422.
 - **Provisionalment:** A.
 - **Qui decideix:** frontend + backend
+- **Resolució:**
+
+### DP-030 · Contracte amb Mobilicat: estimació de congestió
+- **Estat:** oberta
+- **Obert per:** 2026-11-16 · Claude Code (Opus 5.5) · branca `feature/mobilicat-endpoints` (Taiga #112)
+- **Context:** `POST /api/v1/congestion/estimate` (`congestion_handler`, `congestion_service`, `queries/congestion.sql`), segons el correu de Mobilicat. Opcions 1–4 confirmades per l'equip (Arnau) abans d'implementar; la resta són supòsits pendents de Mobilicat.
+- **Dubte / supòsits:**
+  1. JSON en **snake_case** (`start_time`, `radius_km`, `congestion_factor`, `events_count`) tal com el correu, excepció a la regla kebab-case del projecte.
+  2. Autenticació amb capçalera `X-API-Key` comparada amb `MOBILICAT_API_KEY` (sense la clau configurada → `503`; clau absent o incorrecta → `401`). Cal fer arribar la clau a Mobilicat per un canal privat.
+  3. Fórmula: `score = Σ(1 + inscripcions no marcades com a absents)`, `factor = 0.1 + 0.9·(1 − e^(−score/K))`, K = 20 (`MOBILICAT_CONGESTION_K`), arrodonit a 2 decimals. Nivells: `LOW` < 0.4 ≤ `MEDIUM` < 0.7 ≤ `HIGH`.
+  4. Compten els esdeveniments (oficials i no oficials) amb coordenades dins del radi (haversine) i dates que se solapen amb la franja, excepte els de modalitat `Online`. Un esdeveniment no permanent sense data de fi dura un dia; un de permanent sense data de fi, indefinidament. Sense `StartDate` no compta.
+  5. Granularitat de dia: `Events.StartDate/EndDate` són `date`, així que la franja es converteix a dies de `Europe/Madrid`; les hores de `start_time`/`end_time` no afinen més.
+  6. Valors per defecte: sense `timeframe` → ara; només `start_time` → `end_time = start_time`; només `end_time` → `start_time = ara`; `end_time < start_time` → `400`. Radi per defecte 1 km (també si és 0), màxim 50 km.
+  7. Límits: 1–100 ubicacions per petició; `id` obligatori i retornat; resultats en el mateix ordre. A més de `locations`, s'accepta un objecte `location` individual ("ubicació individual o array" del correu).
+  8. Sense versionat més enllà del prefix `/api/v1` del correu ni límit de peticions (rate limit).
+- **Opcions:** —
+- **Provisionalment:** els supòsits anteriors.
+- **Qui decideix:** Mobilicat + backend
 - **Resolució:**
 
 ## Resoltes
