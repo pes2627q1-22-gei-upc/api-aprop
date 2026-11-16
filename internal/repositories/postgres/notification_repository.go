@@ -104,9 +104,9 @@ func (r *NotificationRepository) GetUserNotifications(id pgtype.UUID, params map
 	}
 
 	_, err = r.queries.GetUserByUUID(context.Background(), id)
-	if errors.Is(err, pgx.ErrNoRows){
+	if errors.Is(err, pgx.ErrNoRows) {
 		return []notification_model.Notification{}, notification_repository.ErrUserNotFound
-	} else if err!=nil{
+	} else if err != nil {
 		return []notification_model.Notification{}, fmt.Errorf("get notification from user %s: %w", id.String(), err)
 	}
 
@@ -134,12 +134,12 @@ func (r *NotificationRepository) ReadNotification(id int) error {
 
 func (r *NotificationRepository) ReadUserNotifications(id pgtype.UUID) error {
 	_, err := r.queries.GetUserByUUID(context.Background(), id)
-	if errors.Is(err, pgx.ErrNoRows){
+	if errors.Is(err, pgx.ErrNoRows) {
 		return notification_repository.ErrUserNotFound
-	} else if err!=nil{
+	} else if err != nil {
 		return fmt.Errorf("get notification from user %s: %w", id.String(), err)
 	}
-	
+
 	err = r.queries.ReadUserNotifications(context.Background(), id)
 	if err != nil {
 		return fmt.Errorf("read notifications from user %s: %w", id.String(), err)
