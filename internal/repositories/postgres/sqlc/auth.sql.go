@@ -21,7 +21,7 @@ SELECT
     $1::varchar, $2::varchar, $3::varchar,
     (SELECT ID FROM AccountStates WHERE Name = 'Active'), new_settings.ID
 FROM new_settings
-RETURNING firebaseuid, username, email, profilepicture, biography, dateregistered, accountstate, experience, level, rating, settings, name, uuid, id
+RETURNING firebaseuid, username, email, profilepicture, biography, dateregistered, accountstate, experience, level, rating, settings, name, id
 `
 
 type CreateUserParams struct {
@@ -48,14 +48,13 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.Rating,
 		&i.Settings,
 		&i.Name,
-		&i.Uuid,
 		&i.ID,
 	)
 	return i, err
 }
 
 const getUserByFirebaseUID = `-- name: GetUserByFirebaseUID :one
-SELECT firebaseuid, username, email, profilepicture, biography, dateregistered, accountstate, experience, level, rating, settings, name, uuid, id FROM Users
+SELECT firebaseuid, username, email, profilepicture, biography, dateregistered, accountstate, experience, level, rating, settings, name, id FROM Users
 WHERE FirebaseUID = $1::varchar
 `
 
@@ -75,7 +74,6 @@ func (q *Queries) GetUserByFirebaseUID(ctx context.Context, firebaseUid string) 
 		&i.Rating,
 		&i.Settings,
 		&i.Name,
-		&i.Uuid,
 		&i.ID,
 	)
 	return i, err
@@ -84,7 +82,7 @@ func (q *Queries) GetUserByFirebaseUID(ctx context.Context, firebaseUid string) 
 const updateUserEmail = `-- name: UpdateUserEmail :one
 UPDATE Users SET Email = $1::varchar
 WHERE ID = $2::uuid
-RETURNING firebaseuid, username, email, profilepicture, biography, dateregistered, accountstate, experience, level, rating, settings, name, uuid, id
+RETURNING firebaseuid, username, email, profilepicture, biography, dateregistered, accountstate, experience, level, rating, settings, name, id
 `
 
 type UpdateUserEmailParams struct {
@@ -108,7 +106,6 @@ func (q *Queries) UpdateUserEmail(ctx context.Context, arg UpdateUserEmailParams
 		&i.Rating,
 		&i.Settings,
 		&i.Name,
-		&i.Uuid,
 		&i.ID,
 	)
 	return i, err

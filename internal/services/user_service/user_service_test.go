@@ -60,30 +60,34 @@ func (m *mockUserRepo) addUser(u user_model.User, showPlans bool) {
 	m.showPlans[u.Settings] = showPlans
 }
 
-func (m *mockUserRepo) GetByID(_ context.Context, id pgtype.UUID) (user_model.User, bool, error) {
+func (m *mockUserRepo) GetByID(_ context.Context, id pgtype.UUID) (user_model.User, error) {
 	u, ok := m.usersByID[id]
 	if !ok {
-		return user_model.User{}, false, user_repository.ErrUserNotFound
+		return user_model.User{}, user_repository.ErrUserNotFound
 	}
-	return *u, m.showPlans[u.Settings], nil
+	return *u, nil
 }
 
-func (m *mockUserRepo) GetByUsername(_ context.Context, username string) (user_model.User, bool, error) {
+func (m *mockUserRepo) GetSettings(_ context.Context, settings int) (user_model.Settings, error){
+	return user_model.Settings{ID: settings, ShowPlans: m.showPlans[settings]}, nil
+}
+
+func (m *mockUserRepo) GetByUsername(_ context.Context, username string) (user_model.User, error) {
 	for _, u := range m.usersByID {
 		if u.Username == username {
-			return *u, m.showPlans[u.Settings], nil
+			return *u, nil
 		}
 	}
-	return user_model.User{}, false, user_repository.ErrUserNotFound
+	return user_model.User{}, user_repository.ErrUserNotFound
 }
 
-func (m *mockUserRepo) GetByFirebaseUID(_ context.Context, firebaseUID string) (user_model.User, bool, error) {
+func (m *mockUserRepo) GetByFirebaseUID(_ context.Context, firebaseUID string) (user_model.User, error) {
 	for _, u := range m.usersByID {
 		if u.FirebaseUID == firebaseUID {
-			return *u, m.showPlans[u.Settings], nil
+			return *u, nil
 		}
 	}
-	return user_model.User{}, false, user_repository.ErrUserNotFound
+	return user_model.User{}, user_repository.ErrUserNotFound
 }
 
 func (m *mockUserRepo) CountFriends(_ context.Context, userUUID pgtype.UUID) (int, error) {
@@ -154,8 +158,8 @@ func (m *mockUserRepo) UpdateProfile(_ context.Context, id pgtype.UUID, name, us
 	return *target, nil
 }
 
-func (m *mockUserRepo) UpdateSettings(_ context.Context, settingsID int, showPlans bool) error {
-	m.showPlans[settingsID] = showPlans
+func (m *mockUserRepo) UpdateSettings(_ context.Context, settings user_model.Settings) error {
+	m.showPlans[settings.ID] = settings.ShowPlans
 	return nil
 }
 
