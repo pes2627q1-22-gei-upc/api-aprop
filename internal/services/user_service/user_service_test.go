@@ -40,6 +40,8 @@ type mockUserRepo struct {
 	acceptFriendRequestErr  error
 	denyFriendRequestErr    error
 	unfriendErr             error
+	deleteUserErr           error
+	deleteUserCalls         int
 }
 
 func newMockUserRepo() *mockUserRepo {
@@ -190,6 +192,24 @@ func (m *mockUserRepo) Unfriend(_ context.Context, _, _ pgtype.UUID) error {
 	return m.unfriendErr
 }
 
+// DeleteUser simulates the transaction: the user is only removed if beforeCommit succeeds.
+func (m *mockUserRepo) DeleteUser(ctx context.Context, id pgtype.UUID, beforeCommit func(context.Context) error) error {
+	m.deleteUserCalls++
+	if m.deleteUserErr != nil {
+		return m.deleteUserErr
+	}
+	if _, ok := m.usersByID[id]; !ok {
+		return user_repository.ErrUserNotFound
+	}
+	if beforeCommit != nil {
+		if err := beforeCommit(ctx); err != nil {
+			return err
+		}
+	}
+	delete(m.usersByID, id)
+	return nil
+}
+
 type mockNotificationRepo struct {
 	getTypeErr error
 	createErr  error
@@ -224,6 +244,17 @@ func (m *mockNotificationRepo) GetNotificationTypeByName(name string) (int, erro
 type mockS3Client struct {
 	uploadedURL string
 	failErr     error
+
+	deleteErr       error
+	deleteCalls     int
+	deletedUserID   string
+	deletedAvatarAt string
+}
+
+func (m *mockS3Client) DeleteAvatar(_ context.Context, userID, url string) error {
+	m.deleteCalls++
+	m.deletedUserID, m.deletedAvatarAt = userID, url
+	return m.deleteErr
 }
 
 var _ s3_client.Client = (*mockS3Client)(nil)
