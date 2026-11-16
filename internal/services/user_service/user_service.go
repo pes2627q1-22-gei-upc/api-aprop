@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/url"
 	"regexp"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"api-aprop/internal/clients/firebase_client"
 	"api-aprop/internal/clients/s3_client"
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/models/notification_model"
@@ -32,16 +34,71 @@ type userService struct {
 	userRepo         user_repository.Repository
 	notificationRepo notification_repository.Repository
 	s3Client         s3_client.Client
+	accountDeleter   firebase_client.AccountDeleter
 }
 
 var _ Service = (*userService)(nil)
 
-func NewUserService(userRepo user_repository.Repository, notificationRepo notification_repository.Repository, s3Client s3_client.Client) Service {
+// NewUserService creates the service. accountDeleter deletes the Firebase Auth account when a user
+// deletes its account; it can be nil when the API runs without Firebase (local development).
+func NewUserService(userRepo user_repository.Repository, notificationRepo notification_repository.Repository, s3Client s3_client.Client, accountDeleter firebase_client.AccountDeleter) Service {
 	return &userService{
 		userRepo:         userRepo,
 		notificationRepo: notificationRepo,
 		s3Client:         s3Client,
+		accountDeleter:   accountDeleter,
 	}
+}
+
+// DeleteAccount erases the user and its data in a single transaction. The Firebase Auth account is
+// deleted inside the transaction, before the commit: if Firebase fails nothing is deleted. The avatar
+// is deleted from storage after the commit and a failure there does not undo the deletion.
+func (s *userService) DeleteAccount(ctx context.Context, requesterID string) error {
+	id, err := user_model.ParseID(requesterID)
+	if err != nil {
+		return ErrInvalidUserID
+	}
+	user, _, err := s.userRepo.GetByID(ctx, id)
+	if errors.Is(err, user_repository.ErrUserNotFound) {
+		return ErrUserNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("get user to delete: %w", err)
+	}
+
+	firebaseDeleted := false
+	deleteFirebaseAccount := func(ctx context.Context) error {
+		if s.accountDeleter == nil {
+			slog.Warn("Firebase is not configured; the authentication account is not deleted", "user", requesterID)
+			return nil
+		}
+		if err := s.accountDeleter.DeleteUser(ctx, user.FirebaseUID); err != nil {
+			return fmt.Errorf("%w: %w", ErrAuthProvider, err)
+		}
+		firebaseDeleted = true
+		return nil
+	}
+
+	err = s.userRepo.DeleteUser(ctx, id, deleteFirebaseAccount)
+	switch {
+	case errors.Is(err, user_repository.ErrUserNotFound):
+		return ErrUserNotFound
+	case errors.Is(err, ErrAuthProvider):
+		return err
+	case err != nil:
+		if firebaseDeleted {
+			// TODO(DP-031): the commit failed after the Firebase account was deleted; the data must be erased by hand
+			slog.Error("account data not deleted but the Firebase account was", "user", requesterID, "firebase-uid", user.FirebaseUID, "error", err)
+		}
+		return fmt.Errorf("delete user: %w", err)
+	}
+
+	if user.ProfilePicture != "" {
+		if err := s.s3Client.DeleteAvatar(ctx, requesterID, user.ProfilePicture); err != nil {
+			slog.Warn("could not delete the avatar of a deleted user", "user", requesterID, "error", err)
+		}
+	}
+	return nil
 }
 
 func (s *userService) GetUserProfile(ctx context.Context, targetIdentifier string, requesterIdentifier string) (user_model.UserProfile, error) {
