@@ -552,14 +552,14 @@ func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfilePa
 const updateUserSettings = `-- name: UpdateUserSettings :one
 UPDATE Settings SET
     ShowPlans = $1::boolean,
-    NotificationBefore = $2::interval
+    NotificationBefore = ($2::varchar)::interval
 WHERE ID = $3::integer
 RETURNING id, showplans, notificationbefore
 `
 
 type UpdateUserSettingsParams struct {
 	ShowPlans          bool
-	NotificationBefore pgtype.Interval
+	NotificationBefore string
 	ID                 int32
 }
 

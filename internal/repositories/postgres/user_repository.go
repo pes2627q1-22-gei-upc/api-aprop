@@ -192,16 +192,10 @@ func (r *UserRepository) UpdateProfile(ctx context.Context, id pgtype.UUID, name
 }
 
 func (r *UserRepository) UpdateSettings(ctx context.Context, settings user_model.Settings) error {
-	var interval pgtype.Interval
-	err := interval.Scan(settings.NotificationBefore)
-	if err!=nil{
-		return fmt.Errorf("update settings %d: %w", settings.ID, err)
-	}
-	
-	_, err = r.queries.UpdateUserSettings(ctx, sqlc.UpdateUserSettingsParams{
+	_, err := r.queries.UpdateUserSettings(ctx, sqlc.UpdateUserSettingsParams{
 		ID:        int32(settings.ID),
 		ShowPlans: settings.ShowPlans,
-		NotificationBefore: interval,
+		NotificationBefore: settings.NotificationBefore,
 	})
 	if err != nil {
 		return fmt.Errorf("update settings %d: %w", settings.ID, err)
@@ -385,7 +379,7 @@ func toTimestamp(t time.Time) pgtype.Timestamp {
 }
 
 func intervalToString(interval pgtype.Interval) string {
-	return fmt.Sprintf("%d mons %d days %d microseconds",
+	return fmt.Sprintf("%d mons %d days %d usecs",
     	interval.Months,
     	interval.Days,
     	interval.Microseconds,

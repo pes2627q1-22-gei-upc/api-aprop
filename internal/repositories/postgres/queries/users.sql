@@ -68,7 +68,7 @@ RETURNING *;
 -- name: UpdateUserSettings :one
 UPDATE Settings SET
     ShowPlans = sqlc.arg(show_plans)::boolean,
-    NotificationBefore = sqlc.arg(notification_before)::interval
+    NotificationBefore = (sqlc.arg(notification_before)::varchar)::interval
 WHERE ID = sqlc.arg(id)::integer
 RETURNING *;
 
