@@ -59,8 +59,8 @@ type FriendRequest struct {
 	DateResolved time.Time   `json:"date-resolved"`
 }
 
-type Settings struct{
-	ID					int			`json:"id"`
-	ShowPlans	        bool        `json:"show-plans"`
-	NotificationBefore  string      `json:"notification-before"`
+type Settings struct {
+	ID                 int    `json:"id"`
+	ShowPlans          bool   `json:"show-plans"`
+	NotificationBefore string `json:"notification-before"`
 }

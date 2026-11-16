@@ -68,7 +68,7 @@ func (m *mockUserRepo) GetByID(_ context.Context, id pgtype.UUID) (user_model.Us
 	return *u, nil
 }
 
-func (m *mockUserRepo) GetSettings(_ context.Context, settings int) (user_model.Settings, error){
+func (m *mockUserRepo) GetSettings(_ context.Context, settings int) (user_model.Settings, error) {
 	return user_model.Settings{ID: settings, ShowPlans: m.showPlans[settings]}, nil
 }
 

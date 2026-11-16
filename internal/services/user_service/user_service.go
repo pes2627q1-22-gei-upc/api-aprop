@@ -46,10 +46,10 @@ func NewUserService(userRepo user_repository.Repository, notificationRepo notifi
 
 func (s *userService) GetUserProfile(ctx context.Context, targetIdentifier string, requesterIdentifier string) (user_model.UserProfile, error) {
 	var (
-		target    user_model.User
-		settings  user_model.Settings
-		isSelf    bool
-		err       error
+		target   user_model.User
+		settings user_model.Settings
+		isSelf   bool
+		err      error
 	)
 
 	if targetIdentifier == "" || targetIdentifier == "me" {
@@ -61,7 +61,7 @@ func (s *userService) GetUserProfile(ctx context.Context, targetIdentifier strin
 			return user_model.UserProfile{}, ErrUserNotFound
 		}
 		settings, err = s.userRepo.GetSettings(ctx, target.Settings)
-		if err!=nil{
+		if err != nil {
 			return user_model.UserProfile{}, err
 		}
 		isSelf = true
@@ -71,7 +71,7 @@ func (s *userService) GetUserProfile(ctx context.Context, targetIdentifier strin
 			return user_model.UserProfile{}, ErrUserNotFound
 		}
 		settings, err = s.userRepo.GetSettings(ctx, target.Settings)
-		if err!=nil{
+		if err != nil {
 			return user_model.UserProfile{}, err
 		}
 		if requesterIdentifier != "" {

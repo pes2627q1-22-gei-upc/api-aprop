@@ -193,8 +193,8 @@ func (r *UserRepository) UpdateProfile(ctx context.Context, id pgtype.UUID, name
 
 func (r *UserRepository) UpdateSettings(ctx context.Context, settings user_model.Settings) error {
 	_, err := r.queries.UpdateUserSettings(ctx, sqlc.UpdateUserSettingsParams{
-		ID:        int32(settings.ID),
-		ShowPlans: settings.ShowPlans,
+		ID:                 int32(settings.ID),
+		ShowPlans:          settings.ShowPlans,
 		NotificationBefore: settings.NotificationBefore,
 	})
 	if err != nil {
@@ -233,7 +233,7 @@ func (r *UserRepository) GetFriendRequests(ctx context.Context, userid pgtype.UU
 	return friendreqs, nil
 }
 
-func mapGetUserRowToUser(row sqlc.GetUserByUUIDRow) (user_model.User) {
+func mapGetUserRowToUser(row sqlc.GetUserByUUIDRow) user_model.User {
 	u := user_model.User{
 		ID:             row.ID,
 		FirebaseUID:    row.Firebaseuid,
@@ -365,9 +365,9 @@ func (r *UserRepository) DenyFriendRequest(ctx context.Context, userid pgtype.UU
 	return toFriendRequest(row), nil
 }
 
-func (r *UserRepository) GetSettings(ctx context.Context, id int) (user_model.Settings, error){
+func (r *UserRepository) GetSettings(ctx context.Context, id int) (user_model.Settings, error) {
 	row, err := r.queries.GetSettings(ctx, int32(id))
-	if err!=nil{
+	if err != nil {
 		return user_model.Settings{}, err
 	}
 
@@ -380,8 +380,8 @@ func toTimestamp(t time.Time) pgtype.Timestamp {
 
 func intervalToString(interval pgtype.Interval) string {
 	return fmt.Sprintf("%d mons %d days %d usecs",
-    	interval.Months,
-    	interval.Days,
-    	interval.Microseconds,
+		interval.Months,
+		interval.Days,
+		interval.Microseconds,
 	)
 }
