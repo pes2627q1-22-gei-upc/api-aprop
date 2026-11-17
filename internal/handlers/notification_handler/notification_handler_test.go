@@ -47,6 +47,7 @@ func (s *fakeNotificationService) GetUserNotifications(id pgtype.UUID, params ma
 			notifs = append(notifs, n)
 		}
 	}
+	slices.SortFunc(notifs, func(a notification_model.Notification, b notification_model.Notification) int { return a.ID - b.ID })
 	return notifs, s.getUserNotificationsError
 }
 func (s *fakeNotificationService) CreateNotification(n notification_model.Notification) (int, error) {
