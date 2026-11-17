@@ -13,7 +13,7 @@
 
 | Taiga | Història / Tasca | Repo | Branca | Responsable | Estat |
 |---|---|---|---|---|---|
-| **#51** | Llista d'esdeveniments recomanats (`GET /events/recommended` amb `Interès./pes` i `SignUp`) | `api-aprop` | `feature/recommended-events` | Wenqiang He | Implementat i provat en unit tests; pendent de revisió i prova contra Supabase (`DP-030` oberta) |
+| **#51** | Llista d'esdeveniments recomanats (`GET /events/recommended` amb `Interès./pes` i `SignUp`) | `api-aprop` | `feature/recommended-events` | Wenqiang He | PR oberta #60 cap a `develop`, pendent de revisió humana i prova contra Supabase (`DP-030` oberta) |
 | **#246** | Unificar la identificació de l'usuari (Firebase UID → UUID) i els helpers d'IDs | `api-aprop` | `feature/unificar-usuari` | Arnau Serra | Pendent de PR a `develop` (DP-011 segueix oberta per a notificacions) |
 | **#236** | Correccions dels endpoints d'esdeveniments (llistat, mapa, modificació, imatge, recomanats) | `api-aprop` | `Fix-esdeveniments` | Arnau Serra | PR oberta a `develop`, pendent de revisió (DP-026 oberta) |
 | **#228** | Adaptar i estructurar la documentació al backend | `api-aprop` | `documentation` | Wenqiang He | Documentació sincronitzada, adaptada a Go/Supabase i en revisió |
