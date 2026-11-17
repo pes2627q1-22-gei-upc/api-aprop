@@ -247,6 +247,63 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /events/recommended:
+    get:
+      tags: [events]
+      operationId: getRecommendedEvents
+      summary: Llista d'esdeveniments actius recomanats per a l'usuari
+      description: |
+        Retorna esdeveniments actius (`end-date` nul·la o futura) als quals l'usuari autenticat
+        encara no està inscrit, ordenats globalment abans de paginar segons les preferències per
+        categoria (`UserPreferences`), l'afinitat per categories de les seves inscripcions
+        (`SignUp`) i la popularitat global (nombre d'inscripcions).
+      parameters:
+        - name: pageSize
+          in: query
+          required: true
+          description: Nombre d'esdeveniments per pàgina (enter `>= 1`)
+          schema:
+            type: integer
+            minimum: 1
+          example: 20
+        - name: pageNum
+          in: query
+          required: true
+          description: Número de pàgina, començant per 0 (`>= 0`)
+          schema:
+            type: integer
+            minimum: 0
+          example: 0
+      responses:
+        '200':
+          description: Llista paginada d'esdeveniments recomanats (pot ser buida)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Event'
+        '400':
+          description: Paràmetres de paginació o identificador d'usuari invàlids
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidPageSize:
+                  value:
+                    error: invalid page size
+                invalidPageNum:
+                  value:
+                    error: invalid page num
+                invalidUserId:
+                  value:
+                    error: invalid user id
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /events/map:
     get:
       tags: [events]

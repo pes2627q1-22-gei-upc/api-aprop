@@ -13,6 +13,7 @@ Totes les respostes i cossos de petició utilitzen claus JSON en **kebab-case**.
 | Mètode i ruta | Handler | Descripció | Estat |
 |---|---|---|---|
 | `GET /events` | `EventHandler.ListEvents` | Llistat d'esdeveniments amb filtres per categoria, dates i cerca | Implementat |
+| `GET /events/recommended` | `EventHandler.GetRecommendedEvents` | Llistat paginat d'esdeveniments actius recomanats segons preferències i inscripcions | Implementat |
 | `GET /events/{id}` | `EventHandler.GetEvent` | Detall complet d'un esdeveniment per ID | Implementat |
 | `POST /events` | `EventHandler.CreateEvent` | Creació d'esdeveniments no oficials | Implementat |
 | `PUT /events/{id}` | `EventHandler.UpdateEvent` | Modificació d'un esdeveniment no oficial (només el creador; 403 si no ho és o si és oficial) | Implementat |

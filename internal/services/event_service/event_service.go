@@ -1,7 +1,7 @@
 package event_service
 
 import (
-	"container/heap"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -15,56 +15,26 @@ import (
 	"api-aprop/internal/clients/gencat_client"
 	"api-aprop/internal/clients/s3_client"
 	"api-aprop/internal/models/event_model"
-	"api-aprop/internal/models/preference_model"
+	"api-aprop/internal/models/signup_model"
 	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/repositories/event_repository"
 	"api-aprop/internal/repositories/preference_repository"
+	"api-aprop/internal/repositories/signup_repository"
 )
 
-type Item struct {
-	Value    event_model.Event
-	Priority float32
-	Index    int
-}
-
-type PriorityQueue []*Item
-
-// heap.Interface implementation
-
-func (pq PriorityQueue) Len() int {
-	return len(pq)
-}
-
-func (pq PriorityQueue) Less(i, j int) bool {
-	return pq[i].Priority > pq[j].Priority
-}
-
-func (pq PriorityQueue) Swap(i, j int) {
-	pq[i], pq[j] = pq[j], pq[i]
-	pq[i].Index = i
-	pq[j].Index = j
-}
-
-func (pq *PriorityQueue) Push(x any) {
-	item := x.(*Item)
-	item.Index = len(*pq)
-	*pq = append(*pq, item)
-}
-
-func (pq *PriorityQueue) Pop() any {
-	old := *pq
-	n := len(old)
-	item := old[n-1]
-	old[n-1] = nil // Avoid retaining the item in memory
-	item.Index = -1
-	*pq = old[:n-1]
-	return item
-}
+const (
+	defaultPreferenceWeight = 1.0
+	signUpCategoryStep      = 0.5
+	maxSignUpCategoryBoost  = 2.0
+	popularityWeight        = 0.1
+	maxPopularityBoost      = 0.5
+)
 
 type EventService struct {
 	eventRepository      event_repository.Repository
 	gencatClient         gencat_client.Client
 	preferenceRepository preference_repository.Repository
+	signUpRepository     signup_repository.Repository
 	s3Client             s3_client.Client
 }
 
@@ -75,6 +45,12 @@ func NewEventService(eventRepository event_repository.Repository, preferenceRepo
 		gencatClient:         gencatClient,
 		s3Client:             s3Client,
 	}
+}
+
+// WithSignUpRepository attaches the sign-up repository so recommendations incorporate user enrollments.
+func (s *EventService) WithSignUpRepository(signUpRepository signup_repository.Repository) *EventService {
+	s.signUpRepository = signUpRepository
+	return s
 }
 
 func (s *EventService) GetEvent(id int) (event_model.Event, error) {
@@ -88,41 +64,188 @@ func (s *EventService) GetEvent(id int) (event_model.Event, error) {
 	return e, nil
 }
 
+// GetRecommendedEvents returns active events ranked for userID using UserPreferences (Interès./pes),
+// the user's SignUp category affinity (excluding events already joined), and global sign-up popularity,
+// applying pagination after global ranking.
 func (s *EventService) GetRecommendedEvents(ctx context.Context, userid string, pageSize int, pageNum int) ([]event_model.Event, error) {
-	events, err := s.eventRepository.List(map[string]any{"pageSize": pageSize, "pageNum": pageNum, "filterCategory": 0})
-	if errors.Is(err, event_repository.ErrInvalidFilter) {
-		return []event_model.Event{}, fmt.Errorf("%w: %w", ErrInvalidFilter, err)
-	}
+	normalizedUID, err := user_model.NormalizeID(userid)
 	if err != nil {
-		return []event_model.Event{}, err
+		return nil, err
+	}
+	if pageSize <= 0 || pageNum < 0 {
+		return nil, fmt.Errorf("recommended events: %w: pageSize must be > 0 and pageNum >= 0", ErrInvalidFilter)
 	}
 
-	prefs, err := s.preferenceRepository.GetUserPreferences(ctx, userid)
+	activeEvents, err := s.eventRepository.ListActive(ctx)
 	if err != nil {
-		return []event_model.Event{}, err
+		return nil, err
+	}
+	if len(activeEvents) == 0 {
+		return []event_model.Event{}, nil
 	}
 
-	ordered_events := &PriorityQueue{}
-	heap.Init(ordered_events)
-	for _, ev := range events {
-		prio := float32(1.0)
-		for _, cat := range ev.Categories {
-			// A category without preference has weight 1, the default weight of UserPreferences
-			ind := slices.IndexFunc(prefs, func(p preference_model.UserPreference) bool { return p.CategoryName == cat })
-			if ind != -1 {
-				prio *= prefs[ind].Weight
+	prefWeights := make(map[string]float64)
+	if s.preferenceRepository != nil {
+		prefs, err := s.preferenceRepository.GetUserPreferences(ctx, normalizedUID)
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range prefs {
+			prefWeights[p.CategoryName] = float64(p.Weight)
+		}
+	}
+
+	signedUpIDs, signUpCategoryCounts, err := s.userSignUpSignals(ctx, normalizedUID, activeEvents)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO(DP-030): confirm the exact combination formula (UserPreferences + SignUp category boost + popularity)
+	// and whether already-enrolled events should be excluded rather than penalized.
+	type scoredEvent struct {
+		event       event_model.Event
+		score       float64
+		signUpCount int
+	}
+	candidates := make([]scoredEvent, 0, len(activeEvents))
+	for _, ae := range activeEvents {
+		if signedUpIDs[ae.Event.ID] {
+			continue
+		}
+		candidates = append(candidates, scoredEvent{
+			event:       ae.Event,
+			score:       scoreRecommendedEvent(ae.Event, ae.SignUpCount, prefWeights, signUpCategoryCounts),
+			signUpCount: ae.SignUpCount,
+		})
+	}
+
+	slices.SortFunc(candidates, func(a, b scoredEvent) int {
+		if a.score != b.score {
+			if a.score > b.score {
+				return -1
+			}
+			return 1
+		}
+		if a.signUpCount != b.signUpCount {
+			return cmp.Compare(b.signUpCount, a.signUpCount)
+		}
+		aZero, bZero := a.event.EndDate.IsZero(), b.event.EndDate.IsZero()
+		if aZero != bZero {
+			if aZero {
+				return 1
+			}
+			return -1
+		}
+		if !aZero && !a.event.EndDate.Equal(b.event.EndDate) {
+			if a.event.EndDate.Before(b.event.EndDate) {
+				return -1
+			}
+			return 1
+		}
+		return cmp.Compare(a.event.ID, b.event.ID)
+	})
+
+	if pageNum > len(candidates)/pageSize {
+		return []event_model.Event{}, nil
+	}
+	offset := pageNum * pageSize
+	if offset >= len(candidates) {
+		return []event_model.Event{}, nil
+	}
+	end := min(offset+pageSize, len(candidates))
+
+	ret := make([]event_model.Event, 0, end-offset)
+	for _, c := range candidates[offset:end] {
+		ret = append(ret, c.event)
+	}
+	return ret, nil
+}
+
+func (s *EventService) userSignUpSignals(ctx context.Context, userID string, activeEvents []event_repository.ActiveEvent) (map[int]bool, map[string]int, error) {
+	signedUpIDs := make(map[int]bool)
+	categoryCounts := make(map[string]int)
+	if s.signUpRepository == nil {
+		return signedUpIDs, categoryCounts, nil
+	}
+
+	signUps, err := s.signUpRepository.ListUserEvents(ctx, userID, signup_model.DateRange{})
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(signUps) == 0 {
+		return signedUpIDs, categoryCounts, nil
+	}
+
+	activeCatsByID := make(map[int][]string, len(activeEvents))
+	for _, ae := range activeEvents {
+		activeCatsByID[ae.Event.ID] = ae.Event.Categories
+	}
+
+	var missingCatEventIDs []int
+	for _, su := range signUps {
+		signedUpIDs[su.ID] = true
+		cats := su.Categories
+		if len(cats) == 0 {
+			cats = activeCatsByID[su.ID]
+		}
+		if len(cats) > 0 {
+			for _, cat := range cats {
+				categoryCounts[cat]++
+			}
+		} else {
+			missingCatEventIDs = append(missingCatEventIDs, su.ID)
+		}
+	}
+
+	if len(missingCatEventIDs) > 0 && s.preferenceRepository != nil {
+		evCats, err := s.preferenceRepository.GetEventCategories(ctx, missingCatEventIDs)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(evCats) > 0 {
+			allCats, err := s.preferenceRepository.ListAllCategories(ctx)
+			if err != nil {
+				return nil, nil, err
+			}
+			catNames := make(map[int]string, len(allCats))
+			for _, c := range allCats {
+				catNames[c.ID] = c.Name
+			}
+			for _, id := range missingCatEventIDs {
+				for _, catID := range evCats[id] {
+					if name, ok := catNames[catID]; ok {
+						categoryCounts[name]++
+					}
+				}
 			}
 		}
-		heap.Push(ordered_events, &Item{Value: ev, Priority: prio})
 	}
 
-	ret := []event_model.Event{}
-	for ordered_events.Len() > 0 {
-		tmp, _ := heap.Pop(ordered_events).(*Item)
-		ret = append(ret, tmp.Value)
+	return signedUpIDs, categoryCounts, nil
+}
+
+func scoreRecommendedEvent(ev event_model.Event, signUpCount int, prefWeights map[string]float64, signUpCategoryCounts map[string]int) float64 {
+	categoryScore := defaultPreferenceWeight
+	if len(ev.Categories) > 0 {
+		sum := 0.0
+		for _, cat := range ev.Categories {
+			w := defaultPreferenceWeight
+			if pw, ok := prefWeights[cat]; ok {
+				w = pw
+			}
+			if cnt := signUpCategoryCounts[cat]; cnt > 0 {
+				w += min(float64(cnt)*signUpCategoryStep, maxSignUpCategoryBoost)
+			}
+			sum += w
+		}
+		categoryScore = sum / float64(len(ev.Categories))
 	}
 
-	return ret, nil
+	popularityBoost := 0.0
+	if signUpCount > 0 {
+		popularityBoost = min(popularityWeight*math.Log1p(float64(signUpCount)), maxPopularityBoost)
+	}
+	return categoryScore + popularityBoost
 }
 
 func (s *EventService) ListEvents(params map[string]any) ([]event_model.Event, error) {

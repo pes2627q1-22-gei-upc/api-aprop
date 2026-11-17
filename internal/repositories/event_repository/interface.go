@@ -6,6 +6,12 @@ import (
 	"api-aprop/internal/models/event_model"
 )
 
+// ActiveEvent pairs an active event with its distinct sign-up count for recommendation ranking.
+type ActiveEvent struct {
+	Event       event_model.Event
+	SignUpCount int
+}
+
 // Repository stores and retrieves events.
 type Repository interface {
 	Create(e event_model.Event, official bool) (event_model.Event, error)
@@ -17,6 +23,7 @@ type Repository interface {
 	SetCategories(id int, cats []string, official bool) error
 	Get(id int) (event_model.Event, error)
 	List(params map[string]any) ([]event_model.Event, error)
+	ListActive(ctx context.Context) ([]ActiveEvent, error)
 	GetPopular(pageSize int, pageNum int) ([]event_model.Event, error)
 	Search(ctx context.Context, query string, pageNum, pageSize int) (event_model.SearchResult, error)
 	GetCategories() ([]event_model.Category, error)
