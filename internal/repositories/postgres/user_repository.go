@@ -28,40 +28,40 @@ func NewUserRepository(pool *pgxpool.Pool) *UserRepository {
 	return &UserRepository{queries: sqlc.New(pool), pool: pool}
 }
 
-func (r *UserRepository) GetByUsername(ctx context.Context, username string) (user_model.User, bool, error) {
+func (r *UserRepository) GetByUsername(ctx context.Context, username string) (user_model.User, error) {
 	row, err := r.queries.GetUserByUsername(ctx, username)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return user_model.User{}, false, user_repository.ErrUserNotFound
+		return user_model.User{}, user_repository.ErrUserNotFound
 	}
 	if err != nil {
-		return user_model.User{}, false, fmt.Errorf("get user by username %q: %w", username, err)
+		return user_model.User{}, fmt.Errorf("get user by username %q: %w", username, err)
 	}
-	u, showPlans := mapGetUserRowToUser(sqlc.GetUserByUUIDRow(row))
-	return u, showPlans, nil
+	u := mapGetUserRowToUser(sqlc.GetUserByUUIDRow(row))
+	return u, nil
 }
 
-func (r *UserRepository) GetByFirebaseUID(ctx context.Context, firebaseUID string) (user_model.User, bool, error) {
+func (r *UserRepository) GetByFirebaseUID(ctx context.Context, firebaseUID string) (user_model.User, error) {
 	row, err := r.queries.GetUserByFirebaseUIDWithSettings(ctx, firebaseUID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return user_model.User{}, false, user_repository.ErrUserNotFound
+		return user_model.User{}, user_repository.ErrUserNotFound
 	}
 	if err != nil {
-		return user_model.User{}, false, fmt.Errorf("get user by firebase uid %q: %w", firebaseUID, err)
+		return user_model.User{}, fmt.Errorf("get user by firebase uid %q: %w", firebaseUID, err)
 	}
-	u, showPlans := mapGetUserRowToUser(sqlc.GetUserByUUIDRow(row))
-	return u, showPlans, nil
+	u := mapGetUserRowToUser(sqlc.GetUserByUUIDRow(row))
+	return u, nil
 }
 
-func (r *UserRepository) GetByID(ctx context.Context, uid pgtype.UUID) (user_model.User, bool, error) {
+func (r *UserRepository) GetByID(ctx context.Context, uid pgtype.UUID) (user_model.User, error) {
 	row, err := r.queries.GetUserByUUID(ctx, uid)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return user_model.User{}, false, user_repository.ErrUserNotFound
+		return user_model.User{}, user_repository.ErrUserNotFound
 	}
 	if err != nil {
-		return user_model.User{}, false, fmt.Errorf("get user by uuid %q: %w", uid, err)
+		return user_model.User{}, fmt.Errorf("get user by uuid %q: %w", uid, err)
 	}
-	u, showPlans := mapGetUserRowToUser(row)
-	return u, showPlans, nil
+	u := mapGetUserRowToUser(row)
+	return u, nil
 }
 
 func (r *UserRepository) CountFriends(ctx context.Context, uid pgtype.UUID) (int, error) {
@@ -191,13 +191,14 @@ func (r *UserRepository) UpdateProfile(ctx context.Context, id pgtype.UUID, name
 	return u, nil
 }
 
-func (r *UserRepository) UpdateSettings(ctx context.Context, settingsID int, showPlans bool) error {
+func (r *UserRepository) UpdateSettings(ctx context.Context, settings user_model.Settings) error {
 	_, err := r.queries.UpdateUserSettings(ctx, sqlc.UpdateUserSettingsParams{
-		ID:        int32(settingsID),
-		ShowPlans: showPlans,
+		ID:                 int32(settings.ID),
+		ShowPlans:          settings.ShowPlans,
+		NotificationBefore: settings.NotificationBefore,
 	})
 	if err != nil {
-		return fmt.Errorf("update settings %d: %w", settingsID, err)
+		return fmt.Errorf("update settings %d: %w", settings.ID, err)
 	}
 	return nil
 }
@@ -232,7 +233,7 @@ func (r *UserRepository) GetFriendRequests(ctx context.Context, userid pgtype.UU
 	return friendreqs, nil
 }
 
-func mapGetUserRowToUser(row sqlc.GetUserByUUIDRow) (user_model.User, bool) {
+func mapGetUserRowToUser(row sqlc.GetUserByUUIDRow) user_model.User {
 	u := user_model.User{
 		ID:             row.ID,
 		FirebaseUID:    row.Firebaseuid,
@@ -256,7 +257,7 @@ func mapGetUserRowToUser(row sqlc.GetUserByUUIDRow) (user_model.User, bool) {
 		r := row.Rating.Float32
 		u.Rating = &r
 	}
-	return u, row.ShowPlans
+	return u
 }
 
 func createdEventToModel(row sqlc.ListUserCreatedEventsRow) event_model.Event {
@@ -364,6 +365,23 @@ func (r *UserRepository) DenyFriendRequest(ctx context.Context, userid pgtype.UU
 	return toFriendRequest(row), nil
 }
 
+func (r *UserRepository) GetSettings(ctx context.Context, id int) (user_model.Settings, error) {
+	row, err := r.queries.GetSettings(ctx, int32(id))
+	if err != nil {
+		return user_model.Settings{}, err
+	}
+
+	return user_model.Settings{ID: int(row.ID), NotificationBefore: intervalToString(row.Notificationbefore), ShowPlans: row.Showplans}, nil
+}
+
 func toTimestamp(t time.Time) pgtype.Timestamp {
 	return pgtype.Timestamp{Time: t, Valid: true}
+}
+
+func intervalToString(interval pgtype.Interval) string {
+	return fmt.Sprintf("%d mons %d days %d usecs",
+		interval.Months,
+		interval.Days,
+		interval.Microseconds,
+	)
 }
