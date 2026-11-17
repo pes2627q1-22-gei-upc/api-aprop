@@ -534,6 +534,61 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /events/{id}/ratings:
+    parameters:
+      - $ref: '#/components/parameters/EventId'
+    post:
+      tags: [events]
+      operationId: rateEvent
+      summary: Valora un esdeveniment
+      description: >
+        Desa la valoració (`score` 1..5, R9) de l'usuari. Regla R10: l'usuari ha d'haver assistit
+        (inscripció amb `attendance = true`; R8 només permet fixar-la un cop l'esdeveniment ha començat), si no `403`.
+        Una sola valoració per usuari i esdeveniment: la repetida dona `409`. Veure DP-030.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [score]
+              properties:
+                score:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+      responses:
+        '201':
+          description: Valoració desada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Rating'
+        '400':
+          description: Id invàlid, cos invàlid o `score` fora de 1..5
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: L'usuari no ha assistit a l'esdeveniment (R10)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          $ref: '#/components/responses/EventNotFound'
+        '409':
+          description: L'usuari ja havia valorat l'esdeveniment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /events/{id}/enrollment/attendance:
     parameters:
       - $ref: '#/components/parameters/EventId'
@@ -1746,6 +1801,19 @@ components:
         attendance:
           type: boolean
           nullable: true
+
+    Rating:
+      type: object
+      required: [user-id, event-id, score]
+      properties:
+        user-id:
+          type: string
+        event-id:
+          type: integer
+        score:
+          type: integer
+          minimum: 1
+          maximum: 5
 
     SyncRequest:
       type: object

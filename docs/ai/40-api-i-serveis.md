@@ -27,6 +27,11 @@ Totes les respostes i cossos de petició utilitzen claus JSON en **kebab-case**.
 | `POST /events/{id}/signup` | `SignUpHandler.SignUp` | Inscripció d'un usuari a un esdeveniment | Implementat |
 | `GET /users/{userId}/events` | `SignUpHandler.ListUserEvents` | Consulta de les activitats a les quals s'ha apuntat l'usuari (Agenda) | Implementat |
 
+### Valoracions (`rating_handler`)
+| Mètode i ruta | Handler | Descripció | Estat |
+|---|---|---|---|
+| `POST /events/{id}/ratings` | `RatingHandler.Rate` | Valora un esdeveniment assistit (1–5; R9/R10) | Implementat (`feature/event-rating`, DP-030) |
+
 ### Assistent Virtual i Xatbot (`assistant_handler`)
 | Mètode i ruta | Handler | Descripció | Estat |
 |---|---|---|---|
