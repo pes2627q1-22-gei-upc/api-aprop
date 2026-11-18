@@ -27,6 +27,14 @@ type fakeUserService struct {
 	createdEvents map[string][]event_model.Event
 	ratings       map[string][]user_model.ReceivedRating
 	failUsername  bool
+
+	deleteErr  error
+	deletedIDs []string
+}
+
+func (f *fakeUserService) DeleteAccount(_ context.Context, requesterID string) error {
+	f.deletedIDs = append(f.deletedIDs, requesterID)
+	return f.deleteErr
 }
 
 func (f *fakeUserService) GetUserProfile(_ context.Context, targetIdentifier, requesterIdentifier string) (user_model.UserProfile, error) {

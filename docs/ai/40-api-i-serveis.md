@@ -38,6 +38,28 @@ Totes les respostes i cossos de petició utilitzen claus JSON en **kebab-case**.
 |---|---|---|---|
 | `POST /auth/sync` | `AuthHandler.Sync` | Sincronitza l'usuari autenticat amb Firebase a la taula d'usuaris de Supabase | Implementat |
 
+### Compte d'usuari (`user_handler`)
+| Mètode i ruta | Handler | Descripció | Estat |
+|---|---|---|---|
+| `DELETE /users/me` | `UserHandler.DeleteMyAccount` | Baixa del compte (RGPD): esborra en una transacció l'usuari, la seva configuració, els esdeveniments no oficials que ha creat (amb les dades que en depenen) i totes les files que el referencien; dins la transacció esborra el compte de Firebase Auth i, després del commit, l'avatar de S3 (best-effort). `204`; `401` sense identitat; `404` usuari inexistent; `502` si Firebase falla (no s'esborra res) | Implementat (DP-031) |
+
+### Integració amb Mobilicat (`congestion_handler`)
+Fora del router i del middleware de Firebase: s'autentica amb la capçalera `X-API-Key` (`MOBILICAT_API_KEY`).
+**Excepció:** claus JSON en **snake_case**, segons el contracte acordat amb Mobilicat (DP-032).
+
+| Mètode i ruta | Handler | Descripció | Estat |
+|---|---|---|---|
+| `POST /api/v1/congestion/estimate` | `CongestionHandler.Estimate` | Factor de congestió (0.1–1.0), nivell (`LOW`/`MEDIUM`/`HIGH`) i nombre d'esdeveniments per a 1–100 ubicacions (lat/lng WGS84 + `radius_km`, 1 km per defecte) en una franja (`start_time`/`end_time`, ara per defecte) | Implementat (DP-032) |
+
+```json
+// Petició
+{ "timeframe": { "start_time": "2026-10-15T18:00:00Z", "end_time": "2026-10-15T22:00:00Z" },
+  "locations": [ { "id": "punt_1", "latitude": 41.3871, "longitude": 2.1701, "radius_km": 1.5 } ] }
+// Resposta 200
+{ "results": [ { "id": "punt_1", "latitude": 41.3871, "longitude": 2.1701,
+                 "congestion_factor": 0.85, "level": "HIGH", "events_count": 4 } ] }
+```
+
 ---
 
 ## Endpoints planificats (Sprint 1 - En curs)
@@ -63,4 +85,4 @@ Totes les respostes i cossos de petició utilitzen claus JSON en **kebab-case**.
 | **Servidor MCP (`cmd/mcp`)** | Eines de catàleg per a Groq AI mitjançant el protocol MCP | Error 502 en el xatbot |
 | **Google Maps API** | Geocodificació i visualització de mapa interactiu | El llistat d'esdeveniments continua actiu |
 | **Talaia (PES)** | Activitats astronòmiques externes | Mostra únicament activitats locals |
-| **Mobilicat (PES)** | Consum de l'API d'esdeveniments i afluència per part d'altres equips de PES | Contracte d'integració a través dels endpoints REST públics |
+| **Mobilicat (PES)** | Ens consumeix: estimació de congestió (`POST /api/v1/congestion/estimate`) a partir dels esdeveniments i les inscripcions | Contracte provisional a DP-032; autenticació amb `X-API-Key` |

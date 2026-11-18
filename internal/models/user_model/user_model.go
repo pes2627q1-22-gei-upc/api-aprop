@@ -43,7 +43,6 @@ type UserProfile struct {
 	ShowPlans           bool        `json:"show-plans"`
 	IsFriend            *bool       `json:"is-friend,omitempty"`
 	PlansVisible        bool        `json:"plans-visible"`
-	NotificationBefore  string      `json:"notification-before"`
 }
 
 // ReceivedRating is a Valoració given by an attendee to a NoOficial event created by the user.
@@ -66,4 +65,10 @@ type FriendRequest struct {
 	DateSent     time.Time   `json:"date-sent"`
 	State        string      `json:"state"`
 	DateResolved time.Time   `json:"date-resolved"`
+}
+
+type Settings struct {
+	ID                 int    `json:"id"`
+	ShowPlans          bool   `json:"show-plans"`
+	NotificationBefore string `json:"notification-before"`
 }

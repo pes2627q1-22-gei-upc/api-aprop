@@ -13,6 +13,8 @@
 
 | Taiga | Història / Tasca | Repo | Branca | Responsable | Estat |
 |---|---|---|---|---|---|
+| **#112** | Endpoints per a Mobilicat: `POST /api/v1/congestion/estimate` (API key, snake_case) | `api-aprop` | `feature/mobilicat-endpoints` | Arnau Serra | Implementat i provat amb tests unitaris; SQL no provat contra BD; pendent de PR a `develop` (DP-032 oberta) |
+| **#116** | Endpoint `DELETE /users/me`: esborrat transaccional RGPD i baixa a Firebase Auth | `api-aprop` | `feature/delete-users` | Arnau Serra | Implementat amb tests unitaris; SQL no provat contra BD; PR a `develop` (DP-031 oberta) |
 | **#246** | Unificar la identificació de l'usuari (Firebase UID → UUID) i els helpers d'IDs | `api-aprop` | `feature/unificar-usuari` | Arnau Serra | Pendent de PR a `develop` (DP-011 segueix oberta per a notificacions) |
 | **#236** | Correccions dels endpoints d'esdeveniments (llistat, mapa, modificació, imatge, recomanats) | `api-aprop` | `Fix-esdeveniments` | Arnau Serra | PR oberta a `develop`, pendent de revisió (DP-026 oberta) |
 | **#228** | Adaptar i estructurar la documentació al backend | `api-aprop` | `documentation` | Wenqiang He | Documentació sincronitzada, adaptada a Go/Supabase i en revisió |

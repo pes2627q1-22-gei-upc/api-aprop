@@ -94,6 +94,53 @@ func (c *S3Client) upload(ctx context.Context, key string, contentType string, r
 	return fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", c.config.Bucket, c.config.Region, key), nil
 }
 
+func (c *S3Client) DeleteAvatar(ctx context.Context, userID string, url string) error {
+	if c.config.Endpoint == "" || userID == "" {
+		return nil // without endpoint nothing was uploaded (see upload)
+	}
+	key, ok := c.keyFromURL(url)
+	if !ok || !strings.HasPrefix(key, "avatars/"+userID+"/") || strings.Contains(key, "..") {
+		return nil
+	}
+
+	// TODO(DP-031): unsigned request, like the upload
+	deleteURL := fmt.Sprintf("%s/%s/%s", strings.TrimRight(c.config.Endpoint, "/"), c.config.Bucket, key)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, deleteURL, nil)
+	if err != nil {
+		return fmt.Errorf("create s3 delete request: %w", err)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrDeleteFailed, err)
+	}
+	defer resp.Body.Close()
+
+	// 404: already deleted
+	if resp.StatusCode == http.StatusNotFound || (resp.StatusCode >= 200 && resp.StatusCode < 300) {
+		return nil
+	}
+	return fmt.Errorf("%w: storage responded with status %d", ErrDeleteFailed, resp.StatusCode)
+}
+
+// keyFromURL returns the object key of a URL built by upload.
+func (c *S3Client) keyFromURL(url string) (string, bool) {
+	prefixes := []string{
+		fmt.Sprintf("https://%s.s3.%s.amazonaws.com", c.config.Bucket, c.config.Region),
+	}
+	if c.config.Endpoint != "" {
+		prefixes = append(prefixes, fmt.Sprintf("%s/%s", strings.TrimRight(c.config.Endpoint, "/"), c.config.Bucket))
+	}
+	if c.config.PublicURL != "" {
+		prefixes = append(prefixes, strings.TrimRight(c.config.PublicURL, "/"))
+	}
+	for _, prefix := range prefixes {
+		if key, ok := strings.CutPrefix(url, prefix+"/"); ok && key != "" {
+			return key, true
+		}
+	}
+	return "", false
+}
+
 func extensionForMime(filename, contentType string) string {
 	ext := filepath.Ext(filename)
 	if ext != "" {

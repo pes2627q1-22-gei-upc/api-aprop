@@ -1,25 +1,19 @@
 -- name: GetUserByUsername :one
 SELECT u.id, u.firebaseuid, u.username, u.name, u.email, u.profilepicture, u.biography,
-       u.dateregistered, u.accountstate, u.experience, u.level, u.rating, u.settings,
-       COALESCE(s.showplans, true)::boolean AS show_plans
+       u.dateregistered, u.accountstate, u.experience, u.level, u.rating, u.settings
 FROM Users u
-LEFT JOIN Settings s ON s.ID = u.Settings
 WHERE LOWER(u.Username) = LOWER(sqlc.arg(username)::varchar);
 
 -- name: GetUserByFirebaseUIDWithSettings :one
 SELECT u.id, u.firebaseuid, u.username, u.name, u.email, u.profilepicture, u.biography,
-       u.dateregistered, u.accountstate, u.experience, u.level, u.rating, u.settings,
-       COALESCE(s.showplans, true)::boolean AS show_plans
+       u.dateregistered, u.accountstate, u.experience, u.level, u.rating, u.settings
 FROM Users u
-LEFT JOIN Settings s ON s.ID = u.Settings
 WHERE u.FirebaseUID = sqlc.arg(firebase_uid)::varchar;
 
 -- name: GetUserByUUID :one
 SELECT u.id, u.firebaseuid, u.username, u.name, u.email, u.profilepicture, u.biography,
-       u.dateregistered, u.accountstate, u.experience, u.level, u.rating, u.settings,
-       COALESCE(s.showplans, true)::boolean AS show_plans
+       u.dateregistered, u.accountstate, u.experience, u.level, u.rating, u.settings
 FROM Users u
-LEFT JOIN Settings s ON s.ID = u.Settings
 WHERE u.id = sqlc.arg(uuid)::uuid;
 
 -- name: CountFriends :one
@@ -82,7 +76,8 @@ RETURNING *;
 
 -- name: UpdateUserSettings :one
 UPDATE Settings SET
-    ShowPlans = sqlc.arg(show_plans)::boolean
+    ShowPlans = sqlc.arg(show_plans)::boolean,
+    NotificationBefore = (sqlc.arg(notification_before)::varchar)::interval
 WHERE ID = sqlc.arg(id)::integer
 RETURNING *;
 
@@ -112,3 +107,6 @@ UPDATE friendrequests SET state='Rejected'::friendrequeststate, dateresolved=now
 
 -- name: RemoveFriendship :exec
 DELETE from friendships where (user1=$1 and user2=$2) or (user1=$2 and user2=$1);
+
+-- name: GetSettings :one
+SELECT * from settings where id=$1;
