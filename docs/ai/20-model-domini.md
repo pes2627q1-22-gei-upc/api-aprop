@@ -43,7 +43,7 @@
 |---|---|---|
 | Sol·licitudAmistat.estat | Pendent, Acceptada, *Rebutjada* | confirmar el nom de l'estat rebutjat |
 | Usuari.estatCompte | Desactivat, … | `TODO(confirmar)` valor actiu |
-| NoOficial.estat | `Active` (actiu), `Withdrawn` (Retirat) | Columna `UnofficialEvents.State` (migració 000017). `TODO(DP-034)`: confirmar si cal `Cancelled` |
+| NoOficial.estat | `Active` (actiu), `Withdrawn` (Retirat) | Columna `UnofficialEvents.State` (migració 000018). `TODO(DP-038)`: confirmar si cal `Cancelled` |
 | Denúncia.estat | Pendent, Acceptada, … | `TODO(confirmar)` (rebutjada?) |
 | NotificacióEsdeveniment.tipus | Recordatori, Cancel·lació, RecordatoriValorar, Recomanació, InscripcióAmic | noms exactes al diagrama |
 | MissatgeXatbot.emissor | Usuari, Xatbot | |

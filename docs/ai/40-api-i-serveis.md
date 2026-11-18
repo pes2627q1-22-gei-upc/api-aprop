@@ -13,9 +13,10 @@ Totes les respostes i cossos de petició utilitzen claus JSON en **kebab-case**.
 | Mètode i ruta | Handler | Descripció | Estat |
 |---|---|---|---|
 | `GET /events` | `EventHandler.ListEvents` | Llistat d'esdeveniments amb filtres per categoria, dates i cerca | Implementat |
-| `GET /events/{id}` | `EventHandler.GetEvent` | Detall complet d'un esdeveniment per ID | Implementat |
+| `GET /events/recommended` | `EventHandler.GetRecommendedEvents` | Llistat paginat d'esdeveniments actius recomanats amb puntuació i paginació a SQL (`recommendations.sql`) | Implementat (DP-036) |
+| `GET /events/{id}` | `EventHandler.GetEvent` | Detall complet d'un esdeveniment per ID (inclou `creator-name` i `creator-reliability` per als no oficials, `null` als oficials o sense valoracions) | Implementat |
 | `POST /events` | `EventHandler.CreateEvent` | Creació d'esdeveniments no oficials | Implementat |
-| `PUT /events/{id}` | `EventHandler.UpdateEvent` | Modificació d'un esdeveniment no oficial: només el creador (`403` si no ho és o si és oficial), només si l'estat és `Active` (`409` si no, p. ex. `Withdrawn`) i complint R5 contra la data de creació (`400`) | Implementat (DP-034) |
+| `PUT /events/{id}` | `EventHandler.UpdateEvent` | Modificació d'un esdeveniment no oficial: només el creador (`403` si no ho és o si és oficial), només si l'estat és `Active` (`409` si no, p. ex. `Withdrawn`) i complint R5 contra la data de creació (`400`) | Implementat (DP-038) |
 | `DELETE /events/{id}` | `EventHandler.DeleteEvent` | Esborrat d'un esdeveniment no oficial i de les dades que en depenen (només el creador; 204) | Implementat |
 | `GET /events/map` | `EventHandler.ListMapEvents` | Esdeveniments amb coordenades i metadades bàsiques per al mapa | Implementat |
 | `GET /categories` | `EventHandler.GetCategories` | Llistat de totes les categories del catàleg | Implementat |
@@ -26,6 +27,14 @@ Totes les respostes i cossos de petició utilitzen claus JSON en **kebab-case**.
 |---|---|---|---|
 | `POST /events/{id}/signup` | `SignUpHandler.SignUp` | Inscripció d'un usuari a un esdeveniment | Implementat |
 | `GET /users/{userId}/events` | `SignUpHandler.ListUserEvents` | Consulta de les activitats a les quals s'ha apuntat l'usuari (Agenda) | Implementat |
+
+### Valoracions (`rating_handler`)
+| Mètode i ruta | Handler | Descripció | Estat |
+|---|---|---|---|
+| `POST /events/{id}/ratings` | `RatingHandler.Rate` | Valora un esdeveniment assistit (1–5; R9/R10) | Implementat (`feature/event-rating`, DP-033) |
+| `PUT /events/{id}/ratings/me` | `RatingHandler.UpdateMine` | Modifica la meva valoració (cos `{"score":1..5}`; `200` amb la valoració; `400`/`401`; `404` si no existeix l'esdeveniment o la valoració) | Implementat (Tasca #205, DP-036) |
+| `DELETE /events/{id}/ratings/me` | `RatingHandler.DeleteMine` | Elimina la meva valoració (`204`; `401`; `404` si no existeix l'esdeveniment o la valoració). `Users.Rating` (fiabilitat) es recalcula amb el trigger d'`EventRatings` | Implementat (Tasca #205, DP-036) |
+| `GET /events/{id}/enrollment/attendance` | `RatingHandler.HasAttended` | Consulta si l'usuari autenticat ha confirmat l'assistència (`has-attended`, R10) | Implementat (`feature/event-rating`, DP-033) |
 
 ### Assistent Virtual i Xatbot (`assistant_handler`)
 | Mètode i ruta | Handler | Descripció | Estat |
@@ -41,6 +50,7 @@ Totes les respostes i cossos de petició utilitzen claus JSON en **kebab-case**.
 ### Compte d'usuari (`user_handler`)
 | Mètode i ruta | Handler | Descripció | Estat |
 |---|---|---|---|
+| `GET /users?q=<query>&pageNum=<n>&pageSize=<n>` | `UserHandler.SearchUsers` | Cerca usuaris pel nom d'usuari o el nom (conté el text, sense distingir majúscules; els comodins `%` i `_` es cerquen literalment). Exclou l'usuari que cerca, els usuaris bloquejats en qualsevol sentit i els comptes que no estan en estat `Active`. Primer les coincidències exactes i les que comencen pel text. Paginat com `GET /events/search` (`pageNum` des de 0, `pageSize` 20 per defecte, màxim 50). Resposta `{query, total, page-num, page-size, users: [{id, username, name, profile-picture}]}`; `q` buit → pàgina buida; `400` paginació invàlida o `q` > 100 caràcters; `401` sense identitat | Implementat (DP-037) |
 | `DELETE /users/me` | `UserHandler.DeleteMyAccount` | Baixa del compte (RGPD): esborra en una transacció l'usuari, la seva configuració, els esdeveniments no oficials que ha creat (amb les dades que en depenen) i totes les files que el referencien; dins la transacció esborra el compte de Firebase Auth i, després del commit, l'avatar de S3 (best-effort). `204`; `401` sense identitat; `404` usuari inexistent; `502` si Firebase falla (no s'esborra res) | Implementat (DP-031) |
 
 ### Integració amb Mobilicat (`congestion_handler`)

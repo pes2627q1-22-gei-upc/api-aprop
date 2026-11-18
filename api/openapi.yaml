@@ -247,6 +247,63 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /events/recommended:
+    get:
+      tags: [events]
+      operationId: getRecommendedEvents
+      summary: Llista d'esdeveniments actius recomanats per a l'usuari
+      description: |
+        Retorna esdeveniments actius (`end-date` nul·la o futura) als quals l'usuari autenticat
+        encara no està inscrit, ordenats globalment abans de paginar segons les preferències per
+        categoria (`UserPreferences`), l'afinitat per categories de les seves inscripcions
+        (`SignUp`) i la popularitat global (nombre d'inscripcions).
+      parameters:
+        - name: pageSize
+          in: query
+          required: true
+          description: Nombre d'esdeveniments per pàgina (enter `>= 1`)
+          schema:
+            type: integer
+            minimum: 1
+          example: 20
+        - name: pageNum
+          in: query
+          required: true
+          description: Número de pàgina, començant per 0 (`>= 0`)
+          schema:
+            type: integer
+            minimum: 0
+          example: 0
+      responses:
+        '200':
+          description: Llista paginada d'esdeveniments recomanats (pot ser buida)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Event'
+        '400':
+          description: Paràmetres de paginació o identificador d'usuari invàlids
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidPageSize:
+                  value:
+                    error: invalid page size
+                invalidPageNum:
+                  value:
+                    error: invalid page num
+                invalidUserId:
+                  value:
+                    error: invalid user id
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /events/map:
     get:
       tags: [events]
@@ -305,6 +362,10 @@ paths:
       tags: [events]
       operationId: getEvent
       summary: Detall d'un esdeveniment
+      description: |
+        Per als esdeveniments no oficials, inclou `creator-name` (nom visible del creador) i
+        `creator-reliability` (mitjana de valoracions rebudes als seus esdeveniments no oficials, o
+        `null` si encara no en té cap). Als oficials tots dos són `null`.
       responses:
         '200':
           description: Esdeveniment
@@ -534,9 +595,154 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /events/{id}/ratings:
+    parameters:
+      - $ref: '#/components/parameters/EventId'
+    post:
+      tags: [events]
+      operationId: rateEvent
+      summary: Valora un esdeveniment
+      description: >
+        Desa la valoració (`score` 1..5, R9) de l'usuari. Regla R10: l'usuari ha d'haver assistit
+        (inscripció amb `attendance = true`; R8 només permet fixar-la un cop l'esdeveniment ha començat), si no `403`.
+        Una sola valoració per usuari i esdeveniment: la repetida dona `409`. Veure DP-033.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [score]
+              properties:
+                score:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+      responses:
+        '201':
+          description: Valoració desada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Rating'
+        '400':
+          description: Id invàlid, cos invàlid o `score` fora de 1..5
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: L'usuari no ha assistit a l'esdeveniment (R10)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          $ref: '#/components/responses/EventNotFound'
+        '409':
+          description: L'usuari ja havia valorat l'esdeveniment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /events/{id}/ratings/me:
+    parameters:
+      - $ref: '#/components/parameters/EventId'
+    put:
+      tags: [events]
+      operationId: updateMyEventRating
+      summary: Modifica la meva valoració d'un esdeveniment
+      description: >
+        Canvia el `score` (1..5, R9) de la valoració de l'usuari autenticat (cos igual que el de `POST`).
+        La fiabilitat de l'organitzador (`Users.Rating`) es recalcula amb un trigger, així que el canvi s'hi reflecteix de seguida.
+        No es torna a comprovar R10. Veure DP-036.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [score]
+              properties:
+                score:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+      responses:
+        '200':
+          description: Valoració actualitzada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Rating'
+        '400':
+          description: Id invàlid, cos invàlid o `score` fora de 1..5
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: L'esdeveniment no existeix o l'usuari no l'havia valorat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [events]
+      operationId: deleteMyEventRating
+      summary: Elimina la meva valoració d'un esdeveniment
+      description: Veure DP-036.
+      responses:
+        '204':
+          description: Valoració eliminada
+        '400':
+          $ref: '#/components/responses/InvalidEventId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: L'esdeveniment no existeix o l'usuari no l'havia valorat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /events/{id}/enrollment/attendance:
     parameters:
       - $ref: '#/components/parameters/EventId'
+    get:
+      tags: [events]
+      operationId: hasAttendedEvent
+      summary: Consulta si l'usuari ha confirmat l'assistència a l'esdeveniment
+      description: >
+        Retorna `has-attended: true` si la inscripció de l'usuari autenticat té `attendance = true`
+        (per saber si pot valorar l'esdeveniment segons R10). Veure DP-033.
+        Alias equivalent: `GET /events/{id}/signup/attendance`.
+      responses:
+        '200':
+          description: Estat d'assistència confirmada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttendanceStatus'
+        '400':
+          $ref: '#/components/responses/InvalidSignUp'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/EventNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
     patch:
       tags: [signups]
       operationId: setAttendance
@@ -766,6 +972,35 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Event'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /users/{id}/ratings:
+    get:
+      tags: [users]
+      operationId: listReceivedRatings
+      summary: Valoracions rebudes als esdeveniments no oficials d'un usuari (base de la seva fiabilitat)
+      parameters:
+        - $ref: '#/components/parameters/UserIdentifier'
+      responses:
+        '200':
+          description: Valoracions, de la més recent a la més antiga (pot ser buida)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [event-id, event-title, rating, rating-date]
+                  properties:
+                    event-id: {type: integer}
+                    event-title: {type: string}
+                    rating: {type: integer, minimum: 1, maximum: 5}
+                    rating-date: {type: string, format: date-time}
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -1640,6 +1875,17 @@ components:
               nullable: true
               readOnly: true
               description: ID del creador. `null` als esdeveniments oficials.
+            creator-name:
+              type: string
+              nullable: true
+              readOnly: true
+              description: Nom visible del creador (`GET /events/{id}`). `null` als esdeveniments oficials.
+            creator-reliability:
+              type: number
+              format: float
+              nullable: true
+              readOnly: true
+              description: Fiabilitat de l'organitzador (`GET /events/{id}`, valor de `Users.Rating`, mitjana d'`EventRatings` dels seus esdeveniments no oficials mantinguda per trigger). `null` als oficials o quan no té valoracions.
             date-created:
               type: string
               format: date-time
@@ -1746,6 +1992,30 @@ components:
         attendance:
           type: boolean
           nullable: true
+
+    AttendanceStatus:
+      type: object
+      required: [user-id, event-id, has-attended]
+      properties:
+        user-id:
+          type: string
+        event-id:
+          type: integer
+        has-attended:
+          type: boolean
+
+    Rating:
+      type: object
+      required: [user-id, event-id, score]
+      properties:
+        user-id:
+          type: string
+        event-id:
+          type: integer
+        score:
+          type: integer
+          minimum: 1
+          maximum: 5
 
     SyncRequest:
       type: object

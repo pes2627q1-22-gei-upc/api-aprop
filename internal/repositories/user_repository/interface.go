@@ -28,6 +28,7 @@ type Repository interface {
 	CountPlans(ctx context.Context, userUUID pgtype.UUID) (int, error)
 	CountCompletedPlans(ctx context.Context, userUUID pgtype.UUID) (int, error)
 	GetReliability(ctx context.Context, creatorUUID pgtype.UUID) (*float32, error)
+	ListReceivedRatings(ctx context.Context, creatorUUID pgtype.UUID) ([]user_model.ReceivedRating, error)
 	ListCreatedEvents(ctx context.Context, creatorUUID pgtype.UUID) ([]event_model.Event, error)
 	UpdateProfile(ctx context.Context, id pgtype.UUID, name, username, biography, profilePicture *string) (user_model.User, error)
 	UpdateSettings(ctx context.Context, settings user_model.Settings) error
@@ -44,4 +45,7 @@ type Repository interface {
 	// them in a single transaction. beforeCommit runs inside the transaction once everything is
 	// deleted: if it fails nothing is deleted. Returns ErrUserNotFound if the user does not exist.
 	DeleteUser(ctx context.Context, id pgtype.UUID, beforeCommit func(context.Context) error) error
+	// SearchUsers returns the active users whose username or name contains query, except the requester and the
+	// users that block or are blocked by the requester, and the total number of matches.
+	SearchUsers(ctx context.Context, requester pgtype.UUID, query string, limit, offset int) ([]user_model.UserSummary, int64, error)
 }

@@ -45,6 +45,14 @@ type UserProfile struct {
 	PlansVisible        bool        `json:"plans-visible"`
 }
 
+// ReceivedRating is a Valoració given by an attendee to a NoOficial event created by the user.
+type ReceivedRating struct {
+	EventID    int       `json:"event-id"`
+	EventTitle string    `json:"event-title"`
+	Rating     int       `json:"rating"`
+	RatingDate time.Time `json:"rating-date"`
+}
+
 // SyncResult is the result of syncing a Firebase user with the database.
 type SyncResult struct {
 	User    User `json:"user"`
@@ -63,4 +71,21 @@ type Settings struct {
 	ID                 int    `json:"id"`
 	ShowPlans          bool   `json:"show-plans"`
 	NotificationBefore string `json:"notification-before"`
+}
+
+// UserSummary is a user in a list, like the results of GET /users?q=.
+type UserSummary struct {
+	ID             pgtype.UUID `json:"id"`
+	Username       string      `json:"username"`
+	Name           string      `json:"name"`
+	ProfilePicture string      `json:"profile-picture"`
+}
+
+// UserSearchResult is a page of GET /users?q=. Total counts every match, not only the ones in the page.
+type UserSearchResult struct {
+	Query    string        `json:"query"`
+	Total    int64         `json:"total"`
+	PageNum  int           `json:"page-num"`
+	PageSize int           `json:"page-size"`
+	Users    []UserSummary `json:"users"`
 }
