@@ -105,26 +105,14 @@ func (h *UserHandler) UpdateMyProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var body struct {
-		Name           *string `json:"name"`
-		Username       *string `json:"username"`
-		Biography      *string `json:"biography"`
-		ProfilePicture *string `json:"profile-picture"`
-		ShowPlans      *bool   `json:"show-plans"`
-	}
+	var body user_service.UpdateProfileInput
 
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		response.WriteError(w, http.StatusBadRequest, "invalid json payload: "+err.Error())
 		return
 	}
 
-	profile, err := h.userService.UpdateProfile(r.Context(), requesterID, user_service.UpdateProfileInput{
-		Name:           body.Name,
-		Username:       body.Username,
-		Biography:      body.Biography,
-		ProfilePicture: body.ProfilePicture,
-		ShowPlans:      body.ShowPlans,
-	})
+	profile, err := h.userService.UpdateProfile(r.Context(), requesterID, body)
 	if err != nil {
 		writeServiceError(w, err)
 		return

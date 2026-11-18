@@ -207,16 +207,54 @@ func (r *UserRepository) UpdateProfile(ctx context.Context, id pgtype.UUID, name
 	return u, nil
 }
 
+func isInvalidInterval(err error) bool {
+    var pgErr *pgconn.PgError
+    if errors.As(err, &pgErr) {
+        return pgErr.Code == "22007" ||
+            pgErr.Code == "22008" ||
+            pgErr.Code == "22015"
+    }
+    return false
+}
+
 func (r *UserRepository) UpdateSettings(ctx context.Context, settings user_model.Settings) error {
-	_, err := r.queries.UpdateUserSettings(ctx, sqlc.UpdateUserSettingsParams{
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	qtx := r.queries.WithTx(tx)
+	
+	_, err = qtx.UpdateUserSettings(ctx, sqlc.UpdateUserSettingsParams{
 		ID:                 int32(settings.ID),
 		ShowPlans:          settings.ShowPlans,
 		NotificationBefore: settings.NotificationBefore,
 	})
-	if err != nil {
+	if isInvalidInterval(err){
+		return user_repository.ErrInvalidInterval
+	} else if err != nil {
 		return fmt.Errorf("update settings %d: %w", settings.ID, err)
 	}
-	return nil
+
+	int32types := []int32{}
+	for _, v := range(settings.AllowedNotifTypes){
+		int32types=append(int32types, int32(v))
+	}
+
+	err = qtx.DeleteAllowedNotificationTypes(ctx, int32(settings.ID))
+	if err!=nil{
+		return fmt.Errorf("update settings %d: %w", settings.ID, err)
+	}
+
+	err = qtx.UpdateAllowedNotificationTypes(ctx, sqlc.UpdateAllowedNotificationTypesParams{SettingsID: int32(settings.ID), NotificationTypes: int32types})
+	if err!=nil{
+		return fmt.Errorf("update settings %d: %w", settings.ID, err)
+	}
+
+	return tx.Commit(ctx)
 }
 
 func (r *UserRepository) GetUserFriends(ctx context.Context, userid pgtype.UUID) ([]string, error) {
@@ -382,12 +420,18 @@ func (r *UserRepository) DenyFriendRequest(ctx context.Context, userid pgtype.UU
 }
 
 func (r *UserRepository) GetSettings(ctx context.Context, id int) (user_model.Settings, error) {
-	row, err := r.queries.GetSettings(ctx, int32(id))
+	rows, err := r.queries.GetSettings(ctx, int32(id))
 	if err != nil {
 		return user_model.Settings{}, err
 	}
 
-	return user_model.Settings{ID: int(row.ID), NotificationBefore: intervalToString(row.Notificationbefore), ShowPlans: row.Showplans}, nil
+	allowed := []int{}
+	if rows[0].Notificationtype != -1{
+		for _, val := range(rows){
+			allowed=append(allowed, int(val.Notificationtype))
+		}
+	}
+	return user_model.Settings{ID: int(rows[0].ID), NotificationBefore: intervalToString(rows[0].Notificationbefore), ShowPlans: rows[0].Showplans, AllowedNotifTypes: allowed}, nil
 }
 
 func toTimestamp(t time.Time) pgtype.Timestamp {

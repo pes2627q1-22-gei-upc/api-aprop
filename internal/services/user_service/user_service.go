@@ -249,6 +249,9 @@ func (s *userService) ListReceivedRatings(ctx context.Context, targetIdentifier 
 }
 
 func (s *userService) UpdateProfile(ctx context.Context, requesterIdentifier string, input UpdateProfileInput) (user_model.UserProfile, error) {
+	settingsChanged := false
+	profileChanged := false
+	
 	if requesterIdentifier == "" {
 		return user_model.UserProfile{}, ErrUnauthorized
 	}
@@ -268,6 +271,7 @@ func (s *userService) UpdateProfile(ctx context.Context, requesterIdentifier str
 			return user_model.UserProfile{}, fmt.Errorf("%w: username must be 3-30 characters long and contain only letters, numbers and underscores", ErrInvalidInput)
 		}
 		input.Username = &trimmedUser
+		profileChanged = true
 	}
 
 	// Validation R1: Name
@@ -277,6 +281,7 @@ func (s *userService) UpdateProfile(ctx context.Context, requesterIdentifier str
 			return user_model.UserProfile{}, fmt.Errorf("%w: name cannot exceed %d characters", ErrInvalidInput, maxNameLength)
 		}
 		input.Name = &trimmedName
+		profileChanged = true
 	}
 
 	// Validation R1: Biography
@@ -286,16 +291,29 @@ func (s *userService) UpdateProfile(ctx context.Context, requesterIdentifier str
 			return user_model.UserProfile{}, fmt.Errorf("%w: biography cannot exceed %d characters", ErrInvalidInput, maxBioLength)
 		}
 		input.Biography = &trimmedBio
+		profileChanged = true
+	}
+
+	if input.ProfilePicture != nil{
+		profileChanged = true
 	}
 
 	if input.ShowPlans != nil {
 		settings.ShowPlans = *(input.ShowPlans)
-		if err := s.userRepo.UpdateSettings(ctx, settings); err != nil {
-			return user_model.UserProfile{}, err
-		}
+		settingsChanged = true
 	}
 
-	if input.Name != nil || input.Username != nil || input.Biography != nil || input.ProfilePicture != nil {
+	if input.NotificationBefore!=nil{
+		settings.NotificationBefore = *(input.NotificationBefore)
+		settingsChanged = true
+	}
+
+	if input.AllowedNotifTypes!=nil{
+		settings.AllowedNotifTypes = *(input.AllowedNotifTypes)
+		settingsChanged = true
+	}
+
+	if profileChanged {
 		updatedUser, err := s.userRepo.UpdateProfile(ctx, user.ID, input.Name, input.Username, input.Biography, input.ProfilePicture)
 		if errors.Is(err, user_repository.ErrUsernameTaken) {
 			return user_model.UserProfile{}, ErrUsernameTaken
@@ -304,6 +322,15 @@ func (s *userService) UpdateProfile(ctx context.Context, requesterIdentifier str
 			return user_model.UserProfile{}, err
 		}
 		user = updatedUser
+	}
+
+	if settingsChanged {
+		err := s.userRepo.UpdateSettings(ctx, settings)
+		if errors.Is(err, user_repository.ErrInvalidInterval){
+			return user_model.UserProfile{}, ErrInvalidInterval
+		} else if err != nil {
+			return user_model.UserProfile{}, err
+		}
 	}
 
 	return s.GetUserProfile(ctx, user.ID.String(), requesterIdentifier)

@@ -10,11 +10,13 @@ import (
 )
 
 type UpdateProfileInput struct {
-	Name           *string `json:"name"`
-	Username       *string `json:"username"`
-	Biography      *string `json:"biography"`
-	ProfilePicture *string `json:"profile-picture"`
-	ShowPlans      *bool   `json:"show-plans"`
+	Name           		*string `json:"name"`
+	Username     		*string `json:"username"`
+	Biography      		*string `json:"biography"`
+	ProfilePicture 		*string `json:"profile-picture"`
+	ShowPlans      		*bool   `json:"show-plans"`
+	NotificationBefore	*string	`json:"notification-before"`
+	AllowedNotifTypes	*[]int	`json:"allowed-notif-types"`
 }
 
 type Service interface {
