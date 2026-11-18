@@ -111,15 +111,31 @@ func (r *UserRepository) CountCompletedPlans(ctx context.Context, uid pgtype.UUI
 }
 
 func (r *UserRepository) GetReliability(ctx context.Context, uid pgtype.UUID) (*float32, error) {
-	val, err := r.queries.GetUserReliability(ctx, uid)
-	if errors.Is(err, pgx.ErrNoRows) {
+	rating, err := r.queries.GetUserReliability(ctx, uid)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !rating.Valid) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get reliability for %s: %w", uid, err)
 	}
-	rel := val
-	return &rel, nil
+	return &rating.Float32, nil
+}
+
+func (r *UserRepository) ListReceivedRatings(ctx context.Context, uid pgtype.UUID) ([]user_model.ReceivedRating, error) {
+	rows, err := r.queries.ListUserReceivedRatings(ctx, uid)
+	if err != nil {
+		return nil, fmt.Errorf("list received ratings for %s: %w", uid, err)
+	}
+	out := make([]user_model.ReceivedRating, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, user_model.ReceivedRating{
+			EventID:    int(row.EventID),
+			EventTitle: row.EventTitle,
+			Rating:     int(row.Rating),
+			RatingDate: row.Ratingdate.Time,
+		})
+	}
+	return out, nil
 }
 
 func (r *UserRepository) ListCreatedEvents(ctx context.Context, uid pgtype.UUID) ([]event_model.Event, error) {

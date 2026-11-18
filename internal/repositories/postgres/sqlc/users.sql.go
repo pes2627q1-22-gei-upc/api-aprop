@@ -352,17 +352,15 @@ func (q *Queries) GetUserFriends(ctx context.Context, user1 pgtype.UUID) ([]pgty
 }
 
 const getUserReliability = `-- name: GetUserReliability :one
-SELECT AVG(er.Rating)::real AS reliability
-FROM EventRatings er
-JOIN UnofficialEvents ue ON ue.ID = er.Event
-WHERE ue.Creator = $1::uuid
+SELECT u.rating FROM Users u WHERE u.id = $1::uuid
 `
 
-func (q *Queries) GetUserReliability(ctx context.Context, creator pgtype.UUID) (float32, error) {
+// Users.Rating is maintained by the eventratings trigger (migration 000017); NULL = no ratings yet.
+func (q *Queries) GetUserReliability(ctx context.Context, creator pgtype.UUID) (pgtype.Float4, error) {
 	row := q.db.QueryRow(ctx, getUserReliability, creator)
-	var reliability float32
-	err := row.Scan(&reliability)
-	return reliability, err
+	var rating pgtype.Float4
+	err := row.Scan(&rating)
+	return rating, err
 }
 
 const isBlocked = `-- name: IsBlocked :one
@@ -463,6 +461,47 @@ func (q *Queries) ListUserCreatedEvents(ctx context.Context, creator pgtype.UUID
 			&i.Address,
 			&i.Creator,
 			&i.Datecreated,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUserReceivedRatings = `-- name: ListUserReceivedRatings :many
+SELECT er.Event AS event_id, e.Title AS event_title, er.Rating, er.RatingDate
+FROM EventRatings er
+JOIN UnofficialEvents ue ON ue.ID = er.Event
+JOIN Events e ON e.ID = er.Event
+WHERE ue.Creator = $1::uuid
+ORDER BY er.RatingDate DESC, er.Event DESC
+`
+
+type ListUserReceivedRatingsRow struct {
+	EventID    int32
+	EventTitle string
+	Rating     int32
+	Ratingdate pgtype.Timestamp
+}
+
+func (q *Queries) ListUserReceivedRatings(ctx context.Context, creator pgtype.UUID) ([]ListUserReceivedRatingsRow, error) {
+	rows, err := q.db.Query(ctx, listUserReceivedRatings, creator)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUserReceivedRatingsRow
+	for rows.Next() {
+		var i ListUserReceivedRatingsRow
+		if err := rows.Scan(
+			&i.EventID,
+			&i.EventTitle,
+			&i.Rating,
+			&i.Ratingdate,
 		); err != nil {
 			return nil, err
 		}

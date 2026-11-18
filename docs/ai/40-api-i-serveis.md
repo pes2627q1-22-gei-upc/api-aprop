@@ -13,7 +13,8 @@ Totes les respostes i cossos de petició utilitzen claus JSON en **kebab-case**.
 | Mètode i ruta | Handler | Descripció | Estat |
 |---|---|---|---|
 | `GET /events` | `EventHandler.ListEvents` | Llistat d'esdeveniments amb filtres per categoria, dates i cerca | Implementat |
-| `GET /events/{id}` | `EventHandler.GetEvent` | Detall complet d'un esdeveniment per ID | Implementat |
+| `GET /events/recommended` | `EventHandler.GetRecommendedEvents` | Llistat paginat d'esdeveniments actius recomanats amb puntuació i paginació a SQL (`recommendations.sql`) | Implementat (DP-036) |
+| `GET /events/{id}` | `EventHandler.GetEvent` | Detall complet d'un esdeveniment per ID (inclou `creator-name` i `creator-reliability` per als no oficials, `null` als oficials o sense valoracions) | Implementat |
 | `POST /events` | `EventHandler.CreateEvent` | Creació d'esdeveniments no oficials | Implementat |
 | `PUT /events/{id}` | `EventHandler.UpdateEvent` | Modificació d'un esdeveniment no oficial (només el creador; 403 si no ho és o si és oficial) | Implementat |
 | `DELETE /events/{id}` | `EventHandler.DeleteEvent` | Esborrat d'un esdeveniment no oficial i de les dades que en depenen (només el creador; 204) | Implementat |
@@ -31,8 +32,8 @@ Totes les respostes i cossos de petició utilitzen claus JSON en **kebab-case**.
 | Mètode i ruta | Handler | Descripció | Estat |
 |---|---|---|---|
 | `POST /events/{id}/ratings` | `RatingHandler.Rate` | Valora un esdeveniment assistit (1–5; R9/R10) | Implementat (`feature/event-rating`, DP-033) |
-| `PUT /events/{id}/ratings/me` | `RatingHandler.UpdateMine` | Modifica la meva valoració (cos `{"score":1..5}`; `200` amb la valoració; `400`/`401`; `404` si no existeix l'esdeveniment o la valoració) | Implementat (Tasca #205, DP-034) |
-| `DELETE /events/{id}/ratings/me` | `RatingHandler.DeleteMine` | Elimina la meva valoració (`204`; `401`; `404` si no existeix l'esdeveniment o la valoració). `/fiabilitat` es calcula en llegir (AVG sobre `EventRatings`), sense recàlcul | Implementat (Tasca #205, DP-034) |
+| `PUT /events/{id}/ratings/me` | `RatingHandler.UpdateMine` | Modifica la meva valoració (cos `{"score":1..5}`; `200` amb la valoració; `400`/`401`; `404` si no existeix l'esdeveniment o la valoració) | Implementat (Tasca #205, DP-036) |
+| `DELETE /events/{id}/ratings/me` | `RatingHandler.DeleteMine` | Elimina la meva valoració (`204`; `401`; `404` si no existeix l'esdeveniment o la valoració). `Users.Rating` (fiabilitat) es recalcula amb el trigger d'`EventRatings` | Implementat (Tasca #205, DP-036) |
 | `GET /events/{id}/enrollment/attendance` | `RatingHandler.HasAttended` | Consulta si l'usuari autenticat ha confirmat l'assistència (`has-attended`, R10) | Implementat (`feature/event-rating`, DP-033) |
 
 ### Assistent Virtual i Xatbot (`assistant_handler`)

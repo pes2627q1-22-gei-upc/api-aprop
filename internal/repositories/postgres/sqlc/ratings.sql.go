@@ -80,7 +80,7 @@ type UpdateEventRatingParams struct {
 	EventID int32
 }
 
-// Changes the score of the user's own rating; RatingDate is kept (DP-034).
+// Changes the score of the user's own rating; RatingDate is kept (DP-036).
 func (q *Queries) UpdateEventRating(ctx context.Context, arg UpdateEventRatingParams) (int64, error) {
 	result, err := q.db.Exec(ctx, updateEventRating, arg.Rating, arg.UserID, arg.EventID)
 	if err != nil {

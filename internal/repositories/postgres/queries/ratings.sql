@@ -11,7 +11,7 @@ SELECT EXISTS (
 )::boolean;
 
 -- name: UpdateEventRating :execrows
--- Changes the score of the user's own rating; RatingDate is kept (DP-034).
+-- Changes the score of the user's own rating; RatingDate is kept (DP-036).
 UPDATE EventRatings SET Rating = sqlc.arg(rating)::integer
 WHERE UserID = sqlc.arg(user_id)::uuid AND Event = sqlc.arg(event_id)::integer;
 

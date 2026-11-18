@@ -28,6 +28,7 @@ type Repository interface {
 	CountPlans(ctx context.Context, userUUID pgtype.UUID) (int, error)
 	CountCompletedPlans(ctx context.Context, userUUID pgtype.UUID) (int, error)
 	GetReliability(ctx context.Context, creatorUUID pgtype.UUID) (*float32, error)
+	ListReceivedRatings(ctx context.Context, creatorUUID pgtype.UUID) ([]user_model.ReceivedRating, error)
 	ListCreatedEvents(ctx context.Context, creatorUUID pgtype.UUID) ([]event_model.Event, error)
 	UpdateProfile(ctx context.Context, id pgtype.UUID, name, username, biography, profilePicture *string) (user_model.User, error)
 	UpdateSettings(ctx context.Context, settings user_model.Settings) error

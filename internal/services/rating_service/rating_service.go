@@ -105,9 +105,9 @@ func (s *RatingService) Rate(ctx context.Context, userID string, eventID, score 
 	return rating_model.Rating{UserID: userID, EventID: eventID, Score: score}, nil
 }
 
-// UpdateRating changes the score of the user's own rating (R9: 1..5). The organizer's reliability is an
-// AVG over EventRatings computed on read, so nothing else needs recalculating.
-// TODO(DP-034): R10 is not re-checked on edit/delete, nor whether the event already ended; RatingDate is kept.
+// UpdateRating changes the score of the user's own rating (R9: 1..5). The organizer's Users.Rating is refreshed by the
+// EventRatings trigger (migration 000017), so nothing else needs recalculating.
+// TODO(DP-036): R10 is not re-checked on edit/delete, nor whether the event already ended; RatingDate is kept.
 func (s *RatingService) UpdateRating(ctx context.Context, userID string, eventID, score int) (rating_model.Rating, error) {
 	userID, err := user_model.NormalizeID(userID)
 	if err != nil {

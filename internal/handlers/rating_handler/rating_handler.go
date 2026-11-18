@@ -100,7 +100,7 @@ func (h *RatingHandler) UpdateMine(w http.ResponseWriter, r *http.Request) {
 		writeServiceError(w, err)
 		return
 	}
-	// TODO(DP-034): 200 (POST answers 201) and the 404 for a missing rating are provisional.
+	// TODO(DP-036): 200 (POST answers 201) and the 404 for a missing rating are provisional.
 	response.WriteJSON(w, http.StatusOK, rating)
 }
 

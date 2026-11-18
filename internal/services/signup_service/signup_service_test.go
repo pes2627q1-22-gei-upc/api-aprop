@@ -73,6 +73,9 @@ func (f *fakeEventRepository) Get(id int) (event_model.Event, error) {
 func (f *fakeEventRepository) List(params map[string]any) ([]event_model.Event, error) {
 	return []event_model.Event{}, nil
 }
+func (f *fakeEventRepository) ListRecommended(ctx context.Context, userID pgtype.UUID, pageSize, pageOffset int) ([]event_model.Event, error) {
+	return []event_model.Event{}, nil
+}
 func (f *fakeEventRepository) GetPopular(pageSize int, pageNum int) ([]event_model.Event, error) {
 	return []event_model.Event{}, nil
 }
