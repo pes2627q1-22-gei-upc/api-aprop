@@ -267,6 +267,17 @@ func (r *EventRepository) UpdateImage(ctx context.Context, id int, imageURL stri
 	})
 }
 
+func (r *EventRepository) GetUnofficialState(ctx context.Context, id int) (string, error) {
+	state, err := r.queries.GetUnofficialEventState(ctx, int32(id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", fmt.Errorf("get state of event %d: %w", id, event_repository.ErrEventNotFound)
+	}
+	if err != nil {
+		return "", fmt.Errorf("get state of event %d: %w", id, err)
+	}
+	return state, nil
+}
+
 func (r *EventRepository) SetCategories(id int, cats []string, _ bool) error {
 	return setCategories(context.Background(), r.queries, id, cats)
 }
@@ -714,6 +725,74 @@ func (r *EventRepository) GetPopular(pageSize int, pageNum int) ([]event_model.E
 	}
 	events = append(events, toModelExtended(getPopularToGetEventRow(currentevent), cats))
 	return events, nil
+}
+
+func recommendedRowToGetEventRow(row sqlc.ListRecommendedEventsRow) sqlc.GetEventRow {
+	return sqlc.GetEventRow{
+		ID:           row.ID,
+		Title:        row.Title,
+		Subtitle:     row.Subtitle,
+		Description:  row.Description,
+		Schedule:     row.Schedule,
+		Tickets:      row.Tickets,
+		Url:          row.Url,
+		Ticketsurl:   row.Ticketsurl,
+		Free:         row.Free,
+		Permanent:    row.Permanent,
+		Modality:     row.Modality,
+		Relatedurls:  row.Relatedurls,
+		Urlnames:     row.Urlnames,
+		Images:       row.Images,
+		Videos:       row.Videos,
+		Email:        row.Email,
+		Phone:        row.Phone,
+		Activityurl:  row.Activityurl,
+		Startdate:    row.Startdate,
+		Enddate:      row.Enddate,
+		Place:        row.Place,
+		Latitude:     row.Latitude,
+		Longitude:    row.Longitude,
+		PostalCode:   row.PostalCode,
+		Municipality: row.Municipality,
+		Region:       row.Region,
+		Address:      row.Address,
+		Code:         row.Code,
+		Creator:      row.Creator,
+		Datecreated:  row.Datecreated,
+		Category:     row.Category,
+	}
+}
+
+func groupRecommendedEventRows(rows []sqlc.ListRecommendedEventsRow) []event_model.Event {
+	if len(rows) == 0 {
+		return []event_model.Event{}
+	}
+	events := make([]event_model.Event, 0, len(rows))
+	current := rows[0]
+	cats := []string{}
+	for _, row := range rows {
+		if row.ID != current.ID {
+			events = append(events, toModelExtended(recommendedRowToGetEventRow(current), cats))
+			cats = []string{}
+			current = row
+		}
+		cats = appendCategory(cats, row.Category)
+	}
+	events = append(events, toModelExtended(recommendedRowToGetEventRow(current), cats))
+	return events
+}
+
+// ListRecommended returns a paginated slice of active events ranked in SQL for userID.
+func (r *EventRepository) ListRecommended(ctx context.Context, userID pgtype.UUID, pageSize, pageOffset int) ([]event_model.Event, error) {
+	rows, err := r.queries.ListRecommendedEvents(ctx, sqlc.ListRecommendedEventsParams{
+		UserID:     userID,
+		PageOffset: int32(pageOffset),
+		PageSize:   int32(pageSize),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list recommended events: %w", err)
+	}
+	return groupRecommendedEventRows(rows), nil
 }
 
 func (r *EventRepository) EventExists(eventID int) (bool, error) {

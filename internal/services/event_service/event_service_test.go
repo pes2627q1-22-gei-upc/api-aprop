@@ -13,36 +13,57 @@ import (
 
 	"api-aprop/internal/clients/s3_client"
 	"api-aprop/internal/models/event_model"
-	"api-aprop/internal/models/preference_model"
+	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/repositories/event_repository"
-	"api-aprop/internal/repositories/preference_repository"
+	"api-aprop/internal/repositories/user_repository"
 )
 
 const validUserID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
 
 type fakeEventRepository struct {
-	mapEvents    []event_model.MapEvent
-	mapErr       error
-	mapCalls     int
-	gotFilter    event_model.MapFilter
-	created      event_model.Event
-	createErr    error
-	getEvent     event_model.Event
-	getErr       error
-	updatedImg   string
-	updateImgErr error
-	updated      event_model.Event
-	updateErr    error
-	updateCalls  int
-	deleteErr    error
-	deleteCalls  int
-	listEvents   []event_model.Event
-	listErr      error
-	popularErr   error
-	categoryErr  error
+	mapEvents         []event_model.MapEvent
+	mapErr            error
+	mapCalls          int
+	gotFilter         event_model.MapFilter
+	created           event_model.Event
+	createErr         error
+	getEvent          event_model.Event
+	getErr            error
+	updatedImg        string
+	updateImgErr      error
+	updated           event_model.Event
+	updateErr         error
+	updateCalls       int
+	deleteErr         error
+	deleteCalls       int
+	listEvents        []event_model.Event
+	listErr           error
+	recommendedEvents []event_model.Event
+	recommendedErr    error
+	recommendedCalls  int
+	gotRecUserID      pgtype.UUID
+	gotRecPageSize    int
+	gotRecPageOffset  int
+	popularErr        error
+	categoryErr       error
+	// state is the state of the unofficial event; empty means Active
+	state      string
+	stateErr   error
+	stateCalls int
 }
 
 func (f *fakeEventRepository) EventExists(id int) (bool, error) { return false, nil }
+
+func (f *fakeEventRepository) GetUnofficialState(_ context.Context, _ int) (string, error) {
+	f.stateCalls++
+	if f.stateErr != nil {
+		return "", f.stateErr
+	}
+	if f.state == "" {
+		return event_model.UnofficialStateActive, nil
+	}
+	return f.state, nil
+}
 
 func (f *fakeEventRepository) Create(e event_model.Event, _ bool) (event_model.Event, error) {
 	f.created = e
@@ -79,6 +100,14 @@ func (f *fakeEventRepository) Get(_ int) (event_model.Event, error) {
 
 func (f *fakeEventRepository) List(_ map[string]any) ([]event_model.Event, error) {
 	return f.listEvents, f.listErr
+}
+
+func (f *fakeEventRepository) ListRecommended(_ context.Context, userID pgtype.UUID, pageSize, pageOffset int) ([]event_model.Event, error) {
+	f.recommendedCalls++
+	f.gotRecUserID = userID
+	f.gotRecPageSize = pageSize
+	f.gotRecPageOffset = pageOffset
+	return f.recommendedEvents, f.recommendedErr
 }
 
 func (f *fakeEventRepository) GetPopular(_ int, _ int) ([]event_model.Event, error) {
@@ -372,6 +401,8 @@ func TestSearchEvents(t *testing.T) {
 	}
 }
 
+var errStateRead = errors.New("db down")
+
 func TestUpdateUnofficialEvent(t *testing.T) {
 	var creator pgtype.UUID
 	if err := creator.Scan(validUserID); err != nil {
@@ -392,6 +423,8 @@ func TestUpdateUnofficialEvent(t *testing.T) {
 		name        string
 		stored      event_model.Event
 		getErr      error
+		state       string
+		stateErr    error
 		changes     event_model.Event
 		updateErr   error
 		wantErr     error
@@ -452,6 +485,38 @@ func TestUpdateUnofficialEvent(t *testing.T) {
 			wantErr: ErrEventNotFound,
 		},
 		{
+			name:    "withdrawn event cannot be modified",
+			stored:  stored,
+			state:   event_model.UnofficialStateWithdrawn,
+			changes: changes,
+			wantErr: ErrEventNotActive,
+		},
+		{
+			// The state is checked before the fields, so the answer does not depend on the body
+			name:   "withdrawn event with invalid changes is still not active",
+			stored: stored,
+			state:  event_model.UnofficialStateWithdrawn,
+			changes: event_model.Event{
+				Title: "Taller", Description: "Desc", Categories: []string{"C"},
+				StartDate: createdAt.Add(-24 * time.Hour),
+			},
+			wantErr: ErrEventNotActive,
+		},
+		{
+			name:     "state of an event deleted in the meantime",
+			stored:   stored,
+			stateErr: event_repository.ErrEventNotFound,
+			changes:  changes,
+			wantErr:  ErrEventNotFound,
+		},
+		{
+			name:     "error reading the state",
+			stored:   stored,
+			stateErr: errStateRead,
+			changes:  changes,
+			wantErr:  errStateRead,
+		},
+		{
 			name:        "event deleted while updating",
 			stored:      stored,
 			changes:     changes,
@@ -463,7 +528,7 @@ func TestUpdateUnofficialEvent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			repo := fakeEventRepository{getEvent: tt.stored, getErr: tt.getErr, updateErr: tt.updateErr}
+			repo := fakeEventRepository{getEvent: tt.stored, getErr: tt.getErr, updateErr: tt.updateErr, state: tt.state, stateErr: tt.stateErr}
 			svc := NewEventService(&repo, nil, nil, nil)
 			updated, err := svc.UpdateUnofficialEvent(context.Background(), 7, tt.changes)
 			if !errors.Is(err, tt.wantErr) {
@@ -482,6 +547,19 @@ func TestUpdateUnofficialEvent(t *testing.T) {
 				t.Errorf("creator or creation date changed: %v %v", repo.updated.Creator, repo.updated.DateCreated)
 			}
 		})
+	}
+}
+
+func TestUpdateOfficialEventDoesNotReadTheState(t *testing.T) {
+	repo := fakeEventRepository{getEvent: event_model.Event{ID: 7, Title: "Festa Major", Code: 1, IsOfficial: true}}
+	svc := NewEventService(&repo, nil, nil, nil)
+
+	_, err := svc.UpdateUnofficialEvent(context.Background(), 7, event_model.Event{Title: "x"})
+	if !errors.Is(err, ErrInvalidEvent) {
+		t.Fatalf("error = %v, want ErrInvalidEvent", err)
+	}
+	if repo.stateCalls != 0 {
+		t.Errorf("state reads = %d, want 0", repo.stateCalls)
 	}
 }
 
@@ -596,62 +674,212 @@ func TestListErrorsAreTranslated(t *testing.T) {
 	}
 }
 
-// fakePreferenceRepository only implements the preferences used to recommend events.
-type fakePreferenceRepository struct {
-	preference_repository.Repository
-	prefs []preference_model.UserPreference
-}
-
-func (f *fakePreferenceRepository) GetUserPreferences(_ context.Context, _ string) ([]preference_model.UserPreference, error) {
-	return f.prefs, nil
-}
-
 func TestGetRecommendedEvents(t *testing.T) {
-	events := []event_model.Event{
-		{ID: 1, Title: "Exposició", Categories: []string{"Exposicions"}},
-		{ID: 2, Title: "Concert", Categories: []string{"Música"}},
-		{ID: 3, Title: "Sense categoria"},
-	}
+	t.Run("forwards parsed UUID and pagination offset to repository", func(t *testing.T) {
+		want := []event_model.Event{
+			{ID: 40, Title: "Concert", Categories: []string{"Música"}},
+			{ID: 10, Title: "Exposició", Categories: []string{"Exposicions"}},
+		}
+		repo := fakeEventRepository{recommendedEvents: want}
+		svc := NewEventService(&repo, nil, nil, nil)
 
-	// Events with the same weight have no order, so only the first and last events are checked
+		got, err := svc.GetRecommendedEvents(context.Background(), strings.ToUpper(validUserID), 15, 2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if repo.recommendedCalls != 1 {
+			t.Fatalf("ListRecommended calls = %d, want 1", repo.recommendedCalls)
+		}
+		wantUUID, _ := pgtype.UUID{}, error(nil)
+		if err := wantUUID.Scan(validUserID); err != nil {
+			t.Fatal(err)
+		}
+		if repo.gotRecUserID != wantUUID {
+			t.Errorf("userID = %v, want %v", repo.gotRecUserID, wantUUID)
+		}
+		if repo.gotRecPageSize != 15 || repo.gotRecPageOffset != 30 {
+			t.Errorf("pagination = (%d, %d), want (15, 30)", repo.gotRecPageSize, repo.gotRecPageOffset)
+		}
+		if len(got) != 2 || got[0].ID != 40 || got[1].ID != 10 {
+			t.Fatalf("got = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("nil repository slice returns non-nil empty slice", func(t *testing.T) {
+		repo := fakeEventRepository{recommendedEvents: nil}
+		svc := NewEventService(&repo, nil, nil, nil)
+
+		got, err := svc.GetRecommendedEvents(context.Background(), validUserID, 20, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got == nil || len(got) != 0 {
+			t.Fatalf("got = %#v, want empty non-nil slice", got)
+		}
+	})
+
+	t.Run("int32 offset overflow returns empty slice without calling repository", func(t *testing.T) {
+		repo := fakeEventRepository{}
+		svc := NewEventService(&repo, nil, nil, nil)
+
+		got, err := svc.GetRecommendedEvents(context.Background(), validUserID, 1000, 3000000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if repo.recommendedCalls != 0 {
+			t.Fatalf("ListRecommended calls = %d, want 0", repo.recommendedCalls)
+		}
+		if got == nil || len(got) != 0 {
+			t.Fatalf("got = %#v, want empty non-nil slice", got)
+		}
+	})
+
+	t.Run("invalid parameters", func(t *testing.T) {
+		repo := fakeEventRepository{}
+		svc := NewEventService(&repo, nil, nil, nil)
+		cases := []struct {
+			name     string
+			userID   string
+			pageSize int
+			pageNum  int
+			wantErr  error
+		}{
+			{"invalid user id", "not-a-uuid", 10, 0, ErrInvalidUserID},
+			{"zero page size", validUserID, 0, 0, ErrInvalidFilter},
+			{"negative page size", validUserID, -5, 0, ErrInvalidFilter},
+			{"negative page num", validUserID, 10, -1, ErrInvalidFilter},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				_, err := svc.GetRecommendedEvents(context.Background(), tc.userID, tc.pageSize, tc.pageNum)
+				if !errors.Is(err, tc.wantErr) {
+					t.Fatalf("error = %v, want %v", err, tc.wantErr)
+				}
+			})
+		}
+		if repo.recommendedCalls != 0 {
+			t.Fatalf("ListRecommended calls = %d, want 0", repo.recommendedCalls)
+		}
+	})
+
+	t.Run("repository error propagation", func(t *testing.T) {
+		dbErr := errors.New("db error")
+		repo := fakeEventRepository{recommendedErr: dbErr}
+		svc := NewEventService(&repo, nil, nil, nil)
+
+		if _, err := svc.GetRecommendedEvents(context.Background(), validUserID, 10, 0); !errors.Is(err, dbErr) {
+			t.Fatalf("error = %v, want %v", err, dbErr)
+		}
+	})
+}
+
+type fakeUserRepository struct {
+	user_repository.Repository
+	user        user_model.User
+	userErr     error
+	reliability *float32
+	relErr      error
+}
+
+func (f *fakeUserRepository) GetByID(_ context.Context, _ pgtype.UUID) (user_model.User, error) {
+	return f.user, f.userErr
+}
+
+func (f *fakeUserRepository) GetReliability(_ context.Context, _ pgtype.UUID) (*float32, error) {
+	return f.reliability, f.relErr
+}
+
+func TestGetEvent_CreatorReliability(t *testing.T) {
+	var creatorUUID pgtype.UUID
+	if err := creatorUUID.Scan(validUserID); err != nil {
+		t.Fatal(err)
+	}
+	rel := float32(4.2)
+	name := "Marc Vila"
+	username := "marcvila"
+
 	tests := []struct {
-		name      string
-		prefs     []preference_model.UserPreference
-		wantFirst int
-		wantLast  int
+		name            string
+		event           event_model.Event
+		userRepo        *fakeUserRepository
+		wantName        *string
+		wantReliability *float32
 	}{
 		{
-			name:      "categories are ordered by weight",
-			prefs:     []preference_model.UserPreference{{CategoryName: "Música", Weight: 3}, {CategoryName: "Exposicions", Weight: 0.5}},
-			wantFirst: 2,
-			wantLast:  1,
+			name: "official event returns null creator-name and creator-reliability",
+			event: event_model.Event{
+				ID:         1,
+				Code:       1001,
+				IsOfficial: true,
+				Title:      "Festa Major",
+			},
+			userRepo: &fakeUserRepository{
+				user:        user_model.User{ID: creatorUUID, Name: name, Username: username},
+				reliability: &rel,
+			},
+			wantName:        nil,
+			wantReliability: nil,
 		},
 		{
-			name: "user without preferences gets every event",
+			name: "community event with rating returns creator-name and creator-reliability",
+			event: event_model.Event{
+				ID:         2,
+				IsOfficial: false,
+				Title:      "Taller de Jazz",
+				Creator:    creatorUUID,
+			},
+			userRepo: &fakeUserRepository{
+				user:        user_model.User{ID: creatorUUID, Name: name, Username: username},
+				reliability: &rel,
+			},
+			wantName:        &name,
+			wantReliability: &rel,
 		},
 		{
-			name:     "category without preference has weight 1",
-			prefs:    []preference_model.UserPreference{{CategoryName: "Música", Weight: 0.5}},
-			wantLast: 2,
+			name: "community event with no ratings returns creator-name (falls back to username) and null reliability",
+			event: event_model.Event{
+				ID:         3,
+				IsOfficial: false,
+				Title:      "Caminada Popular",
+				Creator:    creatorUUID,
+			},
+			userRepo: &fakeUserRepository{
+				user:        user_model.User{ID: creatorUUID, Name: "", Username: username},
+				reliability: nil,
+			},
+			wantName:        &username,
+			wantReliability: nil,
+		},
+		{
+			name: "creator lookup errors still return the event with null creator fields",
+			event: event_model.Event{
+				ID:         4,
+				IsOfficial: false,
+				Title:      "Cinema a la fresca",
+				Creator:    creatorUUID,
+			},
+			userRepo: &fakeUserRepository{
+				userErr: errors.New("db down"),
+				relErr:  errors.New("db down"),
+			},
+			wantName:        nil,
+			wantReliability: nil,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			repo := fakeEventRepository{listEvents: events}
-			svc := NewEventService(&repo, &fakePreferenceRepository{prefs: tt.prefs}, nil, nil)
-			got, err := svc.GetRecommendedEvents(context.Background(), validUserID, 20, 0)
+			repo := fakeEventRepository{getEvent: tt.event}
+			svc := NewEventService(&repo, nil, nil, nil).WithUserRepository(tt.userRepo)
+			got, err := svc.GetEvent(tt.event.ID)
 			if err != nil {
-				t.Fatal(err)
+				t.Fatalf("unexpected error: %v", err)
 			}
-			if len(got) != len(events) {
-				t.Fatalf("got %d events, want %d", len(got), len(events))
+			if (got.CreatorName == nil) != (tt.wantName == nil) || (tt.wantName != nil && *got.CreatorName != *tt.wantName) {
+				t.Errorf("CreatorName = %v, want %v", got.CreatorName, tt.wantName)
 			}
-			if tt.wantFirst != 0 && got[0].ID != tt.wantFirst {
-				t.Errorf("first event = %d, want %d", got[0].ID, tt.wantFirst)
-			}
-			if tt.wantLast != 0 && got[len(got)-1].ID != tt.wantLast {
-				t.Errorf("last event = %d, want %d", got[len(got)-1].ID, tt.wantLast)
+			if (got.CreatorReliability == nil) != (tt.wantReliability == nil) || (tt.wantReliability != nil && *got.CreatorReliability != *tt.wantReliability) {
+				t.Errorf("CreatorReliability = %v, want %v", got.CreatorReliability, tt.wantReliability)
 			}
 		})
 	}

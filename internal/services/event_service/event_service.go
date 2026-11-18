@@ -1,71 +1,30 @@
 package event_service
 
 import (
-	"container/heap"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"math"
-	"slices"
 	"strings"
 	"time"
 
 	"api-aprop/internal/clients/gencat_client"
 	"api-aprop/internal/clients/s3_client"
 	"api-aprop/internal/models/event_model"
-	"api-aprop/internal/models/preference_model"
 	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/repositories/event_repository"
 	"api-aprop/internal/repositories/preference_repository"
+	"api-aprop/internal/repositories/user_repository"
 )
-
-type Item struct {
-	Value    event_model.Event
-	Priority float32
-	Index    int
-}
-
-type PriorityQueue []*Item
-
-// heap.Interface implementation
-
-func (pq PriorityQueue) Len() int {
-	return len(pq)
-}
-
-func (pq PriorityQueue) Less(i, j int) bool {
-	return pq[i].Priority > pq[j].Priority
-}
-
-func (pq PriorityQueue) Swap(i, j int) {
-	pq[i], pq[j] = pq[j], pq[i]
-	pq[i].Index = i
-	pq[j].Index = j
-}
-
-func (pq *PriorityQueue) Push(x any) {
-	item := x.(*Item)
-	item.Index = len(*pq)
-	*pq = append(*pq, item)
-}
-
-func (pq *PriorityQueue) Pop() any {
-	old := *pq
-	n := len(old)
-	item := old[n-1]
-	old[n-1] = nil // Avoid retaining the item in memory
-	item.Index = -1
-	*pq = old[:n-1]
-	return item
-}
 
 type EventService struct {
 	eventRepository      event_repository.Repository
 	gencatClient         gencat_client.Client
 	preferenceRepository preference_repository.Repository
 	s3Client             s3_client.Client
+	userRepository       user_repository.Repository
 }
 
 func NewEventService(eventRepository event_repository.Repository, preferenceRepository preference_repository.Repository, gencatClient gencat_client.Client, s3Client s3_client.Client) *EventService {
@@ -77,7 +36,14 @@ func NewEventService(eventRepository event_repository.Repository, preferenceRepo
 	}
 }
 
-func (s *EventService) GetEvent(id int) (event_model.Event, error) {
+// WithUserRepository sets the user repository used to enrich event detail responses with creator info.
+func (s *EventService) WithUserRepository(r user_repository.Repository) *EventService {
+	s.userRepository = r
+	return s
+}
+
+// getEvent loads an event without the creator decoration; internal checks use it.
+func (s *EventService) getEvent(id int) (event_model.Event, error) {
 	e, err := s.eventRepository.Get(id)
 	if errors.Is(err, event_repository.ErrEventNotFound) {
 		return event_model.Event{}, fmt.Errorf("%w: %w", ErrEventNotFound, err)
@@ -88,41 +54,59 @@ func (s *EventService) GetEvent(id int) (event_model.Event, error) {
 	return e, nil
 }
 
-func (s *EventService) GetRecommendedEvents(ctx context.Context, userid string, pageSize int, pageNum int) ([]event_model.Event, error) {
-	events, err := s.eventRepository.List(map[string]any{"pageSize": pageSize, "pageNum": pageNum, "filterCategory": 0})
-	if errors.Is(err, event_repository.ErrInvalidFilter) {
-		return []event_model.Event{}, fmt.Errorf("%w: %w", ErrInvalidFilter, err)
-	}
+func (s *EventService) GetEvent(id int) (event_model.Event, error) {
+	e, err := s.getEvent(id)
 	if err != nil {
-		return []event_model.Event{}, err
+		return event_model.Event{}, err
 	}
-
-	prefs, err := s.preferenceRepository.GetUserPreferences(ctx, userid)
-	if err != nil {
-		return []event_model.Event{}, err
-	}
-
-	ordered_events := &PriorityQueue{}
-	heap.Init(ordered_events)
-	for _, ev := range events {
-		prio := float32(1.0)
-		for _, cat := range ev.Categories {
-			// A category without preference has weight 1, the default weight of UserPreferences
-			ind := slices.IndexFunc(prefs, func(p preference_model.UserPreference) bool { return p.CategoryName == cat })
-			if ind != -1 {
-				prio *= prefs[ind].Weight
+	if !e.IsOfficial && e.Creator.Valid && s.userRepository != nil {
+		ctx := context.Background()
+		// The creator info is decoration: a failed lookup is logged and leaves the fields null.
+		u, uErr := s.userRepository.GetByID(ctx, e.Creator)
+		if uErr != nil {
+			log.Printf("event %d: creator lookup failed: %v", id, uErr)
+		} else {
+			displayName := u.Name
+			if displayName == "" {
+				displayName = u.Username
+			}
+			if displayName != "" {
+				e.CreatorName = &displayName
 			}
 		}
-		heap.Push(ordered_events, &Item{Value: ev, Priority: prio})
+		if rel, rErr := s.userRepository.GetReliability(ctx, e.Creator); rErr != nil {
+			log.Printf("event %d: creator reliability failed: %v", id, rErr)
+		} else {
+			e.CreatorReliability = rel
+		}
+	}
+	return e, nil
+}
+
+// GetRecommendedEvents returns a paginated slice of active events ranked in SQL for userID using
+// UserPreferences (Interès./pes), SignUp category affinity (excluding joined events), and popularity.
+func (s *EventService) GetRecommendedEvents(ctx context.Context, userid string, pageSize int, pageNum int) ([]event_model.Event, error) {
+	uid, err := user_model.ParseID(userid)
+	if err != nil {
+		return nil, err
+	}
+	if pageSize <= 0 || pageNum < 0 {
+		return nil, fmt.Errorf("recommended events: %w: pageSize must be > 0 and pageNum >= 0", ErrInvalidFilter)
+	}
+	// TODO(DP-034): confirm the exact combination formula (UserPreferences + SignUp category boost + popularity)
+	// and whether already-enrolled events should be excluded rather than penalized.
+	if pageNum > math.MaxInt32/pageSize {
+		return []event_model.Event{}, nil
 	}
 
-	ret := []event_model.Event{}
-	for ordered_events.Len() > 0 {
-		tmp, _ := heap.Pop(ordered_events).(*Item)
-		ret = append(ret, tmp.Value)
+	events, err := s.eventRepository.ListRecommended(ctx, uid, pageSize, pageNum*pageSize)
+	if err != nil {
+		return nil, err
 	}
-
-	return ret, nil
+	if events == nil {
+		return []event_model.Event{}, nil
+	}
+	return events, nil
 }
 
 func (s *EventService) ListEvents(params map[string]any) ([]event_model.Event, error) {
@@ -212,15 +196,27 @@ func (s *EventService) CreateUnofficialEvent(ctx context.Context, userID string,
 	return s.eventRepository.Create(e, false)
 }
 
-// UpdateUnofficialEvent replaces the fields of an unofficial event. The creator and the creation date are kept,
-// and rule R5 is checked against the original creation date. The handler checks that the requester is the creator.
+// UpdateUnofficialEvent replaces the fields of an unofficial event. Only Active events can be modified. The creator
+// and the creation date are kept, and rule R5 is checked against the original creation date. The handler checks that
+// the requester is the creator.
 func (s *EventService) UpdateUnofficialEvent(ctx context.Context, id int, e event_model.Event) (event_model.Event, error) {
-	stored, err := s.GetEvent(id)
+	stored, err := s.getEvent(id)
 	if err != nil {
 		return event_model.Event{}, err
 	}
 	if stored.IsOfficial || !stored.Creator.Valid {
 		return event_model.Event{}, fmt.Errorf("update event %d: %w: official events cannot be modified", id, ErrInvalidEvent)
+	}
+
+	state, err := s.eventRepository.GetUnofficialState(ctx, id)
+	if errors.Is(err, event_repository.ErrEventNotFound) {
+		return event_model.Event{}, fmt.Errorf("%w: %w", ErrEventNotFound, err)
+	}
+	if err != nil {
+		return event_model.Event{}, err
+	}
+	if state != event_model.UnofficialStateActive {
+		return event_model.Event{}, fmt.Errorf("update event %d: %w: state is %s", id, ErrEventNotActive, state)
 	}
 
 	if err := validateUnofficialEvent(e, stored.DateCreated); err != nil {
@@ -251,7 +247,7 @@ func (s *EventService) UpdateUnofficialEvent(ctx context.Context, id int, e even
 // DeleteUnofficialEvent deletes an unofficial event and everything that references it.
 // The handler checks that the requester is the creator.
 func (s *EventService) DeleteUnofficialEvent(ctx context.Context, id int) error {
-	stored, err := s.GetEvent(id)
+	stored, err := s.getEvent(id)
 	if err != nil {
 		return err
 	}

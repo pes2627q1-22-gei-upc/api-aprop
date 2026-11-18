@@ -3,6 +3,8 @@ package event_repository
 import (
 	"context"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"api-aprop/internal/models/event_model"
 )
 
@@ -17,10 +19,14 @@ type Repository interface {
 	SetCategories(id int, cats []string, official bool) error
 	Get(id int) (event_model.Event, error)
 	List(params map[string]any) ([]event_model.Event, error)
+	ListRecommended(ctx context.Context, userID pgtype.UUID, pageSize, pageOffset int) ([]event_model.Event, error)
 	GetPopular(pageSize int, pageNum int) ([]event_model.Event, error)
 	Search(ctx context.Context, query string, pageNum, pageSize int) (event_model.SearchResult, error)
 	GetCategories() ([]event_model.Category, error)
 	GetCategory(id int) (event_model.Category, error)
 	ListMapEvents(ctx context.Context, filter event_model.MapFilter) ([]event_model.MapEvent, error)
 	EventExists(id int) (bool, error)
+	// GetUnofficialState returns the state of an unofficial event (event_model.UnofficialState*).
+	// It returns ErrEventNotFound if the event does not exist or is official.
+	GetUnofficialState(ctx context.Context, id int) (string, error)
 }

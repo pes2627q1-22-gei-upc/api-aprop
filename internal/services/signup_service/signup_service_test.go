@@ -53,6 +53,10 @@ func (f *fakeEventRepository) EventExists(eventID int) (bool, error) {
 	return f.exists, f.existsErr
 }
 
+func (f *fakeEventRepository) GetUnofficialState(ctx context.Context, id int) (string, error) {
+	return event_model.UnofficialStateActive, nil
+}
+
 func (f *fakeEventRepository) Create(e event_model.Event, official bool) (event_model.Event, error) {
 	return event_model.Event{}, nil
 }
@@ -71,6 +75,9 @@ func (f *fakeEventRepository) Get(id int) (event_model.Event, error) {
 	return event_model.Event{EndDate: time.Now().Add(time.Hour * time.Duration(24))}, nil
 }
 func (f *fakeEventRepository) List(params map[string]any) ([]event_model.Event, error) {
+	return []event_model.Event{}, nil
+}
+func (f *fakeEventRepository) ListRecommended(ctx context.Context, userID pgtype.UUID, pageSize, pageOffset int) ([]event_model.Event, error) {
 	return []event_model.Event{}, nil
 }
 func (f *fakeEventRepository) GetPopular(pageSize int, pageNum int) ([]event_model.Event, error) {

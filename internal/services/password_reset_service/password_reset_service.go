@@ -15,7 +15,7 @@ import (
 	"api-aprop/internal/repositories/user_repository"
 )
 
-// TODO(DP-033): window, locale and anti-enumeration behaviour proposed by the backend, pending the frontend.
+// TODO(DP-039): window, locale and anti-enumeration behaviour proposed by the backend, pending the frontend.
 const (
 	// Window is the minimum time between two reset emails for the same identifier or email.
 	Window = time.Minute
