@@ -449,6 +449,22 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Qui decideix:** equip (backend + frontend)
 - **Resolució:**
 
+### DP-039 · Recuperar la contrasenya: endpoint públic `POST /auth/password-reset`
+- **Estat:** oberta
+- **Obert per:** 2026-11-18 · Claude Code (Opus 5.5) · branca `feature/recuperar-contrasenya` (Taiga #118, part backend)
+- **Context:** (Obert com a DP-033; renumerada a DP-039 en fer merge de `develop`, que ja tenia fins a la DP-038.) `password_reset_handler`, `password_reset_service`, `firebase_client.IdentityToolkitClient`. La tasca és sobretot de frontend (`sendPasswordResetEmail`, `ForgotPasswordScreen`); el backend hi afegeix poder fer-ho amb el nom d'usuari i un límit al servidor.
+- **Dubte / supòsits:**
+  1. Endpoint **públic** (qui ha oblidat la contrasenya no té sessió), muntat fora del router com el de Mobilicat. Cos `{"identifier": "..."}`: si conté `@` és un correu; si no, un nom d'usuari que es busca a la BD per obtenir-ne el correu.
+  2. **Anti-enumeració:** respon `204` tant si el compte existeix com si no. Amb un nom d'usuari, els límits i els errors de Firebase tampoc no es comuniquen (un nom inexistent no arriba mai a Firebase). Una fallada de xarxa amb Firebase sí que retorna `502`.
+  3. Enviament amb l'API REST de Firebase Auth (`accounts:sendOobCode`, `PASSWORD_RESET`) i la **Web API key** (`FIREBASE_WEB_API_KEY`; sense ella → `503`). L'Admin SDK no serveix: només genera l'enllaç i caldria un servei de correu propi. El correu i la pàgina de l'enllaç són les plantilles de Firebase, en català (`X-Firebase-Locale: ca`).
+  4. Límit: 1 petició per identificador i per correu cada 60 s (`429` + `Retry-After`), en memòria (es perd en reiniciar i no es comparteix entre instàncies). Sense límit per IP. Firebase hi afegeix les seves quotes.
+  5. El frontend (`FirebaseAuthRepository.sendPasswordResetEmail`) hauria de cridar aquest endpoint en lloc de `FirebaseAuth.sendPasswordResetEmail`, per poder acceptar el nom d'usuari. Pendent de la part FE.
+  6. No provat contra Firebase real (sense la clau a l'entorn de desenvolupament): només tests unitaris amb `httptest`.
+- **Opcions:** A) aquest endpoint · B) només el SDK de Firebase al client (sense nom d'usuari ni límit propi).
+- **Provisionalment:** A.
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
 ## Resoltes
 
 (cap)

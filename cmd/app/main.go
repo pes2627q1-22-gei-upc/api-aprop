@@ -27,6 +27,7 @@ import (
 	"api-aprop/internal/handlers/congestion_handler"
 	"api-aprop/internal/handlers/event_handler"
 	"api-aprop/internal/handlers/notification_handler"
+	"api-aprop/internal/handlers/password_reset_handler"
 	"api-aprop/internal/handlers/preference_handler"
 	"api-aprop/internal/handlers/rating_handler"
 	"api-aprop/internal/handlers/requester"
@@ -41,6 +42,7 @@ import (
 	"api-aprop/internal/services/congestion_service"
 	"api-aprop/internal/services/event_service"
 	"api-aprop/internal/services/notification_service"
+	"api-aprop/internal/services/password_reset_service"
 	"api-aprop/internal/services/preference_service"
 	"api-aprop/internal/services/rating_service"
 	"api-aprop/internal/services/signup_service"
@@ -71,6 +73,9 @@ const (
 	// Mobilicat environment variables
 	mobilicatEnvAPIKey      = "MOBILICAT_API_KEY"      // optional: without it the congestion endpoint answers 503
 	mobilicatEnvCongestionK = "MOBILICAT_CONGESTION_K" // optional, defaults to congestion_service.DefaultK
+
+	// Firebase Web API key (Firebase console > Project settings > General): Firebase Auth REST API
+	firebaseEnvWebAPIKey = "FIREBASE_WEB_API_KEY" // optional: without it the password reset endpoint answers 503
 )
 
 func runDaily(task func()) {
@@ -256,6 +261,7 @@ func main() {
 	notificationService := notification_service.NewNotificationService(notificationRepository)
 	preferenceService := preference_service.NewPreferenceService(preferenceRepository)
 	congestionService := congestion_service.NewCongestionService(congestionRepository, time.Now, location, congestionK())
+	passwordResetService := password_reset_service.NewPasswordResetService(userRepository, passwordResetSender(), time.Now)
 
 	// Handlers
 	eventHandler := event_handler.NewEventHandler(eventService, authService)
@@ -267,6 +273,7 @@ func main() {
 	notificationHandler := notification_handler.NewNotificationHandler(notificationService)
 	preferenceHandler := preference_handler.NewPreferenceHandler(preferenceService, authService)
 	congestionHandler := congestion_handler.NewCongestionHandler(congestionService)
+	passwordResetHandler := password_reset_handler.NewPasswordResetHandler(passwordResetService)
 
 	// Initial data
 	go func() {
@@ -295,6 +302,8 @@ func main() {
 		slog.Warn("Mobilicat API key not set; the congestion endpoint answers 503", "env", mobilicatEnvAPIKey)
 	}
 	mux.Handle(congestion_handler.EstimatePattern, apikey_middleware.New(mobilicatAPIKey)(http.HandlerFunc(congestionHandler.Estimate)))
+	// Public endpoint: whoever forgot the password has no Firebase token. The CORS preflight goes through the router
+	mux.Handle(password_reset_handler.ResetPattern, corsMiddleware(http.HandlerFunc(passwordResetHandler.Reset)))
 	mux.Handle("/", router.NewRouter(corsMiddleware, authMiddleware, eventHandler, assistantHandler, signUpHandler, ratingHandler, authHandler, notificationHandler, userHandler, preferenceHandler))
 
 	// Server: HTTP/1.1 and HTTP/2 without TLS (h2c)
@@ -330,6 +339,16 @@ func congestionK() float64 {
 		return congestion_service.DefaultK
 	}
 	return k
+}
+
+// passwordResetSender returns the client that sends the password reset emails, or nil without the Web API key.
+func passwordResetSender() firebase_client.PasswordResetSender {
+	apiKey := os.Getenv(firebaseEnvWebAPIKey)
+	if apiKey == "" {
+		slog.Warn("Firebase Web API key not set; the password reset endpoint answers 503", "env", firebaseEnvWebAPIKey)
+		return nil
+	}
+	return firebase_client.NewIdentityToolkitClient(apiKey, "", nil)
 }
 
 // getEnv returns the value of a required environment variable and exits if it is not set.
