@@ -46,9 +46,24 @@ type fakeEventRepository struct {
 	gotRecPageOffset  int
 	popularErr        error
 	categoryErr       error
+	// state is the state of the unofficial event; empty means Active
+	state      string
+	stateErr   error
+	stateCalls int
 }
 
 func (f *fakeEventRepository) EventExists(id int) (bool, error) { return false, nil }
+
+func (f *fakeEventRepository) GetUnofficialState(_ context.Context, _ int) (string, error) {
+	f.stateCalls++
+	if f.stateErr != nil {
+		return "", f.stateErr
+	}
+	if f.state == "" {
+		return event_model.UnofficialStateActive, nil
+	}
+	return f.state, nil
+}
 
 func (f *fakeEventRepository) Create(e event_model.Event, _ bool) (event_model.Event, error) {
 	f.created = e
@@ -386,6 +401,8 @@ func TestSearchEvents(t *testing.T) {
 	}
 }
 
+var errStateRead = errors.New("db down")
+
 func TestUpdateUnofficialEvent(t *testing.T) {
 	var creator pgtype.UUID
 	if err := creator.Scan(validUserID); err != nil {
@@ -406,6 +423,8 @@ func TestUpdateUnofficialEvent(t *testing.T) {
 		name        string
 		stored      event_model.Event
 		getErr      error
+		state       string
+		stateErr    error
 		changes     event_model.Event
 		updateErr   error
 		wantErr     error
@@ -466,6 +485,38 @@ func TestUpdateUnofficialEvent(t *testing.T) {
 			wantErr: ErrEventNotFound,
 		},
 		{
+			name:    "withdrawn event cannot be modified",
+			stored:  stored,
+			state:   event_model.UnofficialStateWithdrawn,
+			changes: changes,
+			wantErr: ErrEventNotActive,
+		},
+		{
+			// The state is checked before the fields, so the answer does not depend on the body
+			name:   "withdrawn event with invalid changes is still not active",
+			stored: stored,
+			state:  event_model.UnofficialStateWithdrawn,
+			changes: event_model.Event{
+				Title: "Taller", Description: "Desc", Categories: []string{"C"},
+				StartDate: createdAt.Add(-24 * time.Hour),
+			},
+			wantErr: ErrEventNotActive,
+		},
+		{
+			name:     "state of an event deleted in the meantime",
+			stored:   stored,
+			stateErr: event_repository.ErrEventNotFound,
+			changes:  changes,
+			wantErr:  ErrEventNotFound,
+		},
+		{
+			name:     "error reading the state",
+			stored:   stored,
+			stateErr: errStateRead,
+			changes:  changes,
+			wantErr:  errStateRead,
+		},
+		{
 			name:        "event deleted while updating",
 			stored:      stored,
 			changes:     changes,
@@ -477,7 +528,7 @@ func TestUpdateUnofficialEvent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			repo := fakeEventRepository{getEvent: tt.stored, getErr: tt.getErr, updateErr: tt.updateErr}
+			repo := fakeEventRepository{getEvent: tt.stored, getErr: tt.getErr, updateErr: tt.updateErr, state: tt.state, stateErr: tt.stateErr}
 			svc := NewEventService(&repo, nil, nil, nil)
 			updated, err := svc.UpdateUnofficialEvent(context.Background(), 7, tt.changes)
 			if !errors.Is(err, tt.wantErr) {
@@ -496,6 +547,19 @@ func TestUpdateUnofficialEvent(t *testing.T) {
 				t.Errorf("creator or creation date changed: %v %v", repo.updated.Creator, repo.updated.DateCreated)
 			}
 		})
+	}
+}
+
+func TestUpdateOfficialEventDoesNotReadTheState(t *testing.T) {
+	repo := fakeEventRepository{getEvent: event_model.Event{ID: 7, Title: "Festa Major", Code: 1, IsOfficial: true}}
+	svc := NewEventService(&repo, nil, nil, nil)
+
+	_, err := svc.UpdateUnofficialEvent(context.Background(), 7, event_model.Event{Title: "x"})
+	if !errors.Is(err, ErrInvalidEvent) {
+		t.Fatalf("error = %v, want ErrInvalidEvent", err)
+	}
+	if repo.stateCalls != 0 {
+		t.Errorf("state reads = %d, want 0", repo.stateCalls)
 	}
 }
 

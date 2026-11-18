@@ -152,3 +152,7 @@ DELETE FROM unofficialevents WHERE id = $1;
 
 -- name: DeleteEvent :execrows
 DELETE FROM events WHERE id = $1;
+
+-- name: GetUnofficialEventState :one
+-- State of an unofficial event; no rows if the event is official or does not exist.
+SELECT State::text AS state FROM UnofficialEvents WHERE ID = $1;

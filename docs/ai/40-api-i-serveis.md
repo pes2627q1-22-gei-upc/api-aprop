@@ -16,7 +16,7 @@ Totes les respostes i cossos de petició utilitzen claus JSON en **kebab-case**.
 | `GET /events/recommended` | `EventHandler.GetRecommendedEvents` | Llistat paginat d'esdeveniments actius recomanats amb puntuació i paginació a SQL (`recommendations.sql`) | Implementat (DP-036) |
 | `GET /events/{id}` | `EventHandler.GetEvent` | Detall complet d'un esdeveniment per ID (inclou `creator-name` i `creator-reliability` per als no oficials, `null` als oficials o sense valoracions) | Implementat |
 | `POST /events` | `EventHandler.CreateEvent` | Creació d'esdeveniments no oficials | Implementat |
-| `PUT /events/{id}` | `EventHandler.UpdateEvent` | Modificació d'un esdeveniment no oficial (només el creador; 403 si no ho és o si és oficial) | Implementat |
+| `PUT /events/{id}` | `EventHandler.UpdateEvent` | Modificació d'un esdeveniment no oficial: només el creador (`403` si no ho és o si és oficial), només si l'estat és `Active` (`409` si no, p. ex. `Withdrawn`) i complint R5 contra la data de creació (`400`) | Implementat (DP-038) |
 | `DELETE /events/{id}` | `EventHandler.DeleteEvent` | Esborrat d'un esdeveniment no oficial i de les dades que en depenen (només el creador; 204) | Implementat |
 | `GET /events/map` | `EventHandler.ListMapEvents` | Esdeveniments amb coordenades i metadades bàsiques per al mapa | Implementat |
 | `GET /categories` | `EventHandler.GetCategories` | Llistat de totes les categories del catàleg | Implementat |

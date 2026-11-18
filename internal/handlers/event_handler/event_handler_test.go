@@ -597,6 +597,15 @@ func TestUpdateEventHandler(t *testing.T) {
 			wantCalls:  1,
 		},
 		{
+			name:       "withdrawn event is not active",
+			path:       "/events/7",
+			body:       eventJSON,
+			userID:     validUserID,
+			service:    fakeEventService{event: unofficialEvent(t, 7, validUserID), updateErr: fmt.Errorf("update event 7: %w", event_service.ErrEventNotActive)},
+			wantStatus: http.StatusConflict,
+			wantCalls:  1,
+		},
+		{
 			name:       "invalid json body",
 			path:       "/events/7",
 			body:       `{not-valid-json`,

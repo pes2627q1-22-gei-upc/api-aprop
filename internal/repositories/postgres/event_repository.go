@@ -267,6 +267,17 @@ func (r *EventRepository) UpdateImage(ctx context.Context, id int, imageURL stri
 	})
 }
 
+func (r *EventRepository) GetUnofficialState(ctx context.Context, id int) (string, error) {
+	state, err := r.queries.GetUnofficialEventState(ctx, int32(id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", fmt.Errorf("get state of event %d: %w", id, event_repository.ErrEventNotFound)
+	}
+	if err != nil {
+		return "", fmt.Errorf("get state of event %d: %w", id, err)
+	}
+	return state, nil
+}
+
 func (r *EventRepository) SetCategories(id int, cats []string, _ bool) error {
 	return setCategories(context.Background(), r.queries, id, cats)
 }

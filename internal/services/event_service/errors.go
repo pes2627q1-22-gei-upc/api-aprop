@@ -20,4 +20,6 @@ var (
 	ErrInvalidUserID           = user_model.ErrInvalidID
 	ErrInvalidContentType      = errors.New("invalid content type, must be image/jpeg, image/png, or image/webp")
 	ErrImageUploadFailed       = errors.New("failed to upload event image")
+	// ErrEventNotActive means the unofficial event is not Active (e.g. it was withdrawn), so it cannot be modified.
+	ErrEventNotActive = errors.New("event is not active")
 )

@@ -13,6 +13,7 @@
 
 | Taiga | Història / Tasca | Repo | Branca | Responsable | Estat |
 |---|---|---|---|---|---|
+| **#188** | Endpoint `PUT /events/{id}`: autoria, tipus `NoOficial`, estat actiu i R5 | `api-aprop` | `feature/modificar-esdeveniment` | Arnau Serra | Implementat amb tests unitaris; migració 000018 i SQL no provats contra BD; pendent de PR a `develop` (DP-038 oberta) |
 | **#161** | Endpoint `GET /users?q=<query>` paginat, filtrant bloquejos i comptes desactivats | `api-aprop` | `feature/cercar-usuaris` | Arnau Serra | Implementat amb tests unitaris; SQL no provat contra BD; pendent de PR a `develop` (DP-037 oberta) |
 | **#51** | Llista d'esdeveniments recomanats (`GET /events/recommended` amb puntuació i paginació a SQL `recommendations.sql`) | `api-aprop` | `feature/recommended-events` | Wenqiang He | PR oberta #60 cap a `develop`, pendent de revisió i prova contra Supabase (`DP-034` oberta) |
 | **#112** | Endpoints per a Mobilicat: `POST /api/v1/congestion/estimate` (API key, snake_case) | `api-aprop` | `feature/mobilicat-endpoints` | Arnau Serra | Implementat i provat amb tests unitaris; SQL no provat contra BD; pendent de PR a `develop` (DP-032 oberta) |

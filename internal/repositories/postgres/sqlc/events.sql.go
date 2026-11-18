@@ -611,6 +611,18 @@ func (q *Queries) GetPopularEvents(ctx context.Context, arg GetPopularEventsPara
 	return items, nil
 }
 
+const getUnofficialEventState = `-- name: GetUnofficialEventState :one
+SELECT State::text AS state FROM UnofficialEvents WHERE ID = $1
+`
+
+// State of an unofficial event; no rows if the event is official or does not exist.
+func (q *Queries) GetUnofficialEventState(ctx context.Context, id int32) (string, error) {
+	row := q.db.QueryRow(ctx, getUnofficialEventState, id)
+	var state string
+	err := row.Scan(&state)
+	return state, err
+}
+
 const listEvents = `-- name: ListEvents :many
 SELECT evlst.id, evlst.title, evlst.subtitle, evlst.description, evlst.schedule, evlst.tickets, evlst.url, evlst.ticketsurl, evlst.free, evlst.permanent, evlst.modality, evlst.relatedurls, evlst.urlnames, evlst.images, evlst.videos, evlst.email, evlst.phone, evlst.activityurl, evlst.startdate, evlst.enddate, evlst.place, evlst.latitude, evlst.longitude, evlst.postalcode, evlst.municipality, evlst.region, evlst.address, evlst.code, evlst.creator, evlst.datecreated, c.name as category FROM (
     SELECT e.id, e.title, e.subtitle, e.description, e.schedule, e.tickets, e.url, e.ticketsurl,
