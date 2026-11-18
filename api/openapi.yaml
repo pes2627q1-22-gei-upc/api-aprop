@@ -908,6 +908,35 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /users/{id}/ratings:
+    get:
+      tags: [users]
+      operationId: listReceivedRatings
+      summary: Valoracions rebudes als esdeveniments no oficials d'un usuari (base de la seva fiabilitat)
+      parameters:
+        - $ref: '#/components/parameters/UserIdentifier'
+      responses:
+        '200':
+          description: Valoracions, de la més recent a la més antiga (pot ser buida)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [event-id, event-title, rating, rating-date]
+                  properties:
+                    event-id: {type: integer}
+                    event-title: {type: string}
+                    rating: {type: integer, minimum: 1, maximum: 5}
+                    rating-date: {type: string, format: date-time}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /users/{userId}/events:
     get:
       tags: [signups]

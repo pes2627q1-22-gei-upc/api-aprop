@@ -151,9 +151,6 @@ func (s *userService) GetUserProfile(ctx context.Context, targetIdentifier strin
 	plansCount, _ = s.userRepo.CountPlans(ctx, target.ID)
 	completedPlansCount, _ = s.userRepo.CountCompletedPlans(ctx, target.ID)
 	reliability, _ = s.userRepo.GetReliability(ctx, target.ID)
-	if reliability == nil && target.Rating != nil {
-		reliability = target.Rating
-	}
 
 	var (
 		isFriend     *bool
@@ -228,6 +225,14 @@ func (s *userService) ListCreatedEvents(ctx context.Context, targetIdentifier st
 		events = []event_model.Event{}
 	}
 	return events, nil
+}
+
+func (s *userService) ListReceivedRatings(ctx context.Context, targetIdentifier string) ([]user_model.ReceivedRating, error) {
+	target, err := s.findUser(ctx, targetIdentifier)
+	if err != nil {
+		return nil, ErrUserNotFound
+	}
+	return s.userRepo.ListReceivedRatings(ctx, target.ID)
 }
 
 func (s *userService) UpdateProfile(ctx context.Context, requesterIdentifier string, input UpdateProfileInput) (user_model.UserProfile, error) {
