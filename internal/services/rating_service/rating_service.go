@@ -17,12 +17,15 @@ var (
 	ErrEventNotFound  = errors.New("event not found")
 	ErrNotAttended    = errors.New("user has not attended the event") // R10
 	ErrAlreadyRated   = errors.New("user has already rated the event")
+	ErrRatingNotFound = errors.New("rating not found")
 )
 
 // Service contains the business logic for rating events.
 type Service interface {
 	Rate(ctx context.Context, userID string, eventID, score int) (rating_model.Rating, error)
 	HasAttended(ctx context.Context, userID string, eventID int) (rating_model.AttendanceStatus, error)
+	UpdateRating(ctx context.Context, userID string, eventID, score int) (rating_model.Rating, error)
+	DeleteRating(ctx context.Context, userID string, eventID int) error
 }
 
 // EventChecker is the part of event_repository.Repository the service needs.
@@ -100,4 +103,64 @@ func (s *RatingService) Rate(ctx context.Context, userID string, eventID, score 
 		return rating_model.Rating{}, fmt.Errorf("rate event %d: %w", eventID, ErrAlreadyRated)
 	}
 	return rating_model.Rating{UserID: userID, EventID: eventID, Score: score}, nil
+}
+
+// UpdateRating changes the score of the user's own rating (R9: 1..5). The organizer's reliability is an
+// AVG over EventRatings computed on read, so nothing else needs recalculating.
+// TODO(DP-034): R10 is not re-checked on edit/delete, nor whether the event already ended; RatingDate is kept.
+func (s *RatingService) UpdateRating(ctx context.Context, userID string, eventID, score int) (rating_model.Rating, error) {
+	userID, err := user_model.NormalizeID(userID)
+	if err != nil {
+		return rating_model.Rating{}, err
+	}
+	if eventID <= 0 {
+		return rating_model.Rating{}, fmt.Errorf("%w: %d", ErrInvalidEventID, eventID)
+	}
+	if score < 1 || score > 5 {
+		return rating_model.Rating{}, fmt.Errorf("%w: %d", ErrInvalidScore, score)
+	}
+	if err := s.requireEvent(eventID); err != nil {
+		return rating_model.Rating{}, err
+	}
+	updated, err := s.ratings.Update(ctx, userID, eventID, score)
+	if err != nil {
+		return rating_model.Rating{}, err
+	}
+	if !updated {
+		return rating_model.Rating{}, fmt.Errorf("update rating of event %d: %w", eventID, ErrRatingNotFound)
+	}
+	return rating_model.Rating{UserID: userID, EventID: eventID, Score: score}, nil
+}
+
+// DeleteRating removes the user's own rating of the event.
+func (s *RatingService) DeleteRating(ctx context.Context, userID string, eventID int) error {
+	userID, err := user_model.NormalizeID(userID)
+	if err != nil {
+		return err
+	}
+	if eventID <= 0 {
+		return fmt.Errorf("%w: %d", ErrInvalidEventID, eventID)
+	}
+	if err := s.requireEvent(eventID); err != nil {
+		return err
+	}
+	deleted, err := s.ratings.Delete(ctx, userID, eventID)
+	if err != nil {
+		return err
+	}
+	if !deleted {
+		return fmt.Errorf("delete rating of event %d: %w", eventID, ErrRatingNotFound)
+	}
+	return nil
+}
+
+func (s *RatingService) requireEvent(eventID int) error {
+	exists, err := s.events.EventExists(eventID)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return fmt.Errorf("event %d: %w", eventID, ErrEventNotFound)
+	}
+	return nil
 }

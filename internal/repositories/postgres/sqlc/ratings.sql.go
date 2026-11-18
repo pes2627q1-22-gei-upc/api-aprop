@@ -32,6 +32,24 @@ func (q *Queries) CreateEventRating(ctx context.Context, arg CreateEventRatingPa
 	return result.RowsAffected(), nil
 }
 
+const deleteEventRating = `-- name: DeleteEventRating :execrows
+DELETE FROM EventRatings
+WHERE UserID = $1::uuid AND Event = $2::integer
+`
+
+type DeleteEventRatingParams struct {
+	UserID  pgtype.UUID
+	EventID int32
+}
+
+func (q *Queries) DeleteEventRating(ctx context.Context, arg DeleteEventRatingParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteEventRating, arg.UserID, arg.EventID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const hasUserAttendedEvent = `-- name: HasUserAttendedEvent :one
 SELECT EXISTS (
     SELECT 1 FROM SignUp
@@ -49,4 +67,24 @@ func (q *Queries) HasUserAttendedEvent(ctx context.Context, arg HasUserAttendedE
 	var column_1 bool
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const updateEventRating = `-- name: UpdateEventRating :execrows
+UPDATE EventRatings SET Rating = $1::integer
+WHERE UserID = $2::uuid AND Event = $3::integer
+`
+
+type UpdateEventRatingParams struct {
+	Rating  int32
+	UserID  pgtype.UUID
+	EventID int32
+}
+
+// Changes the score of the user's own rating; RatingDate is kept (DP-034).
+func (q *Queries) UpdateEventRating(ctx context.Context, arg UpdateEventRatingParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateEventRating, arg.Rating, arg.UserID, arg.EventID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

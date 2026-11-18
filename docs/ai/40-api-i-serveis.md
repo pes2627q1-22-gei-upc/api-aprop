@@ -31,6 +31,8 @@ Totes les respostes i cossos de petició utilitzen claus JSON en **kebab-case**.
 | Mètode i ruta | Handler | Descripció | Estat |
 |---|---|---|---|
 | `POST /events/{id}/ratings` | `RatingHandler.Rate` | Valora un esdeveniment assistit (1–5; R9/R10) | Implementat (`feature/event-rating`, DP-033) |
+| `PUT /events/{id}/ratings/me` | `RatingHandler.UpdateMine` | Modifica la meva valoració (cos `{"score":1..5}`; `200` amb la valoració; `400`/`401`; `404` si no existeix l'esdeveniment o la valoració) | Implementat (Tasca #205, DP-034) |
+| `DELETE /events/{id}/ratings/me` | `RatingHandler.DeleteMine` | Elimina la meva valoració (`204`; `401`; `404` si no existeix l'esdeveniment o la valoració). `/fiabilitat` es calcula en llegir (AVG sobre `EventRatings`), sense recàlcul | Implementat (Tasca #205, DP-034) |
 | `GET /events/{id}/enrollment/attendance` | `RatingHandler.HasAttended` | Consulta si l'usuari autenticat ha confirmat l'assistència (`has-attended`, R10) | Implementat (`feature/event-rating`, DP-033) |
 
 ### Assistent Virtual i Xatbot (`assistant_handler`)

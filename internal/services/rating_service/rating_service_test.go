@@ -21,12 +21,27 @@ type fakeRatings struct {
 	createErr   error
 	createCalls int
 	gotScore    int
+	updated     bool
+	deleted     bool
+	writeErr    error
+	writeCalls  int
 }
 
 func (f *fakeRatings) Create(_ context.Context, _ string, _ int, score int) (bool, error) {
 	f.createCalls++
 	f.gotScore = score
 	return f.created, f.createErr
+}
+
+func (f *fakeRatings) Update(_ context.Context, _ string, _ int, score int) (bool, error) {
+	f.writeCalls++
+	f.gotScore = score
+	return f.updated, f.writeErr
+}
+
+func (f *fakeRatings) Delete(context.Context, string, int) (bool, error) {
+	f.writeCalls++
+	return f.deleted, f.writeErr
 }
 
 func (f *fakeRatings) HasAttended(context.Context, string, int) (bool, error) {
@@ -112,5 +127,68 @@ func TestHasAttended(t *testing.T) {
 	wantErr := errors.New("db error")
 	if _, err := NewRatingService(&fakeRatings{attendErr: wantErr}, fakeEvents{true}).HasAttended(context.Background(), validUserID, 7); !errors.Is(err, wantErr) {
 		t.Errorf("repo error: err = %v, want %v", err, wantErr)
+	}
+}
+
+func TestUpdateRating(t *testing.T) {
+	ctx := context.Background()
+	dbErr := errors.New("db error")
+	tests := []struct {
+		name      string
+		repo      *fakeRatings
+		events    bool
+		userID    string
+		eventID   int
+		score     int
+		wantErr   error
+		wantCalls int
+	}{
+		{"ok", &fakeRatings{updated: true}, true, validUserID, 7, 4, nil, 1},
+		{"R9 score 0", &fakeRatings{updated: true}, true, validUserID, 7, 0, ErrInvalidScore, 0},
+		{"R9 score 6", &fakeRatings{updated: true}, true, validUserID, 7, 6, ErrInvalidScore, 0},
+		{"invalid user", &fakeRatings{updated: true}, true, "nope", 7, 3, ErrInvalidUserID, 0},
+		{"invalid event", &fakeRatings{updated: true}, true, validUserID, 0, 3, ErrInvalidEventID, 0},
+		{"unknown event", &fakeRatings{updated: true}, false, validUserID, 7, 3, ErrEventNotFound, 0},
+		{"no rating yet", &fakeRatings{}, true, validUserID, 7, 3, ErrRatingNotFound, 1},
+		{"repo error", &fakeRatings{writeErr: dbErr}, true, validUserID, 7, 3, dbErr, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := NewRatingService(tt.repo, fakeEvents{tt.events}).UpdateRating(ctx, tt.userID, tt.eventID, tt.score)
+			if !errors.Is(err, tt.wantErr) || tt.repo.writeCalls != tt.wantCalls {
+				t.Fatalf("err = %v calls = %d, want %v / %d", err, tt.repo.writeCalls, tt.wantErr, tt.wantCalls)
+			}
+			if err == nil && (got.Score != tt.score || got.EventID != tt.eventID || got.UserID != validUserID || tt.repo.gotScore != tt.score) {
+				t.Fatalf("rating = %+v", got)
+			}
+		})
+	}
+}
+
+func TestDeleteRating(t *testing.T) {
+	ctx := context.Background()
+	dbErr := errors.New("db error")
+	tests := []struct {
+		name    string
+		repo    *fakeRatings
+		events  bool
+		userID  string
+		eventID int
+		wantErr error
+	}{
+		{"ok", &fakeRatings{deleted: true}, true, validUserID, 7, nil},
+		{"invalid user", &fakeRatings{deleted: true}, true, "nope", 7, ErrInvalidUserID},
+		{"invalid event", &fakeRatings{deleted: true}, true, validUserID, -1, ErrInvalidEventID},
+		{"unknown event", &fakeRatings{deleted: true}, false, validUserID, 7, ErrEventNotFound},
+		{"no rating", &fakeRatings{}, true, validUserID, 7, ErrRatingNotFound},
+		{"repo error", &fakeRatings{writeErr: dbErr}, true, validUserID, 7, dbErr},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := NewRatingService(tt.repo, fakeEvents{tt.events}).DeleteRating(ctx, tt.userID, tt.eventID)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("err = %v, want %v", err, tt.wantErr)
+			}
+		})
 	}
 }
