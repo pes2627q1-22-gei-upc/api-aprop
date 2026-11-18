@@ -93,7 +93,7 @@ func (s *userService) DeleteAccount(ctx context.Context, requesterID string) err
 		return fmt.Errorf("delete user: %w", err)
 	}
 
-	if user.ProfilePicture != "" {
+	if user.ProfilePicture != "" && s.s3Client != nil {
 		if err := s.s3Client.DeleteAvatar(ctx, requesterID, user.ProfilePicture); err != nil {
 			slog.Warn("could not delete the avatar of a deleted user", "user", requesterID, "error", err)
 		}
