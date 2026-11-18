@@ -305,6 +305,10 @@ paths:
       tags: [events]
       operationId: getEvent
       summary: Detall d'un esdeveniment
+      description: |
+        Per als esdeveniments no oficials, inclou `creator-name` (nom visible del creador) i
+        `creator-reliability` (mitjana de valoracions rebudes als seus esdeveniments no oficials, o
+        `null` si encara no en té cap). Als oficials tots dos són `null`.
       responses:
         '200':
           description: Esdeveniment
@@ -1669,6 +1673,17 @@ components:
               nullable: true
               readOnly: true
               description: ID del creador. `null` als esdeveniments oficials.
+            creator-name:
+              type: string
+              nullable: true
+              readOnly: true
+              description: Nom visible del creador (`GET /events/{id}`). `null` als esdeveniments oficials.
+            creator-reliability:
+              type: number
+              format: float
+              nullable: true
+              readOnly: true
+              description: Fiabilitat de l'organitzador (`GET /events/{id}`, mitjana d'`EventRatings` dels seus esdeveniments no oficials). `null` als oficials o quan no té valoracions.
             date-created:
               type: string
               format: date-time

@@ -241,7 +241,7 @@ func main() {
 	congestionRepository := postgres_repository.NewCongestionRepository(postgresDriver.Pool())
 
 	// Services
-	eventService := event_service.NewEventService(eventRepository, preferenceRepository, gencatClient, s3Client)
+	eventService := event_service.NewEventService(eventRepository, preferenceRepository, gencatClient, s3Client).WithUserRepository(userRepository)
 	assistantService := assistant_service.NewAssistantService(
 		chatbotRepository, catalogueRepository, chatClient,
 		func() time.Time { return time.Now().In(location) }, assistant_service.ReplyTimeout,
