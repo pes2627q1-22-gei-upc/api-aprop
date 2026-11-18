@@ -332,6 +332,16 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Qui decideix:** frontend + backend
 - **Resolució:**
 
+### DP-031 · Fiabilitat de l'organitzador: font de les valoracions i llistat
+- **Estat:** oberta
+- **Obert per:** 2026-11-17 · Claude Code (Sonnet 5.5) · branca `feature/organizer-reliability` (US #59)
+- **Context:** `reliability` = mitjana de `EventRatings.Rating` dels `UnofficialEvents` creats per l'usuari (`20-model-domini.md`: /fiabilitat); `null` si no n'hi ha (abans queia a `Users.Rating`, eliminat). Nou `GET /users/{id}/ratings` (`id` o `me`) amb `event-id`, `event-title`, `rating`, `rating-date`.
+- **Dubte:** (1) `UserRatings` (rater→rated, amb `rating`) també existeix, però el domini defineix la fiabilitat sobre les Valoracions d'esdeveniment, així que no s'usa; (2) el llistat no exposa qui valora (privacitat) i és visible per a qualsevol usuari autenticat; (3) sense paginació; (4) la consulta no s'ha provat contra Supabase; `sqlc generate` v1.31.1 s'ha executat i només s'ha conservat `users.sql.go`.
+- **Opcions:** A) EventRatings · B) UserRatings · C) mitjana de totes dues.
+- **Provisionalment:** A.
+- **Qui decideix:** equip
+- **Resolució:**
+
 ## Resoltes
 
 (cap)
