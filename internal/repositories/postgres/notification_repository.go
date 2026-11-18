@@ -75,19 +75,34 @@ func (r *NotificationRepository) GetNotificationTypes() ([]notification_model.No
 }
 
 func (r *NotificationRepository) Create(n notification_model.Notification) (int, error) {
-	row, err := r.queries.CreateNotification(context.Background(), sqlc.CreateNotificationParams{
-		Userid:      n.UserID,
-		Requestdate: n.RequestDate,
-		Event:       n.Event,
-		Type:        int32(n.Type),
-		Friend:      n.Friend,
-		Text:        n.Text,
-	})
-	if err != nil {
-		return 0, fmt.Errorf("create notification: %w", err)
+	user, err := r.queries.GetUserByUUID(context.Background(), n.UserID)
+	if err!=nil{
+		return 0, fmt.Errorf("fetch user: %w", err)
 	}
 
-	return int(row), nil
+	settings, err := r.queries.GetSettings(context.Background(), int32(user.Settings))
+	if err!=nil{
+		return 0, fmt.Errorf("fetch settings: %w", err)
+	}
+
+	for _, v := range(settings){
+		if v.Notificationtype == int32(n.Type) {
+			row, err := r.queries.CreateNotification(context.Background(), sqlc.CreateNotificationParams{
+				Userid:      n.UserID,
+				Requestdate: n.RequestDate,
+				Event:       n.Event,
+				Type:        int32(n.Type),
+				Friend:      n.Friend,
+				Text:        n.Text,
+			})
+			if err != nil {
+				return 0, fmt.Errorf("create notification: %w", err)
+			}
+
+			return int(row), nil
+		}
+	}
+	return 0, nil
 }
 
 func (r *NotificationRepository) GetUserNotifications(id pgtype.UUID, params map[string]any) ([]notification_model.Notification, error) {
