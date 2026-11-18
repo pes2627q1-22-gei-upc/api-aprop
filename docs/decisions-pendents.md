@@ -378,6 +378,22 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Qui decideix:** Mobilicat + backend
 - **Resolució:**
 
+### DP-034 · Estat d'un esdeveniment no oficial i modificació amb `PUT /events/{id}`
+- **Estat:** oberta
+- **Obert per:** 2026-11-18 · Claude Code (Opus 5.5) · branca `feature/modificar-esdeveniment` (Taiga #188)
+- **Context:** la tasca demana verificar l'«estat actiu», però la BD no tenia cap estat per als NoOficials (`20-model-domini.md`: `NoOficial.estat: Retirat, … TODO(confirmar)`). L'equip (Arnau) ha triat afegir una columna d'estat.
+- **Dubte / supòsits:**
+  1. Migració 000017: enum `UnofficialEventState ('Active', 'Withdrawn')` i columna `UnofficialEvents.State NOT NULL DEFAULT 'Active'`. Els esdeveniments existents queden `Active`. Els oficials no en tenen (R7: mai no poden estar Retirats).
+  2. `PUT /events/{id}` respon `409 Conflict` si l'estat no és `Active`. L'ordre de comprovacions és: autoria i tipus (`403`) → estat (`409`) → camps i R5 (`400`).
+  3. De moment cap endpoint no canvia l'estat (la retirada arribarà amb les denúncies, R7). L'estat no surt a les respostes JSON dels esdeveniments.
+  4. No s'ha bloquejat `POST /events/{id}/image` ni `DELETE /events/{id}` per als esdeveniments retirats, ni s'amaguen dels llistats: fora de l'abast de #188.
+  5. Pendent de confirmar si cal un estat `Cancelled` (cancel·lat pel creador), diferent de `Withdrawn`.
+  6. La migració i la consulta `GetUnofficialEventState` no s'han provat contra PostgreSQL/Supabase; `events.sql.go` s'ha escrit a mà en el format de sqlc (sense regenerar, pels ajustos manuals del fitxer).
+- **Opcions:** —
+- **Provisionalment:** els supòsits anteriors.
+- **Qui decideix:** equip (backend + frontend)
+- **Resolució:**
+
 ## Resoltes
 
 (cap)
