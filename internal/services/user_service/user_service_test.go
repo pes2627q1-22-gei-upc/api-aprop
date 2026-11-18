@@ -43,6 +43,15 @@ type mockUserRepo struct {
 	unfriendErr             error
 	deleteUserErr           error
 	deleteUserCalls         int
+
+	searchResult    []user_model.UserSummary
+	searchTotal     int64
+	searchErr       error
+	searchCalls     int
+	searchRequester pgtype.UUID
+	searchQuery     string
+	searchLimit     int
+	searchOffset    int
 }
 
 func newMockUserRepo() *mockUserRepo {
@@ -203,6 +212,12 @@ func (m *mockUserRepo) Unfriend(_ context.Context, _, _ pgtype.UUID) error {
 }
 
 // DeleteUser simulates the transaction: the user is only removed if beforeCommit succeeds.
+func (m *mockUserRepo) SearchUsers(_ context.Context, requester pgtype.UUID, query string, limit, offset int) ([]user_model.UserSummary, int64, error) {
+	m.searchCalls++
+	m.searchRequester, m.searchQuery, m.searchLimit, m.searchOffset = requester, query, limit, offset
+	return m.searchResult, m.searchTotal, m.searchErr
+}
+
 func (m *mockUserRepo) DeleteUser(ctx context.Context, id pgtype.UUID, beforeCommit func(context.Context) error) error {
 	m.deleteUserCalls++
 	if m.deleteUserErr != nil {

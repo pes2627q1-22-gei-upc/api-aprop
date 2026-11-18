@@ -25,6 +25,7 @@ func NewUserHandler(userService user_service.Service, resolver requester.Resolve
 }
 
 func (h *UserHandler) RegisterRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /users", h.SearchUsers)
 	mux.HandleFunc("GET /users/me", h.GetMyProfile)
 	mux.HandleFunc("PATCH /users/me", h.UpdateMyProfile)
 	mux.HandleFunc("DELETE /users/me", h.DeleteMyAccount)

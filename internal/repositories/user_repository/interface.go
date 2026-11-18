@@ -45,4 +45,7 @@ type Repository interface {
 	// them in a single transaction. beforeCommit runs inside the transaction once everything is
 	// deleted: if it fails nothing is deleted. Returns ErrUserNotFound if the user does not exist.
 	DeleteUser(ctx context.Context, id pgtype.UUID, beforeCommit func(context.Context) error) error
+	// SearchUsers returns the active users whose username or name contains query, except the requester and the
+	// users that block or are blocked by the requester, and the total number of matches.
+	SearchUsers(ctx context.Context, requester pgtype.UUID, query string, limit, offset int) ([]user_model.UserSummary, int64, error)
 }

@@ -31,4 +31,7 @@ type Service interface {
 	Unfriend(ctx context.Context, userid string, targetid string) error
 	// DeleteAccount erases the requester and its data (RGPD) and deletes its Firebase Auth account.
 	DeleteAccount(ctx context.Context, requesterID string) error
+	// SearchUsers finds active users by username or name for the requester, without the blocked ones. pageNum
+	// starts at 0 and a pageSize of 0 uses DefaultSearchPageSize.
+	SearchUsers(ctx context.Context, requesterID, query string, pageNum, pageSize int) (user_model.UserSearchResult, error)
 }
