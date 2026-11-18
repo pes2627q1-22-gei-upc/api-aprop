@@ -378,10 +378,48 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Qui decideix:** Mobilicat + backend
 - **Resolució:**
 
-### DP-035 · Cerca d'usuaris `GET /users?q=`
+### DP-033 · Valorar un esdeveniment: taula reutilitzada, codi d'error R10 i consulta d'assistència
+- **Estat:** oberta
+- **Obert per:** 2026-11-17 · Claude Code (Sonnet 5.5) · branca `feature/event-rating` (Taiga #184, US #48)
+- **Context:** `POST /events/{id}/ratings` amb cos `{"score": 1..5}` → `201 {"user-id","event-id","score"}` i `GET /events/{id}/enrollment/attendance` (alias `/signup/attendance`) → `200 {"user-id","event-id","has-attended"}`. La tasca demanava una taula `ratings`, però `EventRatings` ja existeix (migració 000001: PK `(UserID, Event)` = únic per usuari/esdeveniment, `CHECK rating 1..5` des de la 000008, FK a `Users` des de la 000009), així que es reutilitza i **no s'afegeix cap migració**. `ratings.sql.go` s'ha generat amb `sqlc` v1.31.1 a partir de `ratings.sql`.
+- **Dubte:** (1) R10 (no ha assistit) → `403` (alternatives `409`/`422`); (2) valoració repetida → `409` (no s'actualitza; potser s'hauria de permetre editar); (3) `score` fora de 1..5 o no enter → `400`; (4) R8 no es torna a comprovar: R10 exigeix `attendance = true`, que R8 ja només deixa fixar un cop l'esdeveniment ha començat; (5) `RatingDate` s'omple amb `now()` de la BD; (6) `GET /events/{id}/enrollment/attendance` retorna `has-attended: true|false` per saber si mostrar el botó de valorar; (7) sense migració ni prova contra una BD real.
+- **Opcions:** A) 403 + 409 · B) 422 + 409 · C) 403 + upsert (editar).
+- **Provisionalment:** A.
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
+### DP-034 · Fórmula de recomanació en SQL, exclusió d'esdeveniments inscrits i paginació obligatòria
+- **Estat:** oberta
+- **Obert per:** 2026-11-17 · Antigravity · Taiga #51 (`feature/recommended-events`)
+- **Context:** `internal/services/event_service/event_service.go` (`GetRecommendedEvents`), `internal/handlers/event_handler/event_handler.go` (`GetRecommendedEvents`) i `internal/repositories/postgres/queries/recommendations.sql` (`ListRecommendedEvents`)
+- **Dubte:** (1) La tasca demana combinar `Interès./pes` (`UserPreferences`) i `SignUp`, però no fixa una fórmula exacta ni si els esdeveniments on l'usuari ja està inscrit s'han d'excloure o només penalitzar; (2) tampoc no especifica si `pageSize` i `pageNum` han de ser obligatoris amb `pageSize > 0` i `pageNum >= 0` (`400` en cas contrari) o si han de tenir valors per defecte com a `GET /events` (`defaultPageSize = 20`, `pageNum = 0`); (3) `ListRecommendedEvents` a `recommendations.sql` calcula la puntuació, ordena i pagina (`LIMIT`/`OFFSET`) directament a PostgreSQL (generat amb `sqlc` v1.31.1), però encara no s'ha executat contra una BD PostgreSQL/Supabase real.
+- **Opcions:** A) Excloure els esdeveniments on l'usuari ja està inscrit, puntuar a SQL com a mitjana per categoria de `(COALESCE(pes_preferència, 1.0) + LEAST(inscripcions_categoria * 0.5, 2.0))` + `LEAST(0.1 * LN(1 + inscripcions_globals), 0.5)` i exigir `pageSize > 0` i `pageNum >= 0` · B) Incloure els ja inscrits (penalitzats o no), ajustar pesos/topalls o posar valors per defecte de paginació.
+- **Provisionalment:** A (`TODO(DP-034)` a `event_service.go` i `event_handler.go`).
+- **Qui decideix:** backend + equip
+
+### DP-035 · Fiabilitat de l'organitzador: font de les valoracions i llistat
+- **Estat:** oberta
+- **Obert per:** 2026-11-17 · Claude Code (Sonnet 5.5) · branca `feature/organizer-reliability` (US #59)
+- **Context:** `reliability` = mitjana de `EventRatings.Rating` dels `UnofficialEvents` creats per l'usuari (`20-model-domini.md`: /fiabilitat); `null` si no n'hi ha. Per revisió de la PR #67 es llegeix de `Users.Rating`, que un trigger sobre `EventRatings` (migració 000017, amb backfill) recalcula a cada alta, edició o baixa de valoració. Nou `GET /users/{id}/ratings` (`id` o `me`) amb `event-id`, `event-title`, `rating`, `rating-date`.
+- **Dubte:** (1) la revisió demanava calcular-ho des de `UserRatings`, però aquesta taula no té columna de puntuació (només rater, rated, event, ratingdate), així que la font continua sent `EventRatings`; (1b) el trigger és `SECURITY DEFINER` i no s'ha provat contra Supabase; (2) el llistat no exposa qui valora (privacitat) i és visible per a qualsevol usuari autenticat; (3) sense paginació; (4) la consulta no s'ha provat contra Supabase; `sqlc generate` v1.31.1 s'ha executat i només s'ha conservat `users.sql.go`.
+- **Opcions:** A) EventRatings · B) UserRatings · C) mitjana de totes dues.
+- **Provisionalment:** A.
+- **Qui decideix:** equip
+
+### DP-036 · Editar i eliminar la meva valoració (`/events/{id}/ratings/me`)
+- **Estat:** oberta
+- **Obert per:** 2026-11-18 · Claude Code (Sonnet 5.5) · branca `feature/rating-edit-delete-205` (Taiga #205, US #61)
+- **Context:** `PUT /events/{id}/ratings/me` (cos `{"score": 1..5}`, el mateix que `POST`) → `200 {"user-id","event-id","score"}`; `DELETE /events/{id}/ratings/me` → `204`. L'usuari es resol de l'autenticació (només toca la seva valoració). Sense migració: `UPDATE`/`DELETE` sobre `EventRatings`. La fiabilitat de l'organitzador (`GetUserReliability`) és un `AVG` calculat en llegir, així que no cal recalcular res.
+- **Dubte:** (1) `PUT` retorna `200` (el `POST` retorna `201`); (2) `404` tant si l'esdeveniment no existeix com si l'usuari no té valoració (mateix codi, missatge diferent); (3) `RatingDate` es conserva en editar (alternativa: posar-la a `now()`); (4) no es torna a comprovar R10 en editar/eliminar (la valoració ja existeix); (5) si s'ha de poder eliminar/editar una valoració d'un esdeveniment ja finalitzat o esborrat; (6) SQL no provat contra BD real.
+- **Opcions:** A) `RatingDate` conservada · B) `RatingDate = now()` en editar.
+- **Provisionalment:** A.
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
+### DP-037 · Cerca d'usuaris `GET /users?q=`
 - **Estat:** oberta
 - **Obert per:** 2026-11-18 · Claude Code (Opus 5.5) · branca `feature/cercar-usuaris` (Taiga #161)
-- **Context:** `UserHandler.SearchUsers`, `user_service.SearchUsers`, `queries/user_search.sql`. (DP-033 i DP-034 són a les PR de #118 i #188.)
+- **Context:** `UserHandler.SearchUsers`, `user_service.SearchUsers`, `queries/user_search.sql`. (Obert com a DP-035; renumerada a DP-037 en fer merge de `develop`, que ja tenia DP-033 a DP-036.)
 - **Dubte / supòsits:**
   1. Es cerca per «conté» (`ILIKE`) al nom d'usuari i al nom, sense distingir majúscules. Els comodins `%`, `_` i `\` es cerquen literalment. Ordre: nom d'usuari exacte, després els que comencen pel text i al final la resta, alfabèticament. No s'ignoren els accents (`Nuria` no troba `Núria`).
   2. «Comptes desactivats»: s'exclouen tots els usuaris amb un `AccountState` diferent d'`Active` (ara és l'únic estat que existeix; R6 en preveu el `Desactivat`).

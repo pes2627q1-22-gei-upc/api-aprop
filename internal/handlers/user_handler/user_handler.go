@@ -32,6 +32,7 @@ func (h *UserHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /users/me/avatar", h.UploadAvatar)
 	mux.HandleFunc("GET /users/{id}", h.GetUserProfile)
 	mux.HandleFunc("GET /users/{id}/created-events", h.ListCreatedEvents)
+	mux.HandleFunc("GET /users/{id}/ratings", h.ListReceivedRatings)
 	mux.HandleFunc("GET /users/{id}/friends", h.GetUserFriends)
 	mux.HandleFunc("GET /users/me/friend-requests", h.GetFriendRequests)
 	mux.HandleFunc("POST /users/{id}/friend-requests", h.SendFriendRequest)
@@ -189,6 +190,25 @@ func (h *UserHandler) ListCreatedEvents(w http.ResponseWriter, r *http.Request) 
 	}
 
 	response.WriteJSON(w, http.StatusOK, events)
+}
+
+func (h *UserHandler) ListReceivedRatings(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "me" {
+		requesterID, ok := requester.ID(w, r, h.resolver)
+		if !ok {
+			return
+		}
+		id = requesterID
+	}
+
+	ratings, err := h.userService.ListReceivedRatings(r.Context(), id)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, ratings)
 }
 
 func (h *UserHandler) GetFriendRequests(w http.ResponseWriter, r *http.Request) {

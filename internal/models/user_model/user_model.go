@@ -45,6 +45,14 @@ type UserProfile struct {
 	PlansVisible        bool        `json:"plans-visible"`
 }
 
+// ReceivedRating is a Valoració given by an attendee to a NoOficial event created by the user.
+type ReceivedRating struct {
+	EventID    int       `json:"event-id"`
+	EventTitle string    `json:"event-title"`
+	Rating     int       `json:"rating"`
+	RatingDate time.Time `json:"rating-date"`
+}
+
 // SyncResult is the result of syncing a Firebase user with the database.
 type SyncResult struct {
 	User    User `json:"user"`

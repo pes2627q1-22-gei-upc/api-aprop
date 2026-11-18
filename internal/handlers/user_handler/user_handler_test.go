@@ -25,6 +25,7 @@ import (
 type fakeUserService struct {
 	profiles      map[string]user_model.UserProfile
 	createdEvents map[string][]event_model.Event
+	ratings       map[string][]user_model.ReceivedRating
 	failUsername  bool
 
 	deleteErr  error
@@ -74,6 +75,14 @@ func (f *fakeUserService) ListCreatedEvents(_ context.Context, targetIdentifier 
 		return nil, user_service.ErrUserNotFound
 	}
 	return events, nil
+}
+
+func (f *fakeUserService) ListReceivedRatings(_ context.Context, targetIdentifier string) ([]user_model.ReceivedRating, error) {
+	r, ok := f.ratings[targetIdentifier]
+	if !ok {
+		return nil, user_service.ErrUserNotFound
+	}
+	return r, nil
 }
 
 func (f *fakeUserService) UpdateProfile(_ context.Context, requesterIdentifier string, input user_service.UpdateProfileInput) (user_model.UserProfile, error) {
@@ -480,6 +489,32 @@ func TestListCreatedEvents_Success(t *testing.T) {
 	}
 	if len(events) != 1 || events[0].Title != "Exposicio d'Art" {
 		t.Errorf("unexpected events: %+v", events)
+	}
+}
+
+func TestListReceivedRatings(t *testing.T) {
+	svc := &fakeUserService{ratings: map[string][]user_model.ReceivedRating{
+		"alice": {{EventID: 10, EventTitle: "Jazz", Rating: 4}},
+	}}
+	mux := setupMux(svc)
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/users/alice/ratings", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var got []map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got) != 1 || got[0]["event-id"] != float64(10) || got[0]["rating"] != float64(4) {
+		t.Errorf("unexpected body: %+v", got)
+	}
+
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/users/bob/ratings", nil))
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", w.Code)
 	}
 }
 

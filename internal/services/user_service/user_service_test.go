@@ -26,6 +26,7 @@ type mockUserRepo struct {
 	plansCount              map[pgtype.UUID]int
 	completedPlans          map[pgtype.UUID]int
 	reliability             map[pgtype.UUID]*float32
+	receivedRatings         map[pgtype.UUID][]user_model.ReceivedRating
 	createdEvents           map[pgtype.UUID][]event_model.Event
 	getUserFriendsResult    []string
 	getUserFriendsErr       error
@@ -55,13 +56,14 @@ type mockUserRepo struct {
 
 func newMockUserRepo() *mockUserRepo {
 	return &mockUserRepo{
-		usersByID:      make(map[pgtype.UUID]*user_model.User),
-		showPlans:      make(map[int]bool),
-		friends:        make(map[pgtype.UUID]map[pgtype.UUID]bool),
-		plansCount:     make(map[pgtype.UUID]int),
-		completedPlans: make(map[pgtype.UUID]int),
-		reliability:    make(map[pgtype.UUID]*float32),
-		createdEvents:  make(map[pgtype.UUID][]event_model.Event),
+		usersByID:       make(map[pgtype.UUID]*user_model.User),
+		showPlans:       make(map[int]bool),
+		friends:         make(map[pgtype.UUID]map[pgtype.UUID]bool),
+		plansCount:      make(map[pgtype.UUID]int),
+		completedPlans:  make(map[pgtype.UUID]int),
+		reliability:     make(map[pgtype.UUID]*float32),
+		receivedRatings: make(map[pgtype.UUID][]user_model.ReceivedRating),
+		createdEvents:   make(map[pgtype.UUID][]event_model.Event),
 	}
 }
 
@@ -138,6 +140,10 @@ func (m *mockUserRepo) CountCompletedPlans(_ context.Context, userUUID pgtype.UU
 
 func (m *mockUserRepo) GetReliability(_ context.Context, creatorUUID pgtype.UUID) (*float32, error) {
 	return m.reliability[creatorUUID], nil
+}
+
+func (m *mockUserRepo) ListReceivedRatings(_ context.Context, creatorUUID pgtype.UUID) ([]user_model.ReceivedRating, error) {
+	return m.receivedRatings[creatorUUID], nil
 }
 
 func (m *mockUserRepo) ListCreatedEvents(_ context.Context, creatorUUID pgtype.UUID) ([]event_model.Event, error) {
@@ -602,6 +608,53 @@ func TestListCreatedEvents(t *testing.T) {
 	}
 	if len(events) != 1 || events[0].Title != "Concert de Jazz" {
 		t.Errorf("unexpected created events: %+v", events)
+	}
+}
+
+func TestGetUserProfile_Reliability(t *testing.T) {
+	rating := float32(4.5)
+	avg := float32(3.5)
+	tests := []struct {
+		name        string
+		rating      *float32 // user.Rating must never leak into reliability
+		reliability *float32
+		want        *float32
+	}{
+		{"no ratings gives null reliability", &rating, nil, nil},
+		{"mean of the NoOficial ratings", nil, &avg, &avg},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := newMockUserRepo()
+			u := user_model.User{ID: testID(1), Username: "alice", Settings: 1, Rating: tc.rating}
+			repo.addUser(u, true)
+			repo.reliability[u.ID] = tc.reliability
+			svc := user_service.NewUserService(repo, &mockNotificationRepo{}, &mockS3Client{}, nil)
+
+			p, err := svc.GetUserProfile(context.Background(), "alice", "")
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if (p.Reliability == nil) != (tc.want == nil) || (tc.want != nil && *p.Reliability != *tc.want) {
+				t.Errorf("reliability = %v, want %v", p.Reliability, tc.want)
+			}
+		})
+	}
+}
+
+func TestListReceivedRatings(t *testing.T) {
+	repo := newMockUserRepo()
+	u := user_model.User{ID: testID(1), Username: "alice", Settings: 1}
+	repo.addUser(u, true)
+	repo.receivedRatings[u.ID] = []user_model.ReceivedRating{{EventID: 10, EventTitle: "Jazz", Rating: 4}}
+	svc := user_service.NewUserService(repo, &mockNotificationRepo{}, &mockS3Client{}, nil)
+
+	got, err := svc.ListReceivedRatings(context.Background(), "alice")
+	if err != nil || len(got) != 1 || got[0].Rating != 4 {
+		t.Fatalf("got %+v, err %v", got, err)
+	}
+	if _, err := svc.ListReceivedRatings(context.Background(), "nobody"); !errors.Is(err, user_service.ErrUserNotFound) {
+		t.Errorf("expected ErrUserNotFound, got %v", err)
 	}
 }
 

@@ -9,7 +9,7 @@ import (
 	"api-aprop/internal/models/user_model"
 )
 
-// TODO(DP-035): page sizes and query length proposed by the backend, pending the frontend.
+// TODO(DP-037): page sizes and query length proposed by the backend, pending the frontend.
 const (
 	DefaultSearchPageSize = 20
 	MaxSearchPageSize     = 50
