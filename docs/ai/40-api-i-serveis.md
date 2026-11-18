@@ -37,6 +37,7 @@ Totes les respostes i cossos de petició utilitzen claus JSON en **kebab-case**.
 | Mètode i ruta | Handler | Descripció | Estat |
 |---|---|---|---|
 | `POST /auth/sync` | `AuthHandler.Sync` | Sincronitza l'usuari autenticat amb Firebase a la taula d'usuaris de Supabase | Implementat |
+| `POST /auth/password-reset` | `PasswordResetHandler.Reset` | **Públic** (sense `Authorization`; fora del router). Cos `{"identifier": "<correu o nom d'usuari>"}`. Fa que Firebase enviï el correu de restabliment de contrasenya (en català). `204` tant si el compte existeix com si no; `400` identificador invàlid; `429` + `Retry-After` si es repeteix abans de 60 s; `502` si Firebase falla; `503` sense `FIREBASE_WEB_API_KEY` | Implementat (DP-033) |
 
 ### Compte d'usuari (`user_handler`)
 | Mètode i ruta | Handler | Descripció | Estat |
