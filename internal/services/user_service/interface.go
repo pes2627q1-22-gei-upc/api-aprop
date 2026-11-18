@@ -19,6 +19,7 @@ type UpdateProfileInput struct {
 
 type Service interface {
 	GetUserProfile(ctx context.Context, targetIdentifier string, requesterIdentifier string) (user_model.UserProfile, error)
+	GetSettings(ctx context.Context, userId string) (user_model.Settings, error)
 	ListCreatedEvents(ctx context.Context, targetIdentifier string) ([]event_model.Event, error)
 	ListReceivedRatings(ctx context.Context, targetIdentifier string) ([]user_model.ReceivedRating, error)
 	UpdateProfile(ctx context.Context, requesterIdentifier string, input UpdateProfileInput) (user_model.UserProfile, error)

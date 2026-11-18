@@ -38,6 +38,22 @@ func (h *UserHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /users/{id}/friend-requests/{date}/accept", h.AcceptFriendRequest)
 	mux.HandleFunc("POST /users/{id}/friend-requests/{date}/deny", h.DenyFriendRequest)
 	mux.HandleFunc("POST /users/{id}/unfriend", h.Unfriend)
+	mux.HandleFunc("GET /users/me/settings", h.GetSettings)
+}
+
+func (h *UserHandler) GetSettings(w http.ResponseWriter, r *http.Request){
+	requesterID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
+		return
+	}
+
+	settings, err := h.userService.GetSettings(r.Context(), requesterID)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, settings)
 }
 
 func (h *UserHandler) GetMyProfile(w http.ResponseWriter, r *http.Request) {

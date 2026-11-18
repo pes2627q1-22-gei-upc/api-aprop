@@ -101,6 +101,19 @@ func (s *userService) DeleteAccount(ctx context.Context, requesterID string) err
 	return nil
 }
 
+func (s *userService) GetSettings(ctx context.Context, userId string) (user_model.Settings, error){
+	user, err := s.findUser(ctx, userId)
+	if err!=nil{
+		return user_model.Settings{}, err
+	}
+
+	settings, err := s.userRepo.GetSettings(ctx, user.Settings)
+	if err!=nil{
+		return user_model.Settings{}, err
+	}
+	return settings, nil
+}
+
 func (s *userService) GetUserProfile(ctx context.Context, targetIdentifier string, requesterIdentifier string) (user_model.UserProfile, error) {
 	var (
 		target   user_model.User
