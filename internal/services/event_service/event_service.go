@@ -1,66 +1,23 @@
 package event_service
 
 import (
-	"container/heap"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"math"
-	"slices"
 	"strings"
 	"time"
 
 	"api-aprop/internal/clients/gencat_client"
 	"api-aprop/internal/clients/s3_client"
 	"api-aprop/internal/models/event_model"
-	"api-aprop/internal/models/preference_model"
 	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/repositories/event_repository"
 	"api-aprop/internal/repositories/preference_repository"
 	"api-aprop/internal/repositories/user_repository"
 )
-
-type Item struct {
-	Value    event_model.Event
-	Priority float32
-	Index    int
-}
-
-type PriorityQueue []*Item
-
-// heap.Interface implementation
-
-func (pq PriorityQueue) Len() int {
-	return len(pq)
-}
-
-func (pq PriorityQueue) Less(i, j int) bool {
-	return pq[i].Priority > pq[j].Priority
-}
-
-func (pq PriorityQueue) Swap(i, j int) {
-	pq[i], pq[j] = pq[j], pq[i]
-	pq[i].Index = i
-	pq[j].Index = j
-}
-
-func (pq *PriorityQueue) Push(x any) {
-	item := x.(*Item)
-	item.Index = len(*pq)
-	*pq = append(*pq, item)
-}
-
-func (pq *PriorityQueue) Pop() any {
-	old := *pq
-	n := len(old)
-	item := old[n-1]
-	old[n-1] = nil // Avoid retaining the item in memory
-	item.Index = -1
-	*pq = old[:n-1]
-	return item
-}
 
 type EventService struct {
 	eventRepository      event_repository.Repository
@@ -126,41 +83,30 @@ func (s *EventService) GetEvent(id int) (event_model.Event, error) {
 	return e, nil
 }
 
+// GetRecommendedEvents returns a paginated slice of active events ranked in SQL for userID using
+// UserPreferences (Interès./pes), SignUp category affinity (excluding joined events), and popularity.
 func (s *EventService) GetRecommendedEvents(ctx context.Context, userid string, pageSize int, pageNum int) ([]event_model.Event, error) {
-	events, err := s.eventRepository.List(map[string]any{"pageSize": pageSize, "pageNum": pageNum, "filterCategory": 0})
-	if errors.Is(err, event_repository.ErrInvalidFilter) {
-		return []event_model.Event{}, fmt.Errorf("%w: %w", ErrInvalidFilter, err)
-	}
+	uid, err := user_model.ParseID(userid)
 	if err != nil {
-		return []event_model.Event{}, err
+		return nil, err
+	}
+	if pageSize <= 0 || pageNum < 0 {
+		return nil, fmt.Errorf("recommended events: %w: pageSize must be > 0 and pageNum >= 0", ErrInvalidFilter)
+	}
+	// TODO(DP-034): confirm the exact combination formula (UserPreferences + SignUp category boost + popularity)
+	// and whether already-enrolled events should be excluded rather than penalized.
+	if pageNum > math.MaxInt32/pageSize {
+		return []event_model.Event{}, nil
 	}
 
-	prefs, err := s.preferenceRepository.GetUserPreferences(ctx, userid)
+	events, err := s.eventRepository.ListRecommended(ctx, uid, pageSize, pageNum*pageSize)
 	if err != nil {
-		return []event_model.Event{}, err
+		return nil, err
 	}
-
-	ordered_events := &PriorityQueue{}
-	heap.Init(ordered_events)
-	for _, ev := range events {
-		prio := float32(1.0)
-		for _, cat := range ev.Categories {
-			// A category without preference has weight 1, the default weight of UserPreferences
-			ind := slices.IndexFunc(prefs, func(p preference_model.UserPreference) bool { return p.CategoryName == cat })
-			if ind != -1 {
-				prio *= prefs[ind].Weight
-			}
-		}
-		heap.Push(ordered_events, &Item{Value: ev, Priority: prio})
+	if events == nil {
+		return []event_model.Event{}, nil
 	}
-
-	ret := []event_model.Event{}
-	for ordered_events.Len() > 0 {
-		tmp, _ := heap.Pop(ordered_events).(*Item)
-		ret = append(ret, tmp.Value)
-	}
-
-	return ret, nil
+	return events, nil
 }
 
 func (s *EventService) ListEvents(params map[string]any) ([]event_model.Event, error) {

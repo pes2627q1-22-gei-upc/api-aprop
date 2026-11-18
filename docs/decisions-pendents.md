@@ -378,7 +378,26 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Qui decideix:** Mobilicat + backend
 - **Resolució:**
 
-### DP-033 · Fiabilitat de l'organitzador: font de les valoracions i llistat
+### DP-033 · Valorar un esdeveniment: taula reutilitzada, codi d'error R10 i consulta d'assistència
+- **Estat:** oberta
+- **Obert per:** 2026-11-17 · Claude Code (Sonnet 5.5) · branca `feature/event-rating` (Taiga #184, US #48)
+- **Context:** `POST /events/{id}/ratings` amb cos `{"score": 1..5}` → `201 {"user-id","event-id","score"}` i `GET /events/{id}/enrollment/attendance` (alias `/signup/attendance`) → `200 {"user-id","event-id","has-attended"}`. La tasca demanava una taula `ratings`, però `EventRatings` ja existeix (migració 000001: PK `(UserID, Event)` = únic per usuari/esdeveniment, `CHECK rating 1..5` des de la 000008, FK a `Users` des de la 000009), així que es reutilitza i **no s'afegeix cap migració**. `ratings.sql.go` s'ha generat amb `sqlc` v1.31.1 a partir de `ratings.sql`.
+- **Dubte:** (1) R10 (no ha assistit) → `403` (alternatives `409`/`422`); (2) valoració repetida → `409` (no s'actualitza; potser s'hauria de permetre editar); (3) `score` fora de 1..5 o no enter → `400`; (4) R8 no es torna a comprovar: R10 exigeix `attendance = true`, que R8 ja només deixa fixar un cop l'esdeveniment ha començat; (5) `RatingDate` s'omple amb `now()` de la BD; (6) `GET /events/{id}/enrollment/attendance` retorna `has-attended: true|false` per saber si mostrar el botó de valorar; (7) sense migració ni prova contra una BD real.
+- **Opcions:** A) 403 + 409 · B) 422 + 409 · C) 403 + upsert (editar).
+- **Provisionalment:** A.
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
+### DP-034 · Fórmula de recomanació en SQL, exclusió d'esdeveniments inscrits i paginació obligatòria
+- **Estat:** oberta
+- **Obert per:** 2026-11-17 · Antigravity · Taiga #51 (`feature/recommended-events`)
+- **Context:** `internal/services/event_service/event_service.go` (`GetRecommendedEvents`), `internal/handlers/event_handler/event_handler.go` (`GetRecommendedEvents`) i `internal/repositories/postgres/queries/recommendations.sql` (`ListRecommendedEvents`)
+- **Dubte:** (1) La tasca demana combinar `Interès./pes` (`UserPreferences`) i `SignUp`, però no fixa una fórmula exacta ni si els esdeveniments on l'usuari ja està inscrit s'han d'excloure o només penalitzar; (2) tampoc no especifica si `pageSize` i `pageNum` han de ser obligatoris amb `pageSize > 0` i `pageNum >= 0` (`400` en cas contrari) o si han de tenir valors per defecte com a `GET /events` (`defaultPageSize = 20`, `pageNum = 0`); (3) `ListRecommendedEvents` a `recommendations.sql` calcula la puntuació, ordena i pagina (`LIMIT`/`OFFSET`) directament a PostgreSQL (generat amb `sqlc` v1.31.1), però encara no s'ha executat contra una BD PostgreSQL/Supabase real.
+- **Opcions:** A) Excloure els esdeveniments on l'usuari ja està inscrit, puntuar a SQL com a mitjana per categoria de `(COALESCE(pes_preferència, 1.0) + LEAST(inscripcions_categoria * 0.5, 2.0))` + `LEAST(0.1 * LN(1 + inscripcions_globals), 0.5)` i exigir `pageSize > 0` i `pageNum >= 0` · B) Incloure els ja inscrits (penalitzats o no), ajustar pesos/topalls o posar valors per defecte de paginació.
+- **Provisionalment:** A (`TODO(DP-034)` a `event_service.go` i `event_handler.go`).
+- **Qui decideix:** backend + equip
+
+### DP-035 · Fiabilitat de l'organitzador: font de les valoracions i llistat
 - **Estat:** oberta
 - **Obert per:** 2026-11-17 · Claude Code (Sonnet 5.5) · branca `feature/organizer-reliability` (US #59)
 - **Context:** `reliability` = mitjana de `EventRatings.Rating` dels `UnofficialEvents` creats per l'usuari (`20-model-domini.md`: /fiabilitat); `null` si no n'hi ha (abans queia a `Users.Rating`, eliminat). Nou `GET /users/{id}/ratings` (`id` o `me`) amb `event-id`, `event-title`, `rating`, `rating-date`.

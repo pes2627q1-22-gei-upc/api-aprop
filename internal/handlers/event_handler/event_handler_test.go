@@ -47,20 +47,26 @@ func officialEvent(id int) event_model.Event {
 }
 
 type fakeEventService struct {
-	event               event_model.Event
-	getErr              error
-	updateErr           error
-	deleteErr           error
-	mapEvents           []event_model.MapEvent
-	mapErr              error
-	createdUnofficial   event_model.Event
-	createUnofficialErr error
-	uploadedImageURL    string
-	uploadImageErr      error
-	listErr             error
-	popularErr          error
-	categoryErr         error
-	gotListParams       map[string]any
+	event                event_model.Event
+	getErr               error
+	updateErr            error
+	deleteErr            error
+	mapEvents            []event_model.MapEvent
+	mapErr               error
+	createdUnofficial    event_model.Event
+	createUnofficialErr  error
+	uploadedImageURL     string
+	uploadImageErr       error
+	listErr              error
+	popularErr           error
+	categoryErr          error
+	gotListParams        map[string]any
+	recommendedEvents    []event_model.Event
+	recommendedErr       error
+	recommendedCalls     int
+	gotRecommendedUserID string
+	gotRecommendedSize   int
+	gotRecommendedNum    int
 
 	mapCalls        int
 	unofficialCalls int
@@ -90,8 +96,12 @@ func (f *fakeEventService) ListEvents(params map[string]any) ([]event_model.Even
 	return nil, f.listErr
 }
 
-func (f *fakeEventService) GetRecommendedEvents(_ context.Context, _ string, _ int, _ int) ([]event_model.Event, error) {
-	return nil, nil
+func (f *fakeEventService) GetRecommendedEvents(_ context.Context, userID string, pageSize int, pageNum int) ([]event_model.Event, error) {
+	f.recommendedCalls++
+	f.gotRecommendedUserID = userID
+	f.gotRecommendedSize = pageSize
+	f.gotRecommendedNum = pageNum
+	return f.recommendedEvents, f.recommendedErr
 }
 
 func (f *fakeEventService) GetPopularEvents(_ int, _ int) ([]event_model.Event, error) {
@@ -109,7 +119,7 @@ func (f *fakeEventService) ListMapEvents(_ context.Context, filter event_model.M
 type fakeResolver struct{}
 
 func (fakeResolver) ResolveUserID(_ context.Context, identifier string) (string, error) {
-	if identifier == "" {
+	if identifier == "" || identifier == "unregistered-firebase-uid" {
 		return "", auth_service.ErrUserNotRegistered
 	}
 	if identifier == firebaseUID {
@@ -808,6 +818,227 @@ func TestUploadEventImageHandler_TooLarge(t *testing.T) {
 			}
 			if s.uploadCalls != 0 {
 				t.Errorf("upload calls = %d, want 0", s.uploadCalls)
+			}
+		})
+	}
+}
+
+func TestGetRecommendedEvents(t *testing.T) {
+	sample := []event_model.Event{
+		{
+			ID:          10,
+			Title:       "Concert de Jazz",
+			IsOfficial:  true,
+			Categories:  []string{"Musica"},
+			DateCreated: time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC),
+		},
+		unofficialEvent(t, 20, validUserID),
+	}
+
+	tests := []struct {
+		name         string
+		path         string
+		userHeader   string
+		firebaseUser string
+		service      fakeEventService
+		wantStatus   int
+		wantCalls    int
+		wantUserID   string
+		wantPageSize int
+		wantPageNum  int
+		wantIDs      []int
+		wantError    string
+	}{
+		{
+			name:         "valid request with X-User-ID",
+			path:         "/events/recommended?pageSize=2&pageNum=1",
+			userHeader:   validUserID,
+			service:      fakeEventService{recommendedEvents: sample},
+			wantStatus:   http.StatusOK,
+			wantCalls:    1,
+			wantUserID:   validUserID,
+			wantPageSize: 2,
+			wantPageNum:  1,
+			wantIDs:      []int{10, 20},
+		},
+		{
+			name:         "valid request with Firebase UID ignores X-User-ID header",
+			path:         "/events/recommended?pageSize=5&pageNum=0",
+			userHeader:   otherUserID,
+			firebaseUser: firebaseUID,
+			service:      fakeEventService{recommendedEvents: sample[:1]},
+			wantStatus:   http.StatusOK,
+			wantCalls:    1,
+			wantUserID:   validUserID,
+			wantPageSize: 5,
+			wantPageNum:  0,
+			wantIDs:      []int{10},
+		},
+		{
+			name:         "empty list returns empty JSON array",
+			path:         "/events/recommended?pageSize=10&pageNum=0",
+			userHeader:   validUserID,
+			service:      fakeEventService{recommendedEvents: []event_model.Event{}},
+			wantStatus:   http.StatusOK,
+			wantCalls:    1,
+			wantUserID:   validUserID,
+			wantPageSize: 10,
+			wantPageNum:  0,
+			wantIDs:      []int{},
+		},
+		{
+			name:       "missing pageSize returns 400",
+			path:       "/events/recommended?pageNum=0",
+			userHeader: validUserID,
+			wantStatus: http.StatusBadRequest,
+			wantError:  "invalid page size",
+		},
+		{
+			name:       "pageSize zero returns 400",
+			path:       "/events/recommended?pageSize=0&pageNum=0",
+			userHeader: validUserID,
+			wantStatus: http.StatusBadRequest,
+			wantError:  "invalid page size",
+		},
+		{
+			name:       "negative pageSize returns 400",
+			path:       "/events/recommended?pageSize=-3&pageNum=0",
+			userHeader: validUserID,
+			wantStatus: http.StatusBadRequest,
+			wantError:  "invalid page size",
+		},
+		{
+			name:       "non-numeric pageSize returns 400",
+			path:       "/events/recommended?pageSize=abc&pageNum=0",
+			userHeader: validUserID,
+			wantStatus: http.StatusBadRequest,
+			wantError:  "invalid page size",
+		},
+		{
+			name:       "missing pageNum returns 400",
+			path:       "/events/recommended?pageSize=10",
+			userHeader: validUserID,
+			wantStatus: http.StatusBadRequest,
+			wantError:  "invalid page num",
+		},
+		{
+			name:       "negative pageNum returns 400",
+			path:       "/events/recommended?pageSize=10&pageNum=-1",
+			userHeader: validUserID,
+			wantStatus: http.StatusBadRequest,
+			wantError:  "invalid page num",
+		},
+		{
+			name:       "non-numeric pageNum returns 400",
+			path:       "/events/recommended?pageSize=10&pageNum=xyz",
+			userHeader: validUserID,
+			wantStatus: http.StatusBadRequest,
+			wantError:  "invalid page num",
+		},
+		{
+			name:       "missing user returns 401",
+			path:       "/events/recommended?pageSize=10&pageNum=0",
+			wantStatus: http.StatusUnauthorized,
+			wantError:  "missing X-User-ID header",
+		},
+		{
+			name:         "unregistered Firebase user returns 401",
+			path:         "/events/recommended?pageSize=10&pageNum=0",
+			firebaseUser: "unregistered-firebase-uid",
+			wantStatus:   http.StatusUnauthorized,
+			wantError:    "user not registered",
+		},
+		{
+			name:       "service ErrInvalidFilter returns 400",
+			path:       "/events/recommended?pageSize=10&pageNum=0",
+			userHeader: validUserID,
+			service:    fakeEventService{recommendedErr: event_service.ErrInvalidFilter},
+			wantStatus: http.StatusBadRequest,
+			wantCalls:  1,
+			wantError:  "invalid filter or page parameters",
+		},
+		{
+			name:       "service ErrInvalidUserID returns 400",
+			path:       "/events/recommended?pageSize=10&pageNum=0",
+			userHeader: "not-a-uuid",
+			service:    fakeEventService{recommendedErr: event_service.ErrInvalidUserID},
+			wantStatus: http.StatusBadRequest,
+			wantCalls:  1,
+			wantError:  "invalid user id",
+		},
+		{
+			name:       "unexpected service error returns 500",
+			path:       "/events/recommended?pageSize=10&pageNum=0",
+			userHeader: validUserID,
+			service:    fakeEventService{recommendedErr: errors.New("db unavailable")},
+			wantStatus: http.StatusInternalServerError,
+			wantCalls:  1,
+			wantError:  "internal server error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := tt.service
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			if tt.userHeader != "" {
+				req.Header.Set(requester.UserIDHeader, tt.userHeader)
+			}
+			if tt.firebaseUser != "" {
+				req = req.WithContext(auth_middleware.ContextWithUser(req.Context(), firebase_client.User{UID: tt.firebaseUser}))
+			}
+
+			rec := serve(&s, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d (body %s)", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+			if s.recommendedCalls != tt.wantCalls {
+				t.Errorf("service calls = %d, want %d", s.recommendedCalls, tt.wantCalls)
+			}
+			if got := rec.Header().Get("Content-Type"); got != "application/json" {
+				t.Errorf("Content-Type = %q, want application/json", got)
+			}
+			if tt.wantError != "" {
+				if got := errorMessage(t, rec); got != tt.wantError {
+					t.Errorf("error = %q, want %q", got, tt.wantError)
+				}
+				return
+			}
+
+			if s.gotRecommendedUserID != tt.wantUserID {
+				t.Errorf("userID = %q, want %q", s.gotRecommendedUserID, tt.wantUserID)
+			}
+			if s.gotRecommendedSize != tt.wantPageSize {
+				t.Errorf("pageSize = %d, want %d", s.gotRecommendedSize, tt.wantPageSize)
+			}
+			if s.gotRecommendedNum != tt.wantPageNum {
+				t.Errorf("pageNum = %d, want %d", s.gotRecommendedNum, tt.wantPageNum)
+			}
+
+			if len(tt.wantIDs) == 0 {
+				if strings.TrimSpace(rec.Body.String()) != "[]" {
+					t.Errorf("body = %q, want []", rec.Body.String())
+				}
+				return
+			}
+
+			raw := rec.Body.String()
+			if !strings.Contains(raw, `"is-official"`) || !strings.Contains(raw, `"date-created"`) {
+				t.Errorf("expected kebab-case JSON keys in body %s", raw)
+			}
+
+			var got []event_model.Event
+			if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+				t.Fatalf("decode body: %v", err)
+			}
+			if len(got) != len(tt.wantIDs) {
+				t.Fatalf("got %d events, want %d", len(got), len(tt.wantIDs))
+			}
+			for i, wantID := range tt.wantIDs {
+				if got[i].ID != wantID {
+					t.Errorf("event[%d].ID = %d, want %d", i, got[i].ID, wantID)
+				}
 			}
 		})
 	}

@@ -28,6 +28,7 @@ import (
 	"api-aprop/internal/handlers/event_handler"
 	"api-aprop/internal/handlers/notification_handler"
 	"api-aprop/internal/handlers/preference_handler"
+	"api-aprop/internal/handlers/rating_handler"
 	"api-aprop/internal/handlers/requester"
 	"api-aprop/internal/handlers/signup_handler"
 	"api-aprop/internal/handlers/user_handler"
@@ -41,6 +42,7 @@ import (
 	"api-aprop/internal/services/event_service"
 	"api-aprop/internal/services/notification_service"
 	"api-aprop/internal/services/preference_service"
+	"api-aprop/internal/services/rating_service"
 	"api-aprop/internal/services/signup_service"
 	"api-aprop/internal/services/user_service"
 	"api-aprop/migrations"
@@ -234,6 +236,7 @@ func main() {
 	chatbotRepository := postgres_repository.NewChatbotRepository(postgresDriver.Pool())
 	catalogueRepository := postgres_repository.NewCatalogueRepository(postgresDriver.Pool())
 	signUpRepository := postgres_repository.NewSignUpRepository(postgresDriver.Pool())
+	ratingRepository := postgres_repository.NewRatingRepository(postgresDriver.Pool())
 	authRepository := postgres_repository.NewAuthRepository(postgresDriver.Pool())
 	userRepository := postgres_repository.NewUserRepository(postgresDriver.Pool())
 	notificationRepository := postgres_repository.NewNotificationRepository(postgresDriver.Pool())
@@ -247,6 +250,7 @@ func main() {
 		func() time.Time { return time.Now().In(location) }, assistant_service.ReplyTimeout,
 	).WithPreferences(preferenceRepository)
 	signUpService := signup_service.NewSignUpService(signUpRepository, eventRepository, notificationRepository)
+	ratingService := rating_service.NewRatingService(ratingRepository, eventRepository)
 	authService := auth_service.NewAuthService(authRepository)
 	userService := user_service.NewUserService(userRepository, notificationRepository, s3Client, accountDeleter)
 	notificationService := notification_service.NewNotificationService(notificationRepository)
@@ -257,6 +261,7 @@ func main() {
 	eventHandler := event_handler.NewEventHandler(eventService, authService)
 	assistantHandler := assistant_handler.NewAssistantHandler(assistantService, authService)
 	signUpHandler := signup_handler.NewSignUpHandler(signUpService, authService)
+	ratingHandler := rating_handler.NewRatingHandler(ratingService, authService)
 	authHandler := auth_handler.NewAuthHandler(authService)
 	userHandler := user_handler.NewUserHandler(userService, authService)
 	notificationHandler := notification_handler.NewNotificationHandler(notificationService)
@@ -290,7 +295,7 @@ func main() {
 		slog.Warn("Mobilicat API key not set; the congestion endpoint answers 503", "env", mobilicatEnvAPIKey)
 	}
 	mux.Handle(congestion_handler.EstimatePattern, apikey_middleware.New(mobilicatAPIKey)(http.HandlerFunc(congestionHandler.Estimate)))
-	mux.Handle("/", router.NewRouter(corsMiddleware, authMiddleware, eventHandler, assistantHandler, signUpHandler, authHandler, notificationHandler, userHandler, preferenceHandler))
+	mux.Handle("/", router.NewRouter(corsMiddleware, authMiddleware, eventHandler, assistantHandler, signUpHandler, ratingHandler, authHandler, notificationHandler, userHandler, preferenceHandler))
 
 	// Server: HTTP/1.1 and HTTP/2 without TLS (h2c)
 	protocols := new(http.Protocols)
