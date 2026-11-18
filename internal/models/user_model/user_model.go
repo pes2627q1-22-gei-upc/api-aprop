@@ -64,3 +64,20 @@ type Settings struct {
 	ShowPlans          bool   `json:"show-plans"`
 	NotificationBefore string `json:"notification-before"`
 }
+
+// UserSummary is a user in a list, like the results of GET /users?q=.
+type UserSummary struct {
+	ID             pgtype.UUID `json:"id"`
+	Username       string      `json:"username"`
+	Name           string      `json:"name"`
+	ProfilePicture string      `json:"profile-picture"`
+}
+
+// UserSearchResult is a page of GET /users?q=. Total counts every match, not only the ones in the page.
+type UserSearchResult struct {
+	Query    string        `json:"query"`
+	Total    int64         `json:"total"`
+	PageNum  int           `json:"page-num"`
+	PageSize int           `json:"page-size"`
+	Users    []UserSummary `json:"users"`
+}
