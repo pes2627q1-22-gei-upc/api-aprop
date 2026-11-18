@@ -212,8 +212,9 @@ func (s *EventService) CreateUnofficialEvent(ctx context.Context, userID string,
 	return s.eventRepository.Create(e, false)
 }
 
-// UpdateUnofficialEvent replaces the fields of an unofficial event. The creator and the creation date are kept,
-// and rule R5 is checked against the original creation date. The handler checks that the requester is the creator.
+// UpdateUnofficialEvent replaces the fields of an unofficial event. Only Active events can be modified. The creator
+// and the creation date are kept, and rule R5 is checked against the original creation date. The handler checks that
+// the requester is the creator.
 func (s *EventService) UpdateUnofficialEvent(ctx context.Context, id int, e event_model.Event) (event_model.Event, error) {
 	stored, err := s.GetEvent(id)
 	if err != nil {
@@ -221,6 +222,17 @@ func (s *EventService) UpdateUnofficialEvent(ctx context.Context, id int, e even
 	}
 	if stored.IsOfficial || !stored.Creator.Valid {
 		return event_model.Event{}, fmt.Errorf("update event %d: %w: official events cannot be modified", id, ErrInvalidEvent)
+	}
+
+	state, err := s.eventRepository.GetUnofficialState(ctx, id)
+	if errors.Is(err, event_repository.ErrEventNotFound) {
+		return event_model.Event{}, fmt.Errorf("%w: %w", ErrEventNotFound, err)
+	}
+	if err != nil {
+		return event_model.Event{}, err
+	}
+	if state != event_model.UnofficialStateActive {
+		return event_model.Event{}, fmt.Errorf("update event %d: %w: state is %s", id, ErrEventNotActive, state)
 	}
 
 	if err := validateUnofficialEvent(e, stored.DateCreated); err != nil {
