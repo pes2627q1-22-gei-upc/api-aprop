@@ -16,6 +16,7 @@ import (
 	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/repositories/event_repository"
 	"api-aprop/internal/repositories/preference_repository"
+	"api-aprop/internal/repositories/user_repository"
 )
 
 type EventService struct {
@@ -23,6 +24,7 @@ type EventService struct {
 	gencatClient         gencat_client.Client
 	preferenceRepository preference_repository.Repository
 	s3Client             s3_client.Client
+	userRepository       user_repository.Repository
 }
 
 func NewEventService(eventRepository event_repository.Repository, preferenceRepository preference_repository.Repository, gencatClient gencat_client.Client, s3Client s3_client.Client) *EventService {
@@ -34,13 +36,49 @@ func NewEventService(eventRepository event_repository.Repository, preferenceRepo
 	}
 }
 
-func (s *EventService) GetEvent(id int) (event_model.Event, error) {
+// WithUserRepository sets the user repository used to enrich event detail responses with creator info.
+func (s *EventService) WithUserRepository(r user_repository.Repository) *EventService {
+	s.userRepository = r
+	return s
+}
+
+// getEvent loads an event without the creator decoration; internal checks use it.
+func (s *EventService) getEvent(id int) (event_model.Event, error) {
 	e, err := s.eventRepository.Get(id)
 	if errors.Is(err, event_repository.ErrEventNotFound) {
 		return event_model.Event{}, fmt.Errorf("%w: %w", ErrEventNotFound, err)
 	}
 	if err != nil {
 		return event_model.Event{}, err
+	}
+	return e, nil
+}
+
+func (s *EventService) GetEvent(id int) (event_model.Event, error) {
+	e, err := s.getEvent(id)
+	if err != nil {
+		return event_model.Event{}, err
+	}
+	if !e.IsOfficial && e.Creator.Valid && s.userRepository != nil {
+		ctx := context.Background()
+		// The creator info is decoration: a failed lookup is logged and leaves the fields null.
+		u, uErr := s.userRepository.GetByID(ctx, e.Creator)
+		if uErr != nil {
+			log.Printf("event %d: creator lookup failed: %v", id, uErr)
+		} else {
+			displayName := u.Name
+			if displayName == "" {
+				displayName = u.Username
+			}
+			if displayName != "" {
+				e.CreatorName = &displayName
+			}
+		}
+		if rel, rErr := s.userRepository.GetReliability(ctx, e.Creator); rErr != nil {
+			log.Printf("event %d: creator reliability failed: %v", id, rErr)
+		} else {
+			e.CreatorReliability = rel
+		}
 	}
 	return e, nil
 }
@@ -161,7 +199,7 @@ func (s *EventService) CreateUnofficialEvent(ctx context.Context, userID string,
 // UpdateUnofficialEvent replaces the fields of an unofficial event. The creator and the creation date are kept,
 // and rule R5 is checked against the original creation date. The handler checks that the requester is the creator.
 func (s *EventService) UpdateUnofficialEvent(ctx context.Context, id int, e event_model.Event) (event_model.Event, error) {
-	stored, err := s.GetEvent(id)
+	stored, err := s.getEvent(id)
 	if err != nil {
 		return event_model.Event{}, err
 	}
@@ -197,7 +235,7 @@ func (s *EventService) UpdateUnofficialEvent(ctx context.Context, id int, e even
 // DeleteUnofficialEvent deletes an unofficial event and everything that references it.
 // The handler checks that the requester is the creator.
 func (s *EventService) DeleteUnofficialEvent(ctx context.Context, id int) error {
-	stored, err := s.GetEvent(id)
+	stored, err := s.getEvent(id)
 	if err != nil {
 		return err
 	}

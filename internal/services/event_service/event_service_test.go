@@ -13,7 +13,9 @@ import (
 
 	"api-aprop/internal/clients/s3_client"
 	"api-aprop/internal/models/event_model"
+	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/repositories/event_repository"
+	"api-aprop/internal/repositories/user_repository"
 )
 
 const validUserID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
@@ -705,4 +707,116 @@ func TestGetRecommendedEvents(t *testing.T) {
 			t.Fatalf("error = %v, want %v", err, dbErr)
 		}
 	})
+}
+
+type fakeUserRepository struct {
+	user_repository.Repository
+	user        user_model.User
+	userErr     error
+	reliability *float32
+	relErr      error
+}
+
+func (f *fakeUserRepository) GetByID(_ context.Context, _ pgtype.UUID) (user_model.User, error) {
+	return f.user, f.userErr
+}
+
+func (f *fakeUserRepository) GetReliability(_ context.Context, _ pgtype.UUID) (*float32, error) {
+	return f.reliability, f.relErr
+}
+
+func TestGetEvent_CreatorReliability(t *testing.T) {
+	var creatorUUID pgtype.UUID
+	if err := creatorUUID.Scan(validUserID); err != nil {
+		t.Fatal(err)
+	}
+	rel := float32(4.2)
+	name := "Marc Vila"
+	username := "marcvila"
+
+	tests := []struct {
+		name            string
+		event           event_model.Event
+		userRepo        *fakeUserRepository
+		wantName        *string
+		wantReliability *float32
+	}{
+		{
+			name: "official event returns null creator-name and creator-reliability",
+			event: event_model.Event{
+				ID:         1,
+				Code:       1001,
+				IsOfficial: true,
+				Title:      "Festa Major",
+			},
+			userRepo: &fakeUserRepository{
+				user:        user_model.User{ID: creatorUUID, Name: name, Username: username},
+				reliability: &rel,
+			},
+			wantName:        nil,
+			wantReliability: nil,
+		},
+		{
+			name: "community event with rating returns creator-name and creator-reliability",
+			event: event_model.Event{
+				ID:         2,
+				IsOfficial: false,
+				Title:      "Taller de Jazz",
+				Creator:    creatorUUID,
+			},
+			userRepo: &fakeUserRepository{
+				user:        user_model.User{ID: creatorUUID, Name: name, Username: username},
+				reliability: &rel,
+			},
+			wantName:        &name,
+			wantReliability: &rel,
+		},
+		{
+			name: "community event with no ratings returns creator-name (falls back to username) and null reliability",
+			event: event_model.Event{
+				ID:         3,
+				IsOfficial: false,
+				Title:      "Caminada Popular",
+				Creator:    creatorUUID,
+			},
+			userRepo: &fakeUserRepository{
+				user:        user_model.User{ID: creatorUUID, Name: "", Username: username},
+				reliability: nil,
+			},
+			wantName:        &username,
+			wantReliability: nil,
+		},
+		{
+			name: "creator lookup errors still return the event with null creator fields",
+			event: event_model.Event{
+				ID:         4,
+				IsOfficial: false,
+				Title:      "Cinema a la fresca",
+				Creator:    creatorUUID,
+			},
+			userRepo: &fakeUserRepository{
+				userErr: errors.New("db down"),
+				relErr:  errors.New("db down"),
+			},
+			wantName:        nil,
+			wantReliability: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := fakeEventRepository{getEvent: tt.event}
+			svc := NewEventService(&repo, nil, nil, nil).WithUserRepository(tt.userRepo)
+			got, err := svc.GetEvent(tt.event.ID)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if (got.CreatorName == nil) != (tt.wantName == nil) || (tt.wantName != nil && *got.CreatorName != *tt.wantName) {
+				t.Errorf("CreatorName = %v, want %v", got.CreatorName, tt.wantName)
+			}
+			if (got.CreatorReliability == nil) != (tt.wantReliability == nil) || (tt.wantReliability != nil && *got.CreatorReliability != *tt.wantReliability) {
+				t.Errorf("CreatorReliability = %v, want %v", got.CreatorReliability, tt.wantReliability)
+			}
+		})
+	}
 }

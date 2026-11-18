@@ -14,7 +14,7 @@ Totes les respostes i cossos de petició utilitzen claus JSON en **kebab-case**.
 |---|---|---|---|
 | `GET /events` | `EventHandler.ListEvents` | Llistat d'esdeveniments amb filtres per categoria, dates i cerca | Implementat |
 | `GET /events/recommended` | `EventHandler.GetRecommendedEvents` | Llistat paginat d'esdeveniments actius recomanats amb puntuació i paginació a SQL (`recommendations.sql`) | Implementat (DP-034) |
-| `GET /events/{id}` | `EventHandler.GetEvent` | Detall complet d'un esdeveniment per ID | Implementat |
+| `GET /events/{id}` | `EventHandler.GetEvent` | Detall complet d'un esdeveniment per ID (inclou `creator-name` i `creator-reliability` per als no oficials, `null` als oficials o sense valoracions) | Implementat |
 | `POST /events` | `EventHandler.CreateEvent` | Creació d'esdeveniments no oficials | Implementat |
 | `PUT /events/{id}` | `EventHandler.UpdateEvent` | Modificació d'un esdeveniment no oficial (només el creador; 403 si no ho és o si és oficial) | Implementat |
 | `DELETE /events/{id}` | `EventHandler.DeleteEvent` | Esborrat d'un esdeveniment no oficial i de les dades que en depenen (només el creador; 204) | Implementat |

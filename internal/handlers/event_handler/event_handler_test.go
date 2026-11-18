@@ -1043,3 +1043,78 @@ func TestGetRecommendedEvents(t *testing.T) {
 		})
 	}
 }
+
+func TestGetEventHandler(t *testing.T) {
+	name := "Marc Vila"
+	rel := float32(4.5)
+
+	withRating := unofficialEvent(t, 2, validUserID)
+	withRating.CreatorName = &name
+	withRating.CreatorReliability = &rel
+
+	noRatings := unofficialEvent(t, 3, validUserID)
+	noRatings.CreatorName = &name
+	noRatings.CreatorReliability = nil
+
+	tests := []struct {
+		name            string
+		path            string
+		service         fakeEventService
+		wantStatus      int
+		wantName        any
+		wantReliability any
+	}{
+		{
+			name:            "official event has null creator-name and creator-reliability",
+			path:            "/events/1",
+			service:         fakeEventService{event: officialEvent(1)},
+			wantStatus:      http.StatusOK,
+			wantName:        nil,
+			wantReliability: nil,
+		},
+		{
+			name:            "community event with rating includes creator-name and creator-reliability",
+			path:            "/events/2",
+			service:         fakeEventService{event: withRating},
+			wantStatus:      http.StatusOK,
+			wantName:        name,
+			wantReliability: float64(rel),
+		},
+		{
+			name:            "community event with no ratings has null creator-reliability",
+			path:            "/events/3",
+			service:         fakeEventService{event: noRatings},
+			wantStatus:      http.StatusOK,
+			wantName:        name,
+			wantReliability: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := tt.service
+			rec := serve(&s, httptest.NewRequest(http.MethodGet, tt.path, nil))
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d: %s", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+			var raw map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+				t.Fatalf("decode json: %v", err)
+			}
+			cname, hasName := raw["creator-name"]
+			if !hasName {
+				t.Errorf("response missing key creator-name")
+			}
+			if cname != tt.wantName {
+				t.Errorf("creator-name = %v, want %v", cname, tt.wantName)
+			}
+			crel, hasRel := raw["creator-reliability"]
+			if !hasRel {
+				t.Errorf("response missing key creator-reliability")
+			}
+			if crel != tt.wantReliability {
+				t.Errorf("creator-reliability = %v, want %v", crel, tt.wantReliability)
+			}
+		})
+	}
+}
