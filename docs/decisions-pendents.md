@@ -378,6 +378,23 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Qui decideix:** Mobilicat + backend
 - **Resolució:**
 
+### DP-035 · Cerca d'usuaris `GET /users?q=`
+- **Estat:** oberta
+- **Obert per:** 2026-11-18 · Claude Code (Opus 5.5) · branca `feature/cercar-usuaris` (Taiga #161)
+- **Context:** `UserHandler.SearchUsers`, `user_service.SearchUsers`, `queries/user_search.sql`. (DP-033 i DP-034 són a les PR de #118 i #188.)
+- **Dubte / supòsits:**
+  1. Es cerca per «conté» (`ILIKE`) al nom d'usuari i al nom, sense distingir majúscules. Els comodins `%`, `_` i `\` es cerquen literalment. Ordre: nom d'usuari exacte, després els que comencen pel text i al final la resta, alfabèticament. No s'ignoren els accents (`Nuria` no troba `Núria`).
+  2. «Comptes desactivats»: s'exclouen tots els usuaris amb un `AccountState` diferent d'`Active` (ara és l'únic estat que existeix; R6 en preveu el `Desactivat`).
+  3. Bloquejos: s'exclouen en els dos sentits (qui ha bloquejat l'usuari que cerca i qui ell ha bloquejat), com fa `IsBlocked`.
+  4. L'usuari que cerca no surt als resultats. Cal identitat (`401` sense).
+  5. Paginació com `GET /events/search`: `pageNum` (des de 0) i `pageSize` (20 per defecte, màxim 50); `q` buit retorna una pàgina buida en lloc de tots els usuaris; `q` de més de 100 caràcters → `400`.
+  6. Cada resultat només porta `id`, `username`, `name` i `profile-picture` (ni el correu ni si és amic).
+  7. SQL no provat contra PostgreSQL/Supabase; `user_search.sql.go` s'ha escrit a mà en el format de sqlc.
+- **Opcions:** —
+- **Provisionalment:** els supòsits anteriors.
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
 ## Resoltes
 
 (cap)

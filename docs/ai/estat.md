@@ -13,6 +13,7 @@
 
 | Taiga | Història / Tasca | Repo | Branca | Responsable | Estat |
 |---|---|---|---|---|---|
+| **#161** | Endpoint `GET /users?q=<query>` paginat, filtrant bloquejos i comptes desactivats | `api-aprop` | `feature/cercar-usuaris` | Arnau Serra | Implementat amb tests unitaris; SQL no provat contra BD; pendent de PR a `develop` (DP-035 oberta) |
 | **#112** | Endpoints per a Mobilicat: `POST /api/v1/congestion/estimate` (API key, snake_case) | `api-aprop` | `feature/mobilicat-endpoints` | Arnau Serra | Implementat i provat amb tests unitaris; SQL no provat contra BD; pendent de PR a `develop` (DP-032 oberta) |
 | **#116** | Endpoint `DELETE /users/me`: esborrat transaccional RGPD i baixa a Firebase Auth | `api-aprop` | `feature/delete-users` | Arnau Serra | Implementat amb tests unitaris; SQL no provat contra BD; PR a `develop` (DP-031 oberta) |
 | **#246** | Unificar la identificació de l'usuari (Firebase UID → UUID) i els helpers d'IDs | `api-aprop` | `feature/unificar-usuari` | Arnau Serra | Pendent de PR a `develop` (DP-011 segueix oberta per a notificacions) |
