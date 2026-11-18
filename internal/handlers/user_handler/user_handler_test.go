@@ -29,6 +29,20 @@ type fakeUserService struct {
 
 	deleteErr  error
 	deletedIDs []string
+
+	searchResult    user_model.UserSearchResult
+	searchErr       error
+	searchCalls     int
+	searchRequester string
+	searchQuery     string
+	searchPageNum   int
+	searchPageSize  int
+}
+
+func (f *fakeUserService) SearchUsers(_ context.Context, requesterID, query string, pageNum, pageSize int) (user_model.UserSearchResult, error) {
+	f.searchCalls++
+	f.searchRequester, f.searchQuery, f.searchPageNum, f.searchPageSize = requesterID, query, pageNum, pageSize
+	return f.searchResult, f.searchErr
 }
 
 func (f *fakeUserService) DeleteAccount(_ context.Context, requesterID string) error {
