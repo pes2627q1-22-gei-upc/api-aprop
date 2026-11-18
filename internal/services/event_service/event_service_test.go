@@ -124,6 +124,10 @@ func (m *mockS3Client) UploadEventImage(_ context.Context, _ int, _ string, _ st
 	return m.imageURL, m.imageErr
 }
 
+func (m *mockS3Client) DeleteAvatar(_ context.Context, _ string, _ string) error {
+	return nil
+}
+
 func TestListMapEvents(t *testing.T) {
 	_ = errors.New("db down")
 	sample := []event_model.MapEvent{

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"strconv"
@@ -214,6 +215,7 @@ func main() {
 	}).Handler
 
 	var authMiddleware func(http.Handler) http.Handler
+	var accountDeleter firebase_client.AccountDeleter // nil without Firebase: accounts are only deleted from the database
 	if _, err := os.Stat(firebaseCredentialsFile); err == nil {
 		firebaseClient, err := firebase_client.NewFirebaseClient(context.Background(), firebaseCredentialsFile)
 		if err != nil {
@@ -221,6 +223,7 @@ func main() {
 			os.Exit(1)
 		}
 		authMiddleware = auth_middleware.NewAuthMiddleware(firebaseClient)
+		accountDeleter = firebaseClient
 	} else {
 		slog.Warn("Firebase credentials file not found; running without auth middleware for local development", "file", firebaseCredentialsFile)
 		authMiddleware = func(next http.Handler) http.Handler { return next }
@@ -245,7 +248,7 @@ func main() {
 	).WithPreferences(preferenceRepository)
 	signUpService := signup_service.NewSignUpService(signUpRepository, eventRepository, notificationRepository)
 	authService := auth_service.NewAuthService(authRepository)
-	userService := user_service.NewUserService(userRepository, notificationRepository, s3Client)
+	userService := user_service.NewUserService(userRepository, notificationRepository, s3Client, accountDeleter)
 	notificationService := notification_service.NewNotificationService(notificationRepository)
 	preferenceService := preference_service.NewPreferenceService(preferenceRepository)
 	congestionService := congestion_service.NewCongestionService(congestionRepository, time.Now, location, congestionK())
@@ -317,7 +320,7 @@ func congestionK() float64 {
 		return congestion_service.DefaultK
 	}
 	k, err := strconv.ParseFloat(value, 64)
-	if err != nil || k <= 0 {
+	if err != nil || k <= 0 || math.IsNaN(k) || math.IsInf(k, 0) {
 		slog.Warn("Invalid congestion constant; using the default", "env", mobilicatEnvCongestionK, "value", value, "default", congestion_service.DefaultK)
 		return congestion_service.DefaultK
 	}

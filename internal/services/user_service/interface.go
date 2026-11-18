@@ -28,4 +28,6 @@ type Service interface {
 	AcceptFriendRequest(ctx context.Context, userid string, targetid string, date time.Time) (user_model.FriendRequest, error)
 	DenyFriendRequest(ctx context.Context, userid string, targetid string, date time.Time) (user_model.FriendRequest, error)
 	Unfriend(ctx context.Context, userid string, targetid string) error
+	// DeleteAccount erases the requester and its data (RGPD) and deletes its Firebase Auth account.
+	DeleteAccount(ctx context.Context, requesterID string) error
 }

@@ -11,7 +11,7 @@ import (
 	"api-aprop/internal/repositories/congestion_repository"
 )
 
-// TODO(DP-030): defaults, limits and formula proposed by FiveGuys, pending confirmation by Mobilicat.
+// TODO(DP-032): defaults, limits and formula proposed by FiveGuys, pending confirmation by Mobilicat.
 const (
 	// DefaultRadiusKm is used when a location has no radius.
 	DefaultRadiusKm = 1.0

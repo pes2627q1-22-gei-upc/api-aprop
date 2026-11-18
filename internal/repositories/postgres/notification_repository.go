@@ -53,7 +53,7 @@ func NewNotificationRepository(pool *pgxpool.Pool) *NotificationRepository {
 func (r *NotificationRepository) Get(id int) (notification_model.Notification, error) {
 	row, err := r.queries.GetNotification(context.Background(), int32(id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return notification_model.Notification{}, fmt.Errorf("get notification %d: %w", id, notification_repository.ErrNotificationNotFound)
+		return notification_model.Notification{}, notification_repository.ErrNotificationNotFound
 	}
 	if err != nil {
 		return notification_model.Notification{}, fmt.Errorf("get notification %d: %w", id, err)
@@ -103,10 +103,14 @@ func (r *NotificationRepository) GetUserNotifications(id pgtype.UUID, params map
 		}
 	}
 
-	rows, err := r.queries.GetUserNotifications(context.Background(), sqlc.GetUserNotificationsParams{Userid: id, Filtertype: int32(typefilter)})
+	_, err = r.queries.GetUserByUUID(context.Background(), id)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return []notification_model.Notification{}, fmt.Errorf("get notifications from user %s: %w", id.String(), notification_repository.ErrUserNotFound)
+		return []notification_model.Notification{}, notification_repository.ErrUserNotFound
+	} else if err != nil {
+		return []notification_model.Notification{}, fmt.Errorf("get notification from user %s: %w", id.String(), err)
 	}
+
+	rows, err := r.queries.GetUserNotifications(context.Background(), sqlc.GetUserNotificationsParams{Userid: id, Filtertype: int32(typefilter)})
 	if err != nil {
 		return []notification_model.Notification{}, fmt.Errorf("get notification from user %s: %w", id.String(), err)
 	}
@@ -129,7 +133,14 @@ func (r *NotificationRepository) ReadNotification(id int) error {
 }
 
 func (r *NotificationRepository) ReadUserNotifications(id pgtype.UUID) error {
-	err := r.queries.ReadUserNotifications(context.Background(), id)
+	_, err := r.queries.GetUserByUUID(context.Background(), id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return notification_repository.ErrUserNotFound
+	} else if err != nil {
+		return fmt.Errorf("get notification from user %s: %w", id.String(), err)
+	}
+
+	err = r.queries.ReadUserNotifications(context.Background(), id)
 	if err != nil {
 		return fmt.Errorf("read notifications from user %s: %w", id.String(), err)
 	}

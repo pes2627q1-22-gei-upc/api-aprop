@@ -40,6 +40,8 @@ type mockUserRepo struct {
 	acceptFriendRequestErr  error
 	denyFriendRequestErr    error
 	unfriendErr             error
+	deleteUserErr           error
+	deleteUserCalls         int
 }
 
 func newMockUserRepo() *mockUserRepo {
@@ -60,30 +62,34 @@ func (m *mockUserRepo) addUser(u user_model.User, showPlans bool) {
 	m.showPlans[u.Settings] = showPlans
 }
 
-func (m *mockUserRepo) GetByID(_ context.Context, id pgtype.UUID) (user_model.User, bool, error) {
+func (m *mockUserRepo) GetByID(_ context.Context, id pgtype.UUID) (user_model.User, error) {
 	u, ok := m.usersByID[id]
 	if !ok {
-		return user_model.User{}, false, user_repository.ErrUserNotFound
+		return user_model.User{}, user_repository.ErrUserNotFound
 	}
-	return *u, m.showPlans[u.Settings], nil
+	return *u, nil
 }
 
-func (m *mockUserRepo) GetByUsername(_ context.Context, username string) (user_model.User, bool, error) {
+func (m *mockUserRepo) GetSettings(_ context.Context, settings int) (user_model.Settings, error) {
+	return user_model.Settings{ID: settings, ShowPlans: m.showPlans[settings]}, nil
+}
+
+func (m *mockUserRepo) GetByUsername(_ context.Context, username string) (user_model.User, error) {
 	for _, u := range m.usersByID {
 		if u.Username == username {
-			return *u, m.showPlans[u.Settings], nil
+			return *u, nil
 		}
 	}
-	return user_model.User{}, false, user_repository.ErrUserNotFound
+	return user_model.User{}, user_repository.ErrUserNotFound
 }
 
-func (m *mockUserRepo) GetByFirebaseUID(_ context.Context, firebaseUID string) (user_model.User, bool, error) {
+func (m *mockUserRepo) GetByFirebaseUID(_ context.Context, firebaseUID string) (user_model.User, error) {
 	for _, u := range m.usersByID {
 		if u.FirebaseUID == firebaseUID {
-			return *u, m.showPlans[u.Settings], nil
+			return *u, nil
 		}
 	}
-	return user_model.User{}, false, user_repository.ErrUserNotFound
+	return user_model.User{}, user_repository.ErrUserNotFound
 }
 
 func (m *mockUserRepo) CountFriends(_ context.Context, userUUID pgtype.UUID) (int, error) {
@@ -154,8 +160,8 @@ func (m *mockUserRepo) UpdateProfile(_ context.Context, id pgtype.UUID, name, us
 	return *target, nil
 }
 
-func (m *mockUserRepo) UpdateSettings(_ context.Context, settingsID int, showPlans bool) error {
-	m.showPlans[settingsID] = showPlans
+func (m *mockUserRepo) UpdateSettings(_ context.Context, settings user_model.Settings) error {
+	m.showPlans[settings.ID] = settings.ShowPlans
 	return nil
 }
 
@@ -188,6 +194,24 @@ func (m *mockUserRepo) DenyFriendRequest(_ context.Context, _, _ pgtype.UUID, _ 
 
 func (m *mockUserRepo) Unfriend(_ context.Context, _, _ pgtype.UUID) error {
 	return m.unfriendErr
+}
+
+// DeleteUser simulates the transaction: the user is only removed if beforeCommit succeeds.
+func (m *mockUserRepo) DeleteUser(ctx context.Context, id pgtype.UUID, beforeCommit func(context.Context) error) error {
+	m.deleteUserCalls++
+	if m.deleteUserErr != nil {
+		return m.deleteUserErr
+	}
+	if _, ok := m.usersByID[id]; !ok {
+		return user_repository.ErrUserNotFound
+	}
+	if beforeCommit != nil {
+		if err := beforeCommit(ctx); err != nil {
+			return err
+		}
+	}
+	delete(m.usersByID, id)
+	return nil
 }
 
 type mockNotificationRepo struct {
@@ -224,6 +248,17 @@ func (m *mockNotificationRepo) GetNotificationTypeByName(name string) (int, erro
 type mockS3Client struct {
 	uploadedURL string
 	failErr     error
+
+	deleteErr       error
+	deleteCalls     int
+	deletedUserID   string
+	deletedAvatarAt string
+}
+
+func (m *mockS3Client) DeleteAvatar(_ context.Context, userID, url string) error {
+	m.deleteCalls++
+	m.deletedUserID, m.deletedAvatarAt = userID, url
+	return m.deleteErr
 }
 
 var _ s3_client.Client = (*mockS3Client)(nil)
@@ -261,7 +296,7 @@ func TestGetUserProfile_OwnProfile(t *testing.T) {
 	repo.plansCount[u.ID] = 5
 	repo.completedPlans[u.ID] = 3
 
-	svc := user_service.NewUserService(repo, &mockNotificationRepo{}, &mockS3Client{})
+	svc := user_service.NewUserService(repo, &mockNotificationRepo{}, &mockS3Client{}, nil)
 
 	profile, err := svc.GetUserProfile(context.Background(), "me", "fb-user-1")
 	if err != nil {
@@ -304,7 +339,7 @@ func TestGetUserProfile_OtherUser_FriendAndShowPlans(t *testing.T) {
 
 	repo.friends[alice.ID] = map[pgtype.UUID]bool{bob.ID: true}
 
-	svc := user_service.NewUserService(repo, &mockNotificationRepo{}, &mockS3Client{})
+	svc := user_service.NewUserService(repo, &mockNotificationRepo{}, &mockS3Client{}, nil)
 
 	profile, err := svc.GetUserProfile(context.Background(), "bob", "fb-alice")
 	if err != nil {
@@ -341,7 +376,7 @@ func TestGetUserProfile_OtherUser_FriendAndHidePlans(t *testing.T) {
 
 	repo.friends[alice.ID] = map[pgtype.UUID]bool{bob.ID: true}
 
-	svc := user_service.NewUserService(repo, &mockNotificationRepo{}, &mockS3Client{})
+	svc := user_service.NewUserService(repo, &mockNotificationRepo{}, &mockS3Client{}, nil)
 
 	profile, err := svc.GetUserProfile(context.Background(), "bob", "fb-alice")
 	if err != nil {
@@ -373,7 +408,7 @@ func TestGetUserProfile_OtherUser_NotFriend(t *testing.T) {
 	repo.addUser(alice, true)
 	repo.addUser(bob, true)
 
-	svc := user_service.NewUserService(repo, &mockNotificationRepo{}, &mockS3Client{})
+	svc := user_service.NewUserService(repo, &mockNotificationRepo{}, &mockS3Client{}, nil)
 
 	profile, err := svc.GetUserProfile(context.Background(), "bob", "fb-alice")
 	if err != nil {
@@ -398,7 +433,7 @@ func TestGetUserProfile_Unauthenticated_NotVisible(t *testing.T) {
 	}
 	repo.addUser(bob, true)
 
-	svc := user_service.NewUserService(repo, &mockNotificationRepo{}, &mockS3Client{})
+	svc := user_service.NewUserService(repo, &mockNotificationRepo{}, &mockS3Client{}, nil)
 
 	profile, err := svc.GetUserProfile(context.Background(), "bob", "")
 	if err != nil {
@@ -415,7 +450,7 @@ func TestGetUserProfile_Unauthenticated_NotVisible(t *testing.T) {
 
 func TestGetUserProfile_NotFound(t *testing.T) {
 	repo := newMockUserRepo()
-	svc := user_service.NewUserService(repo, &mockNotificationRepo{}, &mockS3Client{})
+	svc := user_service.NewUserService(repo, &mockNotificationRepo{}, &mockS3Client{}, nil)
 
 	_, err := svc.GetUserProfile(context.Background(), "nonexistent", "")
 	if err != user_service.ErrUserNotFound {
@@ -433,7 +468,7 @@ func TestUpdateProfile_Valid(t *testing.T) {
 	}
 	repo.addUser(u, true)
 
-	svc := user_service.NewUserService(repo, &mockNotificationRepo{}, &mockS3Client{})
+	svc := user_service.NewUserService(repo, &mockNotificationRepo{}, &mockS3Client{}, nil)
 
 	newName := "Alice Wonderland"
 	newBio := "Exploring wonderland"
@@ -469,7 +504,7 @@ func TestUpdateProfile_R1_Validations(t *testing.T) {
 	}
 	repo.addUser(u, true)
 
-	svc := user_service.NewUserService(repo, &mockNotificationRepo{}, &mockS3Client{})
+	svc := user_service.NewUserService(repo, &mockNotificationRepo{}, &mockS3Client{}, nil)
 
 	// Username with invalid characters
 	invalidUser := "bad username!"
@@ -519,7 +554,7 @@ func TestUploadAvatar_Success(t *testing.T) {
 	repo.addUser(u, true)
 
 	s3 := &mockS3Client{uploadedURL: "https://storage.example.com/avatar.png"}
-	svc := user_service.NewUserService(repo, &mockNotificationRepo{}, s3)
+	svc := user_service.NewUserService(repo, &mockNotificationRepo{}, s3, nil)
 
 	profile, err := svc.UploadAvatar(context.Background(), "fb-alice", "photo.png", "image/png", strings.NewReader("fake-image"))
 	if err != nil {
@@ -544,7 +579,7 @@ func TestListCreatedEvents(t *testing.T) {
 		{ID: 10, Title: "Concert de Jazz"},
 	}
 
-	svc := user_service.NewUserService(repo, &mockNotificationRepo{}, &mockS3Client{})
+	svc := user_service.NewUserService(repo, &mockNotificationRepo{}, &mockS3Client{}, nil)
 
 	events, err := svc.ListCreatedEvents(context.Background(), "alice")
 	if err != nil {
@@ -583,7 +618,7 @@ func TestGetUserFriends(t *testing.T) {
 			repo.getUserFriendsResult = tt.result
 			repo.getUserFriendsErr = tt.repoErr
 
-			svc := user_service.NewUserService(repo, &mockNotificationRepo{}, &mockS3Client{})
+			svc := user_service.NewUserService(repo, &mockNotificationRepo{}, &mockS3Client{}, nil)
 			friends, err := svc.GetUserFriends(context.Background(), tt.userID)
 
 			if !errors.Is(err, tt.wantErr) {
@@ -617,7 +652,7 @@ func TestGetFriendRequests(t *testing.T) {
 			repo.getFriendRequestsResult = tt.result
 			repo.getFriendRequestsErr = tt.repoErr
 
-			svc := user_service.NewUserService(repo, &mockNotificationRepo{}, &mockS3Client{})
+			svc := user_service.NewUserService(repo, &mockNotificationRepo{}, &mockS3Client{}, nil)
 			requests, err := svc.GetFriendRequests(context.Background(), tt.userID)
 
 			if !errors.Is(err, tt.wantErr) {
@@ -677,7 +712,7 @@ func TestSendFriendRequest(t *testing.T) {
 				repo.sendFriendRequestErr = tt.repoErr
 			}
 
-			svc := user_service.NewUserService(repo, &mockNotificationRepo{}, &mockS3Client{})
+			svc := user_service.NewUserService(repo, &mockNotificationRepo{}, &mockS3Client{}, nil)
 			_, err := svc.SendFriendRequest(context.Background(), tt.userID, tt.targetID)
 
 			if !errors.Is(err, tt.wantErr) {
@@ -738,7 +773,7 @@ func TestFriendRequestActions(t *testing.T) {
 						action.setErr(repo, tt.repoErr)
 					}
 
-					svc := user_service.NewUserService(repo, notifRepo, &mockS3Client{})
+					svc := user_service.NewUserService(repo, notifRepo, &mockS3Client{}, nil)
 					_, err := action.call(svc, tt.userID, tt.targetID, time.Now())
 
 					if !errors.Is(err, tt.wantErr) {
@@ -790,7 +825,7 @@ func TestUnfriend(t *testing.T) {
 				repo.unfriendErr = tt.repoErr
 			}
 
-			svc := user_service.NewUserService(repo, notifRepo, &mockS3Client{})
+			svc := user_service.NewUserService(repo, notifRepo, &mockS3Client{}, nil)
 			err := svc.Unfriend(context.Background(), tt.userID, tt.targetID)
 
 			if !errors.Is(err, tt.wantErr) {
@@ -829,7 +864,7 @@ func TestFriendActions_NotificationFailure(t *testing.T) {
 				createErr:  tt.createErr,
 			}
 
-			svc := user_service.NewUserService(repo, notifRepo, &mockS3Client{})
+			svc := user_service.NewUserService(repo, notifRepo, &mockS3Client{}, nil)
 
 			_, acceptErr := svc.AcceptFriendRequest(context.Background(), "fb-alice", "fb-bob", time.Now())
 			if acceptErr != nil {
