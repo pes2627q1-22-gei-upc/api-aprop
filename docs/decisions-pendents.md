@@ -342,6 +342,23 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Qui decideix:** frontend + backend
 - **Resolució:**
 
+### DP-031 · Baixa del compte (`DELETE /users/me`): abast de l'esborrat RGPD
+- **Estat:** oberta
+- **Obert per:** 2026-11-16 · Claude Code (Opus 5.5) · branca `feature/delete-users` (Taiga #116)
+- **Context:** `UserRepository.DeleteUser` (`queries/account_deletion.sql`), `user_service.DeleteAccount`, `firebase_client.DeleteUser`, `s3_client.DeleteAvatar`. Opcions 1–3 confirmades per l'equip (Arnau) abans d'implementar.
+- **Dubte / supòsits:**
+  1. **Esborrat físic** (no anonimització): es treu la fila de `Users`, els seus `Settings` i totes les files que la referencien (notificacions pròpies i les d'altres sobre l'usuari, sol·licituds d'amistat, amistats, bloquejos, inscripcions, valoracions donades i **rebudes**, missatges, test i preferències, nivell, estat i converses del xatbot).
+  2. Els **esdeveniments no oficials creats per l'usuari s'esborren** amb les dades que en depenen (inscripcions i valoracions d'altres usuaris incloses), reutilitzant la lògica de `DELETE /events/{id}` (`deleteEventTx`). Els altres usuaris no en reben cap avís.
+  3. L'**avatar** s'esborra de S3 després del commit, en mode best-effort (un error només es registra). Les imatges dels esdeveniments esborrats **no** s'eliminen de S3. La petició `DELETE` a S3 no va signada, igual que la pujada actual.
+  4. Ordre: transacció a la BD → baixa a Firebase (dins la transacció, abans del commit; si falla → `502` i rollback) → commit. Si el commit fallés després d'esborrar el compte de Firebase, les dades quedarien a la BD sense compte: es registra amb `slog.Error` i s'han d'esborrar a mà. Un compte de Firebase inexistent no és error (idempotent).
+  5. Sense credencials de Firebase (desenvolupament local) només s'esborra de la BD.
+  6. No es demana cap confirmació addicional (contrasenya o reautenticació recent) al backend: la confirmació és responsabilitat del frontend.
+  7. No s'ha provat contra PostgreSQL/Supabase (sense BD a l'entorn de desenvolupament): només tests unitaris.
+- **Opcions:** —
+- **Provisionalment:** els supòsits anteriors.
+- **Qui decideix:** equip (backend + frontend)
+- **Resolució:**
+
 ## Resoltes
 
 (cap)

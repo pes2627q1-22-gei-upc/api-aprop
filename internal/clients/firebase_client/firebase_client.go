@@ -42,6 +42,18 @@ func (c *FirebaseClient) VerifyUser(ctx context.Context, idToken string) (User, 
 }
 
 // mapAuthError converts Firebase SDK errors into the errors of this package.
+var _ AccountDeleter = (*FirebaseClient)(nil)
+
+func (c *FirebaseClient) DeleteUser(ctx context.Context, uid string) error {
+	if uid == "" {
+		return nil
+	}
+	if err := c.authClient.DeleteUser(ctx, uid); err != nil && !auth.IsUserNotFound(err) {
+		return fmt.Errorf("delete firebase user: %w", err)
+	}
+	return nil
+}
+
 func mapAuthError(err error) error {
 	switch {
 	case auth.IsUserNotFound(err):

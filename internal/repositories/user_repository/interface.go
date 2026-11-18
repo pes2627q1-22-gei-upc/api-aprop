@@ -40,4 +40,8 @@ type Repository interface {
 	AcceptFriendRequest(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID, date time.Time) (user_model.FriendRequest, error)
 	DenyFriendRequest(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID, date time.Time) (user_model.FriendRequest, error)
 	Unfriend(ctx context.Context, userid pgtype.UUID, targetuuid pgtype.UUID) error
+	// DeleteUser erases the user, the unofficial events it created and every row that references
+	// them in a single transaction. beforeCommit runs inside the transaction once everything is
+	// deleted: if it fails nothing is deleted. Returns ErrUserNotFound if the user does not exist.
+	DeleteUser(ctx context.Context, id pgtype.UUID, beforeCommit func(context.Context) error) error
 }

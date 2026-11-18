@@ -38,6 +38,11 @@ Totes les respostes i cossos de petició utilitzen claus JSON en **kebab-case**.
 |---|---|---|---|
 | `POST /auth/sync` | `AuthHandler.Sync` | Sincronitza l'usuari autenticat amb Firebase a la taula d'usuaris de Supabase | Implementat |
 
+### Compte d'usuari (`user_handler`)
+| Mètode i ruta | Handler | Descripció | Estat |
+|---|---|---|---|
+| `DELETE /users/me` | `UserHandler.DeleteMyAccount` | Baixa del compte (RGPD): esborra en una transacció l'usuari, la seva configuració, els esdeveniments no oficials que ha creat (amb les dades que en depenen) i totes les files que el referencien; dins la transacció esborra el compte de Firebase Auth i, després del commit, l'avatar de S3 (best-effort). `204`; `401` sense identitat; `404` usuari inexistent; `502` si Firebase falla (no s'esborra res) | Implementat (DP-031) |
+
 ---
 
 ## Endpoints planificats (Sprint 1 - En curs)

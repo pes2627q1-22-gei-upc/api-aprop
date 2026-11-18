@@ -2,6 +2,7 @@ package user_handler
 
 import (
 	"errors"
+	"log"
 	"net/http"
 
 	"api-aprop/internal/handlers/response"
@@ -32,7 +33,11 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		response.WriteError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, user_service.ErrSameUser):
 		response.WriteError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, user_service.ErrAuthProvider):
+		log.Printf("delete account: %v", err)
+		response.WriteError(w, http.StatusBadGateway, "could not delete the authentication account")
 	default:
+		log.Printf("user handler: %v", err)
 		response.WriteError(w, http.StatusInternalServerError, "internal server error")
 	}
 }

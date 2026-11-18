@@ -378,6 +378,69 @@ func toTimestamp(t time.Time) pgtype.Timestamp {
 	return pgtype.Timestamp{Time: t, Valid: true}
 }
 
+// DeleteUser erases the user and everything that references it (RGPD), in an order that respects the
+// foreign keys. TODO(DP-031): the unofficial events of the user are deleted too, with the sign ups and
+// ratings of other users, and the ratings the user received.
+func (r *UserRepository) DeleteUser(ctx context.Context, id pgtype.UUID, beforeCommit func(context.Context) error) error {
+	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+		q := r.queries.WithTx(tx)
+
+		eventIDs, err := q.ListCreatedUnofficialEventIDs(ctx, id)
+		if err != nil {
+			return fmt.Errorf("list events created by user %s: %w", id, err)
+		}
+		for _, eventID := range eventIDs {
+			if _, err := deleteEventTx(ctx, q, eventID); err != nil {
+				return fmt.Errorf("delete events created by user %s: %w", id, err)
+			}
+		}
+
+		dependents := []struct {
+			name   string
+			delete func(context.Context, pgtype.UUID) error
+		}{
+			// Notifications reference friend requests, so they go first
+			{"notifications", q.DeleteUserNotifications},
+			{"friend requests", q.DeleteUserFriendRequests},
+			{"friendships", q.DeleteUserFriendships},
+			{"blocks", q.DeleteUserBlocks},
+			{"sign-ups", q.DeleteUserSignUps},
+			{"event ratings", q.DeleteUserEventRatings},
+			{"user ratings", q.DeleteUserUserRatings},
+			{"messages", q.DeleteUserMessages},
+			{"preference test choices", q.DeleteUserPreferenceTestChoices},
+			{"preference tests", q.DeleteUserPreferenceTests},
+			{"preferences", q.DeleteUserPreferences},
+			{"level", q.DeleteUserLevel},
+			{"state", q.DeleteUserState},
+			{"chatbot conversations", q.DeleteUserChatbotConversations},
+		}
+		for _, d := range dependents {
+			if err := d.delete(ctx, id); err != nil {
+				return fmt.Errorf("delete %s of user %s: %w", d.name, id, err)
+			}
+		}
+
+		settingsID, err := q.DeleteUserRow(ctx, id)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("delete user %s: %w", id, user_repository.ErrUserNotFound)
+		}
+		if err != nil {
+			return fmt.Errorf("delete user %s: %w", id, err)
+		}
+		if err := q.DeleteSettings(ctx, settingsID); err != nil {
+			return fmt.Errorf("delete settings of user %s: %w", id, err)
+		}
+
+		if beforeCommit != nil {
+			if err := beforeCommit(ctx); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 func intervalToString(interval pgtype.Interval) string {
 	return fmt.Sprintf("%d mons %d days %d usecs",
 		interval.Months,
