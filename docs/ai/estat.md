@@ -18,6 +18,7 @@
 | **#246** | Unificar la identificació de l'usuari (Firebase UID → UUID) i els helpers d'IDs | `api-aprop` | `feature/unificar-usuari` | Arnau Serra | Pendent de PR a `develop` (DP-011 segueix oberta per a notificacions) |
 | **#236** | Correccions dels endpoints d'esdeveniments (llistat, mapa, modificació, imatge, recomanats) | `api-aprop` | `Fix-esdeveniments` | Arnau Serra | PR oberta a `develop`, pendent de revisió (DP-026 oberta) |
 | **#228** | Adaptar i estructurar la documentació al backend | `api-aprop` | `documentation` | Wenqiang He | Documentació sincronitzada, adaptada a Go/Supabase i en revisió |
+| **#184** | `POST /events/{id}/ratings` i `GET /events/{id}/enrollment/attendance` (R8/R9/R10, US #48 Valorar esdeveniment); reutilitza `EventRatings`, sense migració nova | `api-aprop` | `feature/event-rating` | Wenqiang He | PR oberta #59 cap a `develop`, pendent de prova contra BD real (DP-033 oberta) |
 | **#226** | Endpoints test d'interessos (US #27) | `api-aprop` | `feature/interest-test` | Wenqiang He | Branca creada, taules llestes al model de Supabase |
 | **#186** | Endpoint `DELETE /events/{id}/enroll` (US #49) | `api-aprop` | `develop` | Wenqiang He | Assignada al Sprint 1 per completar el cicle d'inscripcions |
 | **#165** | Endpoints de consulta de perfil (US #36) | `api-aprop` | `develop` | Wenqiang He | Assignada al Sprint 1 |
