@@ -332,6 +332,16 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Qui decideix:** frontend + backend
 - **Resolució:**
 
+### DP-030 · Especificació de la consulta GetUserProfile quan es completin els Settings
+- **Estat:** oberta
+- **Obert per:** 2026-11-17 · Lluc Paez · branca `fix/db-corrections` (Storyless)
+- **Context:** `GET /users/{id}`.
+- **Dubte:** (1) La consulta GET /users/{id} actualment retorna el camp showPlans dels Settings de l'usuari, cosa que s'entén perquè és necessari per calcular si els plans de l'usuari objectiu s'han de mostrar a l'usuari que fa la petició. El problema és la resta dels camps, com ara NotificationBefore, però també totes les altres configuracions que s'hauran d'afegir més tard. Hem de decidir què retorna aquesta consulta i què no. Penso que tindria més sentit fer una consulta separada per la resta de configuracions, ja que és informació que no cal per mostrar el perfil d'un usuari (i que els altres usuaris no haurien de tenir).
+- **Opcions:** A) GetUserProfile retorna ShowPlans però cap altre Setting. Els Settings s'obtindran amb una consulta separada GET users/{id}/settings o GET settings/{id} segons convingui. · B) GetUserProfile retorna tots els Settings.
+- **Provisionalment:** A.
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
 ### DP-031 · Baixa del compte (`DELETE /users/me`): abast de l'esborrat RGPD
 - **Estat:** oberta
 - **Obert per:** 2026-11-16 · Claude Code (Opus 5.5) · branca `feature/delete-users` (Taiga #116)

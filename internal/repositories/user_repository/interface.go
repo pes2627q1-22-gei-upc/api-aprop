@@ -19,9 +19,10 @@ var (
 )
 
 type Repository interface {
-	GetByID(ctx context.Context, id pgtype.UUID) (user_model.User, bool, error)
-	GetByUsername(ctx context.Context, username string) (user_model.User, bool, error)
-	GetByFirebaseUID(ctx context.Context, firebaseUID string) (user_model.User, bool, error)
+	GetByID(ctx context.Context, id pgtype.UUID) (user_model.User, error)
+	GetByUsername(ctx context.Context, username string) (user_model.User, error)
+	GetByFirebaseUID(ctx context.Context, firebaseUID string) (user_model.User, error)
+	GetSettings(ctx context.Context, id int) (user_model.Settings, error)
 	CountFriends(ctx context.Context, userUUID pgtype.UUID) (int, error)
 	AreFriends(ctx context.Context, user1UUID pgtype.UUID, user2UUID pgtype.UUID) (bool, error)
 	CountPlans(ctx context.Context, userUUID pgtype.UUID) (int, error)
@@ -29,7 +30,7 @@ type Repository interface {
 	GetReliability(ctx context.Context, creatorUUID pgtype.UUID) (*float32, error)
 	ListCreatedEvents(ctx context.Context, creatorUUID pgtype.UUID) ([]event_model.Event, error)
 	UpdateProfile(ctx context.Context, id pgtype.UUID, name, username, biography, profilePicture *string) (user_model.User, error)
-	UpdateSettings(ctx context.Context, settingsID int, showPlans bool) error
+	UpdateSettings(ctx context.Context, settings user_model.Settings) error
 	GetUserFriends(ctx context.Context, userid pgtype.UUID) ([]string, error)
 	GetFriendRequests(ctx context.Context, userid pgtype.UUID) ([]user_model.FriendRequest, error)
 	PendingRequestExists(ctx context.Context, userid pgtype.UUID, targetid pgtype.UUID) (bool, error)

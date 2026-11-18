@@ -58,7 +58,7 @@ func (s *userService) DeleteAccount(ctx context.Context, requesterID string) err
 	if err != nil {
 		return ErrInvalidUserID
 	}
-	user, _, err := s.userRepo.GetByID(ctx, id)
+	user, err := s.userRepo.GetByID(ctx, id)
 	if errors.Is(err, user_repository.ErrUserNotFound) {
 		return ErrUserNotFound
 	}
@@ -103,28 +103,36 @@ func (s *userService) DeleteAccount(ctx context.Context, requesterID string) err
 
 func (s *userService) GetUserProfile(ctx context.Context, targetIdentifier string, requesterIdentifier string) (user_model.UserProfile, error) {
 	var (
-		target    user_model.User
-		showPlans bool
-		isSelf    bool
-		err       error
+		target   user_model.User
+		settings user_model.Settings
+		isSelf   bool
+		err      error
 	)
 
 	if targetIdentifier == "" || targetIdentifier == "me" {
 		if requesterIdentifier == "" {
 			return user_model.UserProfile{}, ErrUnauthorized
 		}
-		target, showPlans, err = s.findUser(ctx, requesterIdentifier)
+		target, err = s.findUser(ctx, requesterIdentifier)
 		if err != nil {
 			return user_model.UserProfile{}, ErrUserNotFound
+		}
+		settings, err = s.userRepo.GetSettings(ctx, target.Settings)
+		if err != nil {
+			return user_model.UserProfile{}, err
 		}
 		isSelf = true
 	} else {
-		target, showPlans, err = s.findUser(ctx, targetIdentifier)
+		target, err = s.findUser(ctx, targetIdentifier)
 		if err != nil {
 			return user_model.UserProfile{}, ErrUserNotFound
 		}
+		settings, err = s.userRepo.GetSettings(ctx, target.Settings)
+		if err != nil {
+			return user_model.UserProfile{}, err
+		}
 		if requesterIdentifier != "" {
-			if requester, _, rErr := s.findUser(ctx, requesterIdentifier); rErr == nil {
+			if requester, rErr := s.findUser(ctx, requesterIdentifier); rErr == nil {
 				if requester.ID == target.ID {
 					isSelf = true
 				}
@@ -157,10 +165,10 @@ func (s *userService) GetUserProfile(ctx context.Context, targetIdentifier strin
 		isFriend = nil
 	} else {
 		if requesterIdentifier != "" {
-			if requester, _, rErr := s.findUser(ctx, requesterIdentifier); rErr == nil {
+			if requester, rErr := s.findUser(ctx, requesterIdentifier); rErr == nil {
 				areFriends, _ := s.userRepo.AreFriends(ctx, requester.ID, target.ID)
 				isFriend = &areFriends
-				plansVisible = areFriends && showPlans
+				plansVisible = areFriends && settings.ShowPlans
 			} else {
 				plansVisible = false
 			}
@@ -195,7 +203,7 @@ func (s *userService) GetUserProfile(ctx context.Context, targetIdentifier strin
 		FriendsCount:        friendsCount,
 		PlansCount:          plansCount,
 		CompletedPlansCount: completedPlansCount,
-		ShowPlans:           showPlans,
+		ShowPlans:           settings.ShowPlans,
 		IsFriend:            isFriend,
 		PlansVisible:        plansVisible,
 	}
@@ -208,7 +216,7 @@ func (s *userService) GetUserProfile(ctx context.Context, targetIdentifier strin
 }
 
 func (s *userService) ListCreatedEvents(ctx context.Context, targetIdentifier string) ([]event_model.Event, error) {
-	target, _, err := s.findUser(ctx, targetIdentifier)
+	target, err := s.findUser(ctx, targetIdentifier)
 	if err != nil {
 		return nil, ErrUserNotFound
 	}
@@ -226,9 +234,13 @@ func (s *userService) UpdateProfile(ctx context.Context, requesterIdentifier str
 	if requesterIdentifier == "" {
 		return user_model.UserProfile{}, ErrUnauthorized
 	}
-	user, _, err := s.findUser(ctx, requesterIdentifier)
+	user, err := s.findUser(ctx, requesterIdentifier)
 	if err != nil {
 		return user_model.UserProfile{}, ErrUserNotFound
+	}
+	settings, err := s.userRepo.GetSettings(ctx, user.Settings)
+	if err != nil {
+		return user_model.UserProfile{}, err
 	}
 
 	// Validation R1: Username
@@ -259,7 +271,8 @@ func (s *userService) UpdateProfile(ctx context.Context, requesterIdentifier str
 	}
 
 	if input.ShowPlans != nil {
-		if err := s.userRepo.UpdateSettings(ctx, user.Settings, *input.ShowPlans); err != nil {
+		settings.ShowPlans = *(input.ShowPlans)
+		if err := s.userRepo.UpdateSettings(ctx, settings); err != nil {
 			return user_model.UserProfile{}, err
 		}
 	}
@@ -282,7 +295,7 @@ func (s *userService) UploadAvatar(ctx context.Context, requesterIdentifier stri
 	if requesterIdentifier == "" {
 		return user_model.UserProfile{}, ErrUnauthorized
 	}
-	user, _, err := s.findUser(ctx, requesterIdentifier)
+	user, err := s.findUser(ctx, requesterIdentifier)
 	if err != nil {
 		return user_model.UserProfile{}, ErrUserNotFound
 	}
@@ -307,7 +320,7 @@ func (s *userService) UploadAvatar(ctx context.Context, requesterIdentifier stri
 }
 
 func (s *userService) GetUserFriends(ctx context.Context, userid string) ([]string, error) {
-	user, _, err := s.findUser(ctx, userid)
+	user, err := s.findUser(ctx, userid)
 	if err != nil {
 		return []string{}, ErrUserNotFound
 	}
@@ -322,7 +335,7 @@ func (s *userService) GetUserFriends(ctx context.Context, userid string) ([]stri
 }
 
 func (s *userService) GetFriendRequests(ctx context.Context, userid string) ([]user_model.FriendRequest, error) {
-	user, _, err := s.findUser(ctx, userid)
+	user, err := s.findUser(ctx, userid)
 	if err != nil {
 		return []user_model.FriendRequest{}, ErrUserNotFound
 	}
@@ -337,13 +350,13 @@ func (s *userService) GetFriendRequests(ctx context.Context, userid string) ([]u
 }
 
 func (s *userService) SendFriendRequest(ctx context.Context, userid string, targetid string) (user_model.FriendRequest, error) {
-	user, _, err := s.findUser(ctx, userid)
+	user, err := s.findUser(ctx, userid)
 	if err != nil {
 		return user_model.FriendRequest{}, ErrUserNotFound
 	}
 
 	id := user.ID
-	targetuser, _, err := s.findUser(ctx, targetid)
+	targetuser, err := s.findUser(ctx, targetid)
 	if err != nil {
 		return user_model.FriendRequest{}, ErrUserNotFound
 	}
@@ -385,13 +398,13 @@ func (s *userService) SendFriendRequest(ctx context.Context, userid string, targ
 }
 
 func (s *userService) AcceptFriendRequest(ctx context.Context, userid string, targetid string, date time.Time) (user_model.FriendRequest, error) {
-	user, _, err := s.findUser(ctx, userid)
+	user, err := s.findUser(ctx, userid)
 	if err != nil {
 		return user_model.FriendRequest{}, ErrUserNotFound
 	}
 
 	id := user.ID
-	targetuser, _, err := s.findUser(ctx, targetid)
+	targetuser, err := s.findUser(ctx, targetid)
 	if err != nil {
 		return user_model.FriendRequest{}, ErrUserNotFound
 	}
@@ -424,13 +437,13 @@ func (s *userService) AcceptFriendRequest(ctx context.Context, userid string, ta
 }
 
 func (s *userService) DenyFriendRequest(ctx context.Context, userid string, targetid string, date time.Time) (user_model.FriendRequest, error) {
-	user, _, err := s.findUser(ctx, userid)
+	user, err := s.findUser(ctx, userid)
 	if err != nil {
 		return user_model.FriendRequest{}, ErrUserNotFound
 	}
 
 	id := user.ID
-	targetuser, _, err := s.findUser(ctx, targetid)
+	targetuser, err := s.findUser(ctx, targetid)
 	if err != nil {
 		return user_model.FriendRequest{}, ErrUserNotFound
 	}
@@ -463,13 +476,13 @@ func (s *userService) DenyFriendRequest(ctx context.Context, userid string, targ
 }
 
 func (s *userService) Unfriend(ctx context.Context, userid string, targetid string) error {
-	user, _, err := s.findUser(ctx, userid)
+	user, err := s.findUser(ctx, userid)
 	if err != nil {
 		return ErrUserNotFound
 	}
 
 	id := user.ID
-	targetuser, _, err := s.findUser(ctx, targetid)
+	targetuser, err := s.findUser(ctx, targetid)
 	if err != nil {
 		return ErrUserNotFound
 	}
@@ -505,24 +518,24 @@ func (s *userService) Unfriend(ctx context.Context, userid string, targetid stri
 	return err
 }
 
-func (s *userService) findUser(ctx context.Context, identifier string) (user_model.User, bool, error) {
+func (s *userService) findUser(ctx context.Context, identifier string) (user_model.User, error) {
 	if identifier == "" {
-		return user_model.User{}, false, ErrUserNotFound
+		return user_model.User{}, ErrUserNotFound
 	}
 	// Try ID first
 	if id, err := user_model.ParseID(identifier); err == nil {
-		u, showPlans, err := s.userRepo.GetByID(ctx, id)
+		u, err := s.userRepo.GetByID(ctx, id)
 		if err == nil {
-			return u, showPlans, nil
+			return u, nil
 		}
 	}
 	// Try FirebaseUID
-	if u, showPlans, err := s.userRepo.GetByFirebaseUID(ctx, identifier); err == nil {
-		return u, showPlans, nil
+	if u, err := s.userRepo.GetByFirebaseUID(ctx, identifier); err == nil {
+		return u, nil
 	}
 	// Try Username
-	if u, showPlans, err := s.userRepo.GetByUsername(ctx, identifier); err == nil {
-		return u, showPlans, nil
+	if u, err := s.userRepo.GetByUsername(ctx, identifier); err == nil {
+		return u, nil
 	}
-	return user_model.User{}, false, ErrUserNotFound
+	return user_model.User{}, ErrUserNotFound
 }
