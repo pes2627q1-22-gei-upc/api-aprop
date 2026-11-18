@@ -5,6 +5,13 @@ import (
 	"time"
 )
 
+// States of an unofficial event (NoOficial.estat).
+// TODO(DP-034): only Active and Withdrawn (Retirat) exist until the team confirms the rest.
+const (
+	UnofficialStateActive    = "Active"
+	UnofficialStateWithdrawn = "Withdrawn"
+)
+
 // Event is the resource. Struct tags control the JSON field names.
 type Event struct {
 	ID           int         `json:"id"`
