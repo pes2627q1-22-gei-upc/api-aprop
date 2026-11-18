@@ -20,7 +20,7 @@
 | Assistència («Com va anar?») | Asistencia | `TODO` (attendance) | `TODO` | `null` = desconeguda |
 | Agenda / Calendari | Agenda / Calendario | `TODO` (agenda) | `TODO` | Secció «Agenda» |
 | Recordatori | Recordatorio | `TODO` (reminder) | `TODO` | Sense / 30 min / 1 h / 1 dia |
-| Valoració | Valoración | `TODO` (rating) | `TODO` | 1–5 |
+| Valoració | Valoración | `TODO` (rating) | `rating_model.Rating`, `RatingHandler`, `RatingService` | 1–5 |
 | Fiabilitat (organitzador) | Fiabilidad | `TODO` (reliability) | `TODO` | Derivada |
 | Usuari | Usuario | `AppUser` | `TODO` | `username` pot ser nul (primer accés amb Google) |
 | Nom d'usuari | Nombre de usuario | `username` | `TODO` | Únic |

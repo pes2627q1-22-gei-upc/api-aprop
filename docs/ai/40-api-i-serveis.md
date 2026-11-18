@@ -13,6 +13,7 @@ Totes les respostes i cossos de petició utilitzen claus JSON en **kebab-case**.
 | Mètode i ruta | Handler | Descripció | Estat |
 |---|---|---|---|
 | `GET /events` | `EventHandler.ListEvents` | Llistat d'esdeveniments amb filtres per categoria, dates i cerca | Implementat |
+| `GET /events/recommended` | `EventHandler.GetRecommendedEvents` | Llistat paginat d'esdeveniments actius recomanats amb puntuació i paginació a SQL (`recommendations.sql`) | Implementat (DP-034) |
 | `GET /events/{id}` | `EventHandler.GetEvent` | Detall complet d'un esdeveniment per ID | Implementat |
 | `POST /events` | `EventHandler.CreateEvent` | Creació d'esdeveniments no oficials | Implementat |
 | `PUT /events/{id}` | `EventHandler.UpdateEvent` | Modificació d'un esdeveniment no oficial (només el creador; 403 si no ho és o si és oficial) | Implementat |
@@ -26,6 +27,12 @@ Totes les respostes i cossos de petició utilitzen claus JSON en **kebab-case**.
 |---|---|---|---|
 | `POST /events/{id}/signup` | `SignUpHandler.SignUp` | Inscripció d'un usuari a un esdeveniment | Implementat |
 | `GET /users/{userId}/events` | `SignUpHandler.ListUserEvents` | Consulta de les activitats a les quals s'ha apuntat l'usuari (Agenda) | Implementat |
+
+### Valoracions (`rating_handler`)
+| Mètode i ruta | Handler | Descripció | Estat |
+|---|---|---|---|
+| `POST /events/{id}/ratings` | `RatingHandler.Rate` | Valora un esdeveniment assistit (1–5; R9/R10) | Implementat (`feature/event-rating`, DP-033) |
+| `GET /events/{id}/enrollment/attendance` | `RatingHandler.HasAttended` | Consulta si l'usuari autenticat ha confirmat l'assistència (`has-attended`, R10) | Implementat (`feature/event-rating`, DP-033) |
 
 ### Assistent Virtual i Xatbot (`assistant_handler`)
 | Mètode i ruta | Handler | Descripció | Estat |
