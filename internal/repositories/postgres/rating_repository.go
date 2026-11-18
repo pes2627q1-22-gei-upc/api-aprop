@@ -40,6 +40,30 @@ func (r *RatingRepository) Create(ctx context.Context, userID string, eventID, s
 	return rows > 0, nil
 }
 
+func (r *RatingRepository) Update(ctx context.Context, userID string, eventID, score int) (bool, error) {
+	uid, err := user_model.ParseID(userID)
+	if err != nil {
+		return false, err
+	}
+	rows, err := r.queries.UpdateEventRating(ctx, sqlc.UpdateEventRatingParams{UserID: uid, EventID: int32(eventID), Rating: int32(score)})
+	if err != nil {
+		return false, fmt.Errorf("update rating of event %d: %w", eventID, err)
+	}
+	return rows > 0, nil
+}
+
+func (r *RatingRepository) Delete(ctx context.Context, userID string, eventID int) (bool, error) {
+	uid, err := user_model.ParseID(userID)
+	if err != nil {
+		return false, err
+	}
+	rows, err := r.queries.DeleteEventRating(ctx, sqlc.DeleteEventRatingParams{UserID: uid, EventID: int32(eventID)})
+	if err != nil {
+		return false, fmt.Errorf("delete rating of event %d: %w", eventID, err)
+	}
+	return rows > 0, nil
+}
+
 func (r *RatingRepository) HasAttended(ctx context.Context, userID string, eventID int) (bool, error) {
 	uid, err := user_model.ParseID(userID)
 	if err != nil {

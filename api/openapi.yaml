@@ -650,6 +650,73 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /events/{id}/ratings/me:
+    parameters:
+      - $ref: '#/components/parameters/EventId'
+    put:
+      tags: [events]
+      operationId: updateMyEventRating
+      summary: Modifica la meva valoració d'un esdeveniment
+      description: >
+        Canvia el `score` (1..5, R9) de la valoració de l'usuari autenticat (cos igual que el de `POST`).
+        La fiabilitat de l'organitzador (`Users.Rating`) es recalcula amb un trigger, així que el canvi s'hi reflecteix de seguida.
+        No es torna a comprovar R10. Veure DP-036.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [score]
+              properties:
+                score:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+      responses:
+        '200':
+          description: Valoració actualitzada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Rating'
+        '400':
+          description: Id invàlid, cos invàlid o `score` fora de 1..5
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: L'esdeveniment no existeix o l'usuari no l'havia valorat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [events]
+      operationId: deleteMyEventRating
+      summary: Elimina la meva valoració d'un esdeveniment
+      description: Veure DP-036.
+      responses:
+        '204':
+          description: Valoració eliminada
+        '400':
+          $ref: '#/components/responses/InvalidEventId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: L'esdeveniment no existeix o l'usuari no l'havia valorat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /events/{id}/enrollment/attendance:
     parameters:
       - $ref: '#/components/parameters/EventId'

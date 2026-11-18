@@ -405,6 +405,15 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Opcions:** A) EventRatings · B) UserRatings · C) mitjana de totes dues.
 - **Provisionalment:** A.
 - **Qui decideix:** equip
+
+### DP-036 · Editar i eliminar la meva valoració (`/events/{id}/ratings/me`)
+- **Estat:** oberta
+- **Obert per:** 2026-11-18 · Claude Code (Sonnet 5.5) · branca `feature/rating-edit-delete-205` (Taiga #205, US #61)
+- **Context:** `PUT /events/{id}/ratings/me` (cos `{"score": 1..5}`, el mateix que `POST`) → `200 {"user-id","event-id","score"}`; `DELETE /events/{id}/ratings/me` → `204`. L'usuari es resol de l'autenticació (només toca la seva valoració). Sense migració: `UPDATE`/`DELETE` sobre `EventRatings`. La fiabilitat de l'organitzador (`GetUserReliability`) és un `AVG` calculat en llegir, així que no cal recalcular res.
+- **Dubte:** (1) `PUT` retorna `200` (el `POST` retorna `201`); (2) `404` tant si l'esdeveniment no existeix com si l'usuari no té valoració (mateix codi, missatge diferent); (3) `RatingDate` es conserva en editar (alternativa: posar-la a `now()`); (4) no es torna a comprovar R10 en editar/eliminar (la valoració ja existeix); (5) si s'ha de poder eliminar/editar una valoració d'un esdeveniment ja finalitzat o esborrat; (6) SQL no provat contra BD real.
+- **Opcions:** A) `RatingDate` conservada · B) `RatingDate = now()` en editar.
+- **Provisionalment:** A.
+- **Qui decideix:** frontend + backend
 - **Resolució:**
 
 ## Resoltes

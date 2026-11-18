@@ -28,9 +28,32 @@ func (f *fakeService) Rate(_ context.Context, userID string, eventID, score int)
 	return rating_model.Rating{UserID: userID, EventID: eventID, Score: score}, f.err
 }
 
+func (f *fakeService) UpdateRating(_ context.Context, userID string, eventID, score int) (rating_model.Rating, error) {
+	f.calls++
+	f.gotScore = score
+	return rating_model.Rating{UserID: userID, EventID: eventID, Score: score}, f.err
+}
+
+func (f *fakeService) DeleteRating(context.Context, string, int) error {
+	f.calls++
+	return f.err
+}
+
 func (f *fakeService) HasAttended(_ context.Context, userID string, eventID int) (rating_model.AttendanceStatus, error) {
 	f.attendCalls++
 	return rating_model.AttendanceStatus{UserID: userID, EventID: eventID, HasAttended: f.hasAttended}, f.err
+}
+
+func send(svc *fakeService, method, path, body, userID string) *httptest.ResponseRecorder {
+	mux := http.NewServeMux()
+	NewRatingHandler(svc, nil).RegisterRoutes(mux)
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	if userID != "" {
+		req.Header.Set(requester.UserIDHeader, userID)
+	}
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	return rec
 }
 
 func post(svc *fakeService, path, body, userID string) *httptest.ResponseRecorder {
@@ -141,6 +164,71 @@ func TestHasAttendedHandler(t *testing.T) {
 			}
 			if tt.wantBody != "" && strings.TrimSpace(rec.Body.String()) != tt.wantBody {
 				t.Fatalf("body = %s, want %s", rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+func TestUpdateMine(t *testing.T) {
+	const path = "/events/7/ratings/me"
+	tests := []struct {
+		name       string
+		path       string
+		body       string
+		userID     string
+		err        error
+		wantStatus int
+		wantCalls  int
+	}{
+		{"ok", path, `{"score": 2}`, validUserID, nil, http.StatusOK, 1},
+		{"R9 out of range", path, `{"score": 9}`, validUserID, rating_service.ErrInvalidScore, http.StatusBadRequest, 1},
+		{"score missing", path, `{}`, validUserID, nil, http.StatusBadRequest, 0},
+		{"bad json", path, `nope`, validUserID, nil, http.StatusBadRequest, 0},
+		{"bad event id", "/events/x/ratings/me", `{"score": 3}`, validUserID, nil, http.StatusBadRequest, 0},
+		{"no user", path, `{"score": 3}`, "", nil, http.StatusUnauthorized, 0},
+		{"event not found", path, `{"score": 3}`, validUserID, rating_service.ErrEventNotFound, http.StatusNotFound, 1},
+		{"rating not found", path, `{"score": 3}`, validUserID, rating_service.ErrRatingNotFound, http.StatusNotFound, 1},
+		{"internal", path, `{"score": 3}`, validUserID, context.DeadlineExceeded, http.StatusInternalServerError, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &fakeService{err: tt.err}
+			rec := send(svc, http.MethodPut, tt.path, tt.body, tt.userID)
+			if rec.Code != tt.wantStatus || svc.calls != tt.wantCalls {
+				t.Fatalf("status = %d calls = %d, want %d / %d (%s)", rec.Code, svc.calls, tt.wantStatus, tt.wantCalls, rec.Body.String())
+			}
+		})
+	}
+	rec := send(&fakeService{}, http.MethodPut, path, `{"score": 4}`, validUserID)
+	want := `{"user-id":"` + validUserID + `","event-id":7,"score":4}`
+	if strings.TrimSpace(rec.Body.String()) != want {
+		t.Fatalf("body = %s, want %s", rec.Body.String(), want)
+	}
+}
+
+func TestDeleteMine(t *testing.T) {
+	const path = "/events/7/ratings/me"
+	tests := []struct {
+		name       string
+		path       string
+		userID     string
+		err        error
+		wantStatus int
+		wantCalls  int
+	}{
+		{"ok", path, validUserID, nil, http.StatusNoContent, 1},
+		{"bad event id", "/events/x/ratings/me", validUserID, nil, http.StatusBadRequest, 0},
+		{"no user", path, "", nil, http.StatusUnauthorized, 0},
+		{"event not found", path, validUserID, rating_service.ErrEventNotFound, http.StatusNotFound, 1},
+		{"rating not found", path, validUserID, rating_service.ErrRatingNotFound, http.StatusNotFound, 1},
+		{"internal", path, validUserID, context.DeadlineExceeded, http.StatusInternalServerError, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &fakeService{err: tt.err}
+			rec := send(svc, http.MethodDelete, tt.path, "", tt.userID)
+			if rec.Code != tt.wantStatus || svc.calls != tt.wantCalls {
+				t.Fatalf("status = %d calls = %d, want %d / %d (%s)", rec.Code, svc.calls, tt.wantStatus, tt.wantCalls, rec.Body.String())
 			}
 		})
 	}
