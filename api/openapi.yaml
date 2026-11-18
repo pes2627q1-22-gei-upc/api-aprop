@@ -591,9 +591,87 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /events/{id}/ratings:
+    parameters:
+      - $ref: '#/components/parameters/EventId'
+    post:
+      tags: [events]
+      operationId: rateEvent
+      summary: Valora un esdeveniment
+      description: >
+        Desa la valoració (`score` 1..5, R9) de l'usuari. Regla R10: l'usuari ha d'haver assistit
+        (inscripció amb `attendance = true`; R8 només permet fixar-la un cop l'esdeveniment ha començat), si no `403`.
+        Una sola valoració per usuari i esdeveniment: la repetida dona `409`. Veure DP-033.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [score]
+              properties:
+                score:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+      responses:
+        '201':
+          description: Valoració desada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Rating'
+        '400':
+          description: Id invàlid, cos invàlid o `score` fora de 1..5
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: L'usuari no ha assistit a l'esdeveniment (R10)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          $ref: '#/components/responses/EventNotFound'
+        '409':
+          description: L'usuari ja havia valorat l'esdeveniment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /events/{id}/enrollment/attendance:
     parameters:
       - $ref: '#/components/parameters/EventId'
+    get:
+      tags: [events]
+      operationId: hasAttendedEvent
+      summary: Consulta si l'usuari ha confirmat l'assistència a l'esdeveniment
+      description: >
+        Retorna `has-attended: true` si la inscripció de l'usuari autenticat té `attendance = true`
+        (per saber si pot valorar l'esdeveniment segons R10). Veure DP-033.
+        Alias equivalent: `GET /events/{id}/signup/attendance`.
+      responses:
+        '200':
+          description: Estat d'assistència confirmada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttendanceStatus'
+        '400':
+          $ref: '#/components/responses/InvalidSignUp'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/EventNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
     patch:
       tags: [signups]
       operationId: setAttendance
@@ -1803,6 +1881,30 @@ components:
         attendance:
           type: boolean
           nullable: true
+
+    AttendanceStatus:
+      type: object
+      required: [user-id, event-id, has-attended]
+      properties:
+        user-id:
+          type: string
+        event-id:
+          type: integer
+        has-attended:
+          type: boolean
+
+    Rating:
+      type: object
+      required: [user-id, event-id, score]
+      properties:
+        user-id:
+          type: string
+        event-id:
+          type: integer
+        score:
+          type: integer
+          minimum: 1
+          maximum: 5
 
     SyncRequest:
       type: object
