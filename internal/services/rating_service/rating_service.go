@@ -22,6 +22,7 @@ var (
 // Service contains the business logic for rating events.
 type Service interface {
 	Rate(ctx context.Context, userID string, eventID, score int) (rating_model.Rating, error)
+	HasAttended(ctx context.Context, userID string, eventID int) (rating_model.AttendanceStatus, error)
 }
 
 // EventChecker is the part of event_repository.Repository the service needs.
@@ -36,6 +37,29 @@ type RatingService struct {
 
 func NewRatingService(ratings rating_repository.Repository, events EventChecker) *RatingService {
 	return &RatingService{ratings: ratings, events: events}
+}
+
+// HasAttended reports whether the user has confirmed attendance (SignUp.Attendance = true) at the event.
+func (s *RatingService) HasAttended(ctx context.Context, userID string, eventID int) (rating_model.AttendanceStatus, error) {
+	userID, err := user_model.NormalizeID(userID)
+	if err != nil {
+		return rating_model.AttendanceStatus{}, err
+	}
+	if eventID <= 0 {
+		return rating_model.AttendanceStatus{}, fmt.Errorf("%w: %d", ErrInvalidEventID, eventID)
+	}
+	exists, err := s.events.EventExists(eventID)
+	if err != nil {
+		return rating_model.AttendanceStatus{}, err
+	}
+	if !exists {
+		return rating_model.AttendanceStatus{}, fmt.Errorf("check attendance for event %d: %w", eventID, ErrEventNotFound)
+	}
+	attended, err := s.ratings.HasAttended(ctx, userID, eventID)
+	if err != nil {
+		return rating_model.AttendanceStatus{}, err
+	}
+	return rating_model.AttendanceStatus{UserID: userID, EventID: eventID, HasAttended: attended}, nil
 }
 
 // Rate stores the user's rating of the event.

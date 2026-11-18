@@ -16,6 +16,7 @@ func (f fakeEvents) EventExists(int) (bool, error) { return f.exists, nil }
 
 type fakeRatings struct {
 	attended    bool
+	attendErr   error
 	created     bool
 	createErr   error
 	createCalls int
@@ -29,7 +30,7 @@ func (f *fakeRatings) Create(_ context.Context, _ string, _ int, score int) (boo
 }
 
 func (f *fakeRatings) HasAttended(context.Context, string, int) (bool, error) {
-	return f.attended, nil
+	return f.attended, f.attendErr
 }
 
 func TestR9_ScoreMustBeBetween1And5(t *testing.T) {
@@ -88,5 +89,28 @@ func TestRate_InvalidIDs(t *testing.T) {
 	}
 	if _, err := s.Rate(context.Background(), validUserID, 0, 4); !errors.Is(err, ErrInvalidEventID) {
 		t.Errorf("event: err = %v", err)
+	}
+}
+
+func TestHasAttended(t *testing.T) {
+	for _, want := range []bool{true, false} {
+		status, err := NewRatingService(&fakeRatings{attended: want}, fakeEvents{true}).HasAttended(context.Background(), validUserID, 7)
+		if err != nil || status.UserID != validUserID || status.EventID != 7 || status.HasAttended != want {
+			t.Errorf("want=%v: got %+v err=%v", want, status, err)
+		}
+	}
+
+	if _, err := NewRatingService(&fakeRatings{}, fakeEvents{false}).HasAttended(context.Background(), validUserID, 7); !errors.Is(err, ErrEventNotFound) {
+		t.Errorf("unknown event: err = %v, want ErrEventNotFound", err)
+	}
+	if _, err := NewRatingService(&fakeRatings{}, fakeEvents{true}).HasAttended(context.Background(), "nope", 7); !errors.Is(err, ErrInvalidUserID) {
+		t.Errorf("invalid user: err = %v, want ErrInvalidUserID", err)
+	}
+	if _, err := NewRatingService(&fakeRatings{}, fakeEvents{true}).HasAttended(context.Background(), validUserID, 0); !errors.Is(err, ErrInvalidEventID) {
+		t.Errorf("invalid event: err = %v, want ErrInvalidEventID", err)
+	}
+	wantErr := errors.New("db error")
+	if _, err := NewRatingService(&fakeRatings{attendErr: wantErr}, fakeEvents{true}).HasAttended(context.Background(), validUserID, 7); !errors.Is(err, wantErr) {
+		t.Errorf("repo error: err = %v, want %v", err, wantErr)
 	}
 }

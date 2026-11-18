@@ -217,38 +217,47 @@ func (r *EventRepository) CreateOrReplace(e event_model.Event) (event_model.Even
 // Delete removes the event together with its sign-ups, ratings, messages, notifications, categories,
 // preference test choices, chatbot recommendations and its official/unofficial row, in a single transaction.
 func (r *EventRepository) Delete(ctx context.Context, id int) error {
-	eventID := int32(id)
 	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
-		q := r.queries.WithTx(tx)
-		dependents := []struct {
-			name   string
-			delete func(context.Context, int32) error
-		}{
-			{"sign-ups", q.DeleteEventSignUps},
-			{"event ratings", q.DeleteEventRatings},
-			{"user ratings", q.DeleteEventUserRatings},
-			{"messages", q.DeleteEventMessages},
-			{"notifications", q.DeleteEventNotifications},
-			{"preference test choices", q.DeleteEventPreferenceTestChoices},
-			{"chatbot recommendations", q.DeleteEventChatbotRecommendations},
-			{"categories", q.RemoveExistingEventCategories},
-			{"unofficial event", q.DeleteUnofficialEvent},
-		}
-		for _, d := range dependents {
-			if err := d.delete(ctx, eventID); err != nil {
-				return fmt.Errorf("delete %s of event %d: %w", d.name, id, err)
-			}
-		}
-
-		deleted, err := q.DeleteEvent(ctx, eventID)
+		deleted, err := deleteEventTx(ctx, r.queries.WithTx(tx), int32(id))
 		if err != nil {
-			return fmt.Errorf("delete event %d: %w", id, err)
+			return err
 		}
 		if deleted == 0 {
 			return fmt.Errorf("delete event %d: %w", id, event_repository.ErrEventNotFound)
 		}
 		return nil
 	})
+}
+
+// deleteEventTx deletes an event and every row that depends on it with the queries of an open
+// transaction. It returns the number of deleted events (0 if it did not exist).
+// UserRepository.DeleteUser also uses it to delete the unofficial events of a user.
+func deleteEventTx(ctx context.Context, q *sqlc.Queries, eventID int32) (int64, error) {
+	dependents := []struct {
+		name   string
+		delete func(context.Context, int32) error
+	}{
+		{"sign-ups", q.DeleteEventSignUps},
+		{"event ratings", q.DeleteEventRatings},
+		{"user ratings", q.DeleteEventUserRatings},
+		{"messages", q.DeleteEventMessages},
+		{"notifications", q.DeleteEventNotifications},
+		{"preference test choices", q.DeleteEventPreferenceTestChoices},
+		{"chatbot recommendations", q.DeleteEventChatbotRecommendations},
+		{"categories", q.RemoveExistingEventCategories},
+		{"unofficial event", q.DeleteUnofficialEvent},
+	}
+	for _, d := range dependents {
+		if err := d.delete(ctx, eventID); err != nil {
+			return 0, fmt.Errorf("delete %s of event %d: %w", d.name, eventID, err)
+		}
+	}
+
+	deleted, err := q.DeleteEvent(ctx, eventID)
+	if err != nil {
+		return 0, fmt.Errorf("delete event %d: %w", eventID, err)
+	}
+	return deleted, nil
 }
 
 func (r *EventRepository) UpdateImage(ctx context.Context, id int, imageURL string) error {

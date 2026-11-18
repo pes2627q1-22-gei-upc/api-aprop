@@ -15,9 +15,11 @@ import (
 const validUserID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
 
 type fakeService struct {
-	err      error
-	calls    int
-	gotScore int
+	err         error
+	calls       int
+	gotScore    int
+	hasAttended bool
+	attendCalls int
 }
 
 func (f *fakeService) Rate(_ context.Context, userID string, eventID, score int) (rating_model.Rating, error) {
@@ -26,10 +28,27 @@ func (f *fakeService) Rate(_ context.Context, userID string, eventID, score int)
 	return rating_model.Rating{UserID: userID, EventID: eventID, Score: score}, f.err
 }
 
+func (f *fakeService) HasAttended(_ context.Context, userID string, eventID int) (rating_model.AttendanceStatus, error) {
+	f.attendCalls++
+	return rating_model.AttendanceStatus{UserID: userID, EventID: eventID, HasAttended: f.hasAttended}, f.err
+}
+
 func post(svc *fakeService, path, body, userID string) *httptest.ResponseRecorder {
 	mux := http.NewServeMux()
 	NewRatingHandler(svc, nil).RegisterRoutes(mux)
 	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	if userID != "" {
+		req.Header.Set(requester.UserIDHeader, userID)
+	}
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	return rec
+}
+
+func get(svc *fakeService, path, userID string) *httptest.ResponseRecorder {
+	mux := http.NewServeMux()
+	NewRatingHandler(svc, nil).RegisterRoutes(mux)
+	req := httptest.NewRequest(http.MethodGet, path, nil)
 	if userID != "" {
 		req.Header.Set(requester.UserIDHeader, userID)
 	}
@@ -76,5 +95,53 @@ func TestR9_CreatedBody(t *testing.T) {
 	want := `{"user-id":"` + validUserID + `","event-id":7,"score":4}`
 	if strings.TrimSpace(rec.Body.String()) != want {
 		t.Fatalf("body = %s, want %s", rec.Body.String(), want)
+	}
+}
+
+func TestHasAttendedHandler(t *testing.T) {
+	tests := []struct {
+		name       string
+		path       string
+		userID     string
+		attended   bool
+		err        error
+		wantStatus int
+		wantCalls  int
+		wantBody   string
+	}{
+		{
+			name:       "attended enrollment route",
+			path:       "/events/7/enrollment/attendance",
+			userID:     validUserID,
+			attended:   true,
+			wantStatus: http.StatusOK,
+			wantCalls:  1,
+			wantBody:   `{"user-id":"` + validUserID + `","event-id":7,"has-attended":true}`,
+		},
+		{
+			name:       "not attended signup route",
+			path:       "/events/7/signup/attendance",
+			userID:     validUserID,
+			attended:   false,
+			wantStatus: http.StatusOK,
+			wantCalls:  1,
+			wantBody:   `{"user-id":"` + validUserID + `","event-id":7,"has-attended":false}`,
+		},
+		{name: "bad event id", path: "/events/x/enrollment/attendance", userID: validUserID, wantStatus: http.StatusBadRequest, wantCalls: 0},
+		{name: "no user", path: "/events/7/enrollment/attendance", wantStatus: http.StatusUnauthorized, wantCalls: 0},
+		{name: "event not found", path: "/events/7/enrollment/attendance", userID: validUserID, err: rating_service.ErrEventNotFound, wantStatus: http.StatusNotFound, wantCalls: 1},
+		{name: "internal error", path: "/events/7/enrollment/attendance", userID: validUserID, err: context.DeadlineExceeded, wantStatus: http.StatusInternalServerError, wantCalls: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &fakeService{hasAttended: tt.attended, err: tt.err}
+			rec := get(svc, tt.path, tt.userID)
+			if rec.Code != tt.wantStatus || svc.attendCalls != tt.wantCalls {
+				t.Fatalf("status = %d calls = %d, want %d / %d (%s)", rec.Code, svc.attendCalls, tt.wantStatus, tt.wantCalls, rec.Body.String())
+			}
+			if tt.wantBody != "" && strings.TrimSpace(rec.Body.String()) != tt.wantBody {
+				t.Fatalf("body = %s, want %s", rec.Body.String(), tt.wantBody)
+			}
+		})
 	}
 }

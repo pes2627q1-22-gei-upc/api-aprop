@@ -24,6 +24,28 @@ func NewRatingHandler(service rating_service.Service, resolver requester.Resolve
 // RegisterRoutes registers the rating endpoints.
 func (h *RatingHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /events/{id}/ratings", h.Rate)
+	mux.HandleFunc("GET /events/{id}/enrollment/attendance", h.HasAttended)
+	mux.HandleFunc("GET /events/{id}/signup/attendance", h.HasAttended)
+}
+
+// HasAttended handles GET /events/{id}/enrollment/attendance and GET /events/{id}/signup/attendance.
+func (h *RatingHandler) HasAttended(w http.ResponseWriter, r *http.Request) {
+	eventID, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil {
+		response.WriteError(w, http.StatusBadRequest, "invalid event id")
+		return
+	}
+	userID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
+		return
+	}
+
+	status, err := h.service.HasAttended(r.Context(), userID, eventID)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	response.WriteJSON(w, http.StatusOK, status)
 }
 
 // Rate handles POST /events/{id}/ratings with body {"score": 1..5}.
@@ -59,7 +81,7 @@ func writeServiceError(w http.ResponseWriter, err error) {
 	case errors.Is(err, rating_service.ErrEventNotFound):
 		response.WriteError(w, http.StatusNotFound, "event not found")
 	case errors.Is(err, rating_service.ErrNotAttended):
-		// TODO(DP-030): 403 chosen for R10 (alternatives 409/422); no frontend contract yet.
+		// TODO(DP-033): 403 chosen for R10 (alternatives 409/422); no frontend contract yet.
 		response.WriteError(w, http.StatusForbidden, "only users who attended the event can rate it")
 	case errors.Is(err, rating_service.ErrAlreadyRated):
 		response.WriteError(w, http.StatusConflict, "user has already rated the event")

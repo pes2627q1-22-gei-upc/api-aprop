@@ -184,12 +184,21 @@ func (q *Queries) GetFriendRequests(ctx context.Context, receiver pgtype.UUID) (
 	return items, nil
 }
 
+const getSettings = `-- name: GetSettings :one
+SELECT id, showplans, notificationbefore from settings where id=$1
+`
+
+func (q *Queries) GetSettings(ctx context.Context, id int32) (Setting, error) {
+	row := q.db.QueryRow(ctx, getSettings, id)
+	var i Setting
+	err := row.Scan(&i.ID, &i.Showplans, &i.Notificationbefore)
+	return i, err
+}
+
 const getUserByFirebaseUIDWithSettings = `-- name: GetUserByFirebaseUIDWithSettings :one
 SELECT u.id, u.firebaseuid, u.username, u.name, u.email, u.profilepicture, u.biography,
-       u.dateregistered, u.accountstate, u.experience, u.level, u.rating, u.settings,
-       COALESCE(s.showplans, true)::boolean AS show_plans
+       u.dateregistered, u.accountstate, u.experience, u.level, u.rating, u.settings
 FROM Users u
-LEFT JOIN Settings s ON s.ID = u.Settings
 WHERE u.FirebaseUID = $1::varchar
 `
 
@@ -207,7 +216,6 @@ type GetUserByFirebaseUIDWithSettingsRow struct {
 	Level          pgtype.Int4
 	Rating         pgtype.Float4
 	Settings       int32
-	ShowPlans      bool
 }
 
 func (q *Queries) GetUserByFirebaseUIDWithSettings(ctx context.Context, firebaseUid string) (GetUserByFirebaseUIDWithSettingsRow, error) {
@@ -227,17 +235,14 @@ func (q *Queries) GetUserByFirebaseUIDWithSettings(ctx context.Context, firebase
 		&i.Level,
 		&i.Rating,
 		&i.Settings,
-		&i.ShowPlans,
 	)
 	return i, err
 }
 
 const getUserByUUID = `-- name: GetUserByUUID :one
 SELECT u.id, u.firebaseuid, u.username, u.name, u.email, u.profilepicture, u.biography,
-       u.dateregistered, u.accountstate, u.experience, u.level, u.rating, u.settings,
-       COALESCE(s.showplans, true)::boolean AS show_plans
+       u.dateregistered, u.accountstate, u.experience, u.level, u.rating, u.settings
 FROM Users u
-LEFT JOIN Settings s ON s.ID = u.Settings
 WHERE u.id = $1::uuid
 `
 
@@ -255,7 +260,6 @@ type GetUserByUUIDRow struct {
 	Level          pgtype.Int4
 	Rating         pgtype.Float4
 	Settings       int32
-	ShowPlans      bool
 }
 
 func (q *Queries) GetUserByUUID(ctx context.Context, uuid pgtype.UUID) (GetUserByUUIDRow, error) {
@@ -275,17 +279,14 @@ func (q *Queries) GetUserByUUID(ctx context.Context, uuid pgtype.UUID) (GetUserB
 		&i.Level,
 		&i.Rating,
 		&i.Settings,
-		&i.ShowPlans,
 	)
 	return i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
 SELECT u.id, u.firebaseuid, u.username, u.name, u.email, u.profilepicture, u.biography,
-       u.dateregistered, u.accountstate, u.experience, u.level, u.rating, u.settings,
-       COALESCE(s.showplans, true)::boolean AS show_plans
+       u.dateregistered, u.accountstate, u.experience, u.level, u.rating, u.settings
 FROM Users u
-LEFT JOIN Settings s ON s.ID = u.Settings
 WHERE LOWER(u.Username) = LOWER($1::varchar)
 `
 
@@ -303,7 +304,6 @@ type GetUserByUsernameRow struct {
 	Level          pgtype.Int4
 	Rating         pgtype.Float4
 	Settings       int32
-	ShowPlans      bool
 }
 
 func (q *Queries) GetUserByUsername(ctx context.Context, username string) (GetUserByUsernameRow, error) {
@@ -323,7 +323,6 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (GetUs
 		&i.Level,
 		&i.Rating,
 		&i.Settings,
-		&i.ShowPlans,
 	)
 	return i, err
 }
@@ -512,7 +511,7 @@ UPDATE Users SET
     Biography = COALESCE($3::varchar, Biography),
     ProfilePicture = COALESCE($4::varchar, ProfilePicture)
 WHERE ID = $5::uuid
-RETURNING firebaseuid, username, email, profilepicture, biography, dateregistered, accountstate, experience, level, rating, settings, name, uuid, id
+RETURNING firebaseuid, username, email, profilepicture, biography, dateregistered, accountstate, experience, level, rating, settings, name, id
 `
 
 type UpdateUserProfileParams struct {
@@ -545,7 +544,6 @@ func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfilePa
 		&i.Rating,
 		&i.Settings,
 		&i.Name,
-		&i.Uuid,
 		&i.ID,
 	)
 	return i, err
@@ -553,18 +551,20 @@ func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfilePa
 
 const updateUserSettings = `-- name: UpdateUserSettings :one
 UPDATE Settings SET
-    ShowPlans = $1::boolean
-WHERE ID = $2::integer
+    ShowPlans = $1::boolean,
+    NotificationBefore = ($2::varchar)::interval
+WHERE ID = $3::integer
 RETURNING id, showplans, notificationbefore
 `
 
 type UpdateUserSettingsParams struct {
-	ShowPlans bool
-	ID        int32
+	ShowPlans          bool
+	NotificationBefore string
+	ID                 int32
 }
 
 func (q *Queries) UpdateUserSettings(ctx context.Context, arg UpdateUserSettingsParams) (Setting, error) {
-	row := q.db.QueryRow(ctx, updateUserSettings, arg.ShowPlans, arg.ID)
+	row := q.db.QueryRow(ctx, updateUserSettings, arg.ShowPlans, arg.NotificationBefore, arg.ID)
 	var i Setting
 	err := row.Scan(&i.ID, &i.Showplans, &i.Notificationbefore)
 	return i, err

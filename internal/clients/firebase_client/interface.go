@@ -9,6 +9,13 @@ type User struct {
 }
 
 // Client verifies the ID tokens that the frontend gets when a user signs in with Firebase.
+// AccountDeleter deletes Firebase Auth accounts. It is apart from Client so the auth middleware and
+// its fakes do not need it.
+type AccountDeleter interface {
+	// DeleteUser deletes the account with the given UID. An account that does not exist is not an error.
+	DeleteUser(ctx context.Context, uid string) error
+}
+
 type Client interface {
 	VerifyUser(ctx context.Context, idToken string) (User, error)
 }

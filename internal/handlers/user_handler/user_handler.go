@@ -27,6 +27,7 @@ func NewUserHandler(userService user_service.Service, resolver requester.Resolve
 func (h *UserHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /users/me", h.GetMyProfile)
 	mux.HandleFunc("PATCH /users/me", h.UpdateMyProfile)
+	mux.HandleFunc("DELETE /users/me", h.DeleteMyAccount)
 	mux.HandleFunc("POST /users/me/avatar", h.UploadAvatar)
 	mux.HandleFunc("GET /users/{id}", h.GetUserProfile)
 	mux.HandleFunc("GET /users/{id}/created-events", h.ListCreatedEvents)
@@ -113,6 +114,20 @@ func (h *UserHandler) UpdateMyProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response.WriteJSON(w, http.StatusOK, profile)
+}
+
+// DeleteMyAccount erases the account of the requester and all its data (RGPD). Responds 204 on success.
+func (h *UserHandler) DeleteMyAccount(w http.ResponseWriter, r *http.Request) {
+	requesterID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
+		return
+	}
+
+	if err := h.userService.DeleteAccount(r.Context(), requesterID); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *UserHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
