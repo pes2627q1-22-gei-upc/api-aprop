@@ -282,7 +282,6 @@ type User struct {
 	Rating         pgtype.Float4
 	Settings       int32
 	Name           pgtype.Text
-	Uuid           pgtype.UUID
 	ID             pgtype.UUID
 }
 

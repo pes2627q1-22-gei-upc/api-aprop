@@ -11,7 +11,6 @@ import (
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/models/notification_model"
 	"api-aprop/internal/models/signup_model"
-	"api-aprop/internal/repositories/event_repository"
 	"api-aprop/internal/repositories/signup_repository"
 )
 
@@ -74,8 +73,8 @@ func (f *fakeEventRepository) Get(id int) (event_model.Event, error) {
 func (f *fakeEventRepository) List(params map[string]any) ([]event_model.Event, error) {
 	return []event_model.Event{}, nil
 }
-func (f *fakeEventRepository) ListActive(ctx context.Context) ([]event_repository.ActiveEvent, error) {
-	return []event_repository.ActiveEvent{}, nil
+func (f *fakeEventRepository) ListRecommended(ctx context.Context, userID pgtype.UUID, pageSize, pageOffset int) ([]event_model.Event, error) {
+	return []event_model.Event{}, nil
 }
 func (f *fakeEventRepository) GetPopular(pageSize int, pageNum int) ([]event_model.Event, error) {
 	return []event_model.Event{}, nil

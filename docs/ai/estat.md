@@ -13,7 +13,9 @@
 
 | Taiga | Història / Tasca | Repo | Branca | Responsable | Estat |
 |---|---|---|---|---|---|
-| **#51** | Llista d'esdeveniments recomanats (`GET /events/recommended` amb `Interès./pes` i `SignUp`) | `api-aprop` | `feature/recommended-events` | Wenqiang He | PR oberta #60 cap a `develop`, pendent de revisió humana i prova contra Supabase (`DP-030` oberta) |
+| **#51** | Llista d'esdeveniments recomanats (`GET /events/recommended` amb puntuació i paginació a SQL `recommendations.sql`) | `api-aprop` | `feature/recommended-events` | Wenqiang He | PR oberta #60 cap a `develop`, pendent de revisió i prova contra Supabase (`DP-034` oberta) |
+| **#112** | Endpoints per a Mobilicat: `POST /api/v1/congestion/estimate` (API key, snake_case) | `api-aprop` | `feature/mobilicat-endpoints` | Arnau Serra | Implementat i provat amb tests unitaris; SQL no provat contra BD; pendent de PR a `develop` (DP-032 oberta) |
+| **#116** | Endpoint `DELETE /users/me`: esborrat transaccional RGPD i baixa a Firebase Auth | `api-aprop` | `feature/delete-users` | Arnau Serra | Implementat amb tests unitaris; SQL no provat contra BD; PR a `develop` (DP-031 oberta) |
 | **#246** | Unificar la identificació de l'usuari (Firebase UID → UUID) i els helpers d'IDs | `api-aprop` | `feature/unificar-usuari` | Arnau Serra | Pendent de PR a `develop` (DP-011 segueix oberta per a notificacions) |
 | **#236** | Correccions dels endpoints d'esdeveniments (llistat, mapa, modificació, imatge, recomanats) | `api-aprop` | `Fix-esdeveniments` | Arnau Serra | PR oberta a `develop`, pendent de revisió (DP-026 oberta) |
 | **#228** | Adaptar i estructurar la documentació al backend | `api-aprop` | `documentation` | Wenqiang He | Documentació sincronitzada, adaptada a Go/Supabase i en revisió |
@@ -34,6 +36,6 @@
 
 ## Propers passos
 
-1. Revisar els canvis de la tasca **#51** (`feature/recommended-events`) i validar la consulta de `recommendations.sql` i els supòsits de `DP-030` contra Supabase.
+1. Revisar els canvis de la tasca **#51** (`feature/recommended-events`) i validar la consulta de `recommendations.sql` i els supòsits de `DP-034` contra Supabase.
 2. Finalitzar la branca `documentation` i preparar el commit per a revisió.
 3. Iniciar la implementació de la tasca **#226** a la branca `feature/interest-test` (endpoints per al test de 25 preguntes i càlcul de pesos de categories a `UserPreferences`).

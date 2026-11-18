@@ -163,3 +163,72 @@ func TestUploadAvatar_WithEndpoint(t *testing.T) {
 		t.Errorf("unexpected url: %s", url)
 	}
 }
+
+func TestDeleteAvatar(t *testing.T) {
+	const userID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
+	tests := []struct {
+		name     string
+		config   S3Config
+		url      string
+		status   int
+		wantPath string // empty: no request expected
+		wantErr  error
+	}{
+		{
+			name:     "endpoint url",
+			config:   S3Config{Bucket: "media", Endpoint: "http://storage.local/s3/"},
+			url:      "http://storage.local/s3/media/avatars/" + userID + "/avatar-1.png",
+			status:   http.StatusNoContent,
+			wantPath: "/s3/media/avatars/" + userID + "/avatar-1.png",
+		},
+		{
+			name:     "public url",
+			config:   S3Config{Bucket: "media", Endpoint: "http://storage.local", PublicURL: "https://cdn.aprop.cat/public"},
+			url:      "https://cdn.aprop.cat/public/avatars/" + userID + "/avatar-1.png",
+			status:   http.StatusOK,
+			wantPath: "/media/avatars/" + userID + "/avatar-1.png",
+		},
+		{
+			name:     "already deleted",
+			config:   S3Config{Bucket: "media", Endpoint: "http://storage.local"},
+			url:      "http://storage.local/media/avatars/" + userID + "/avatar-1.png",
+			status:   http.StatusNotFound,
+			wantPath: "/media/avatars/" + userID + "/avatar-1.png",
+		},
+		{
+			name:     "storage error",
+			config:   S3Config{Bucket: "media", Endpoint: "http://storage.local"},
+			url:      "http://storage.local/media/avatars/" + userID + "/avatar-1.png",
+			status:   http.StatusInternalServerError,
+			wantPath: "/media/avatars/" + userID + "/avatar-1.png",
+			wantErr:  ErrDeleteFailed,
+		},
+		{name: "empty url", config: S3Config{Bucket: "media", Endpoint: "http://storage.local"}, url: ""},
+		{name: "external url", config: S3Config{Bucket: "media", Endpoint: "http://storage.local"}, url: "https://lh3.googleusercontent.com/a/photo.jpg"},
+		{name: "avatar of another user", config: S3Config{Bucket: "media", Endpoint: "http://storage.local"}, url: "http://storage.local/media/avatars/other/avatar-1.png"},
+		{name: "event image", config: S3Config{Bucket: "media", Endpoint: "http://storage.local"}, url: "http://storage.local/media/events/1/poster-1.png"},
+		{name: "path traversal", config: S3Config{Bucket: "media", Endpoint: "http://storage.local"}, url: "http://storage.local/media/avatars/" + userID + "/../../events/1/poster.png"},
+		{name: "no endpoint", config: S3Config{Bucket: "media"}, url: "https://media.s3.eu-west-1.amazonaws.com/avatars/" + userID + "/avatar-1.png"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotMethod, gotPath string
+			httpClient := &http.Client{Transport: roundTripFunc(func(req *http.Request) *http.Response {
+				gotMethod, gotPath = req.Method, req.URL.Path
+				return &http.Response{StatusCode: tt.status, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}
+			})}
+
+			err := NewS3Client(httpClient, tt.config).DeleteAvatar(context.Background(), userID, tt.url)
+
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("err = %v, want %v", err, tt.wantErr)
+			}
+			if gotPath != tt.wantPath {
+				t.Errorf("request path = %q, want %q", gotPath, tt.wantPath)
+			}
+			if tt.wantPath != "" && gotMethod != http.MethodDelete {
+				t.Errorf("method = %s, want DELETE", gotMethod)
+			}
+		})
+	}
+}

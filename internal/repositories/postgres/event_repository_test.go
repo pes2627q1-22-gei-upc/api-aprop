@@ -145,27 +145,27 @@ func TestToGetEventRow_KeepsTicketsURL(t *testing.T) {
 	}
 }
 
-func TestGroupActiveEventRows(t *testing.T) {
-	if got := groupActiveEventRows(nil); len(got) != 0 {
+func TestGroupRecommendedEventRows(t *testing.T) {
+	if got := groupRecommendedEventRows(nil); len(got) != 0 {
 		t.Fatalf("empty input returned %d items, want 0", len(got))
 	}
 
-	rows := []sqlc.ListActiveEventsForRecommendationsRow{
-		{ID: 1, Title: "Concert", NumSignups: 12, Category: toText("Música"), Code: pgtype.Int8{Int64: 100, Valid: true}},
-		{ID: 1, Title: "Concert", NumSignups: 12, Category: toText("Cultura"), Code: pgtype.Int8{Int64: 100, Valid: true}},
-		{ID: 2, Title: "Sense categoria", NumSignups: 3, Category: pgtype.Text{}},
+	rows := []sqlc.ListRecommendedEventsRow{
+		{ID: 1, Title: "Concert", NumSignups: 12, Score: 2.5, Category: toText("Música"), Code: pgtype.Int8{Int64: 100, Valid: true}},
+		{ID: 1, Title: "Concert", NumSignups: 12, Score: 2.5, Category: toText("Cultura"), Code: pgtype.Int8{Int64: 100, Valid: true}},
+		{ID: 2, Title: "Teatre al carrer", NumSignups: 3, Score: 1.4, Category: toText("Teatre")},
 	}
-	got := groupActiveEventRows(rows)
+	got := groupRecommendedEventRows(rows)
 	if len(got) != 2 {
 		t.Fatalf("got %d events, want 2", len(got))
 	}
-	if got[0].Event.ID != 1 || got[0].SignUpCount != 12 || !slices.Equal(got[0].Event.Categories, []string{"Música", "Cultura"}) {
+	if got[0].ID != 1 || !slices.Equal(got[0].Categories, []string{"Música", "Cultura"}) {
 		t.Errorf("event[0] = %+v", got[0])
 	}
-	if !got[0].Event.IsOfficial {
+	if !got[0].IsOfficial {
 		t.Errorf("event[0] IsOfficial = false, want true")
 	}
-	if got[1].Event.ID != 2 || got[1].SignUpCount != 3 || len(got[1].Event.Categories) != 0 {
+	if got[1].ID != 2 || got[1].IsOfficial || !slices.Equal(got[1].Categories, []string{"Teatre"}) {
 		t.Errorf("event[1] = %+v", got[1])
 	}
 }

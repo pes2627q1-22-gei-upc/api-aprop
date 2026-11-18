@@ -125,7 +125,7 @@ func (h *EventHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetRecommendedEvents handles GET /events/recommended?pageSize={m}&pageNum={n}
-// TODO(DP-030): confirm whether pageSize/pageNum should be required or default like GET /events.
+// TODO(DP-034): confirm whether pageSize/pageNum should be required or default like GET /events.
 func (h *EventHandler) GetRecommendedEvents(w http.ResponseWriter, r *http.Request) {
 	pageSize, err := strconv.Atoi(r.URL.Query().Get("pageSize"))
 	if err != nil || pageSize <= 0 {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"strconv"
@@ -23,17 +24,20 @@ import (
 	"api-aprop/internal/drivers/postgres_driver"
 	"api-aprop/internal/handlers/assistant_handler"
 	"api-aprop/internal/handlers/auth_handler"
+	"api-aprop/internal/handlers/congestion_handler"
 	"api-aprop/internal/handlers/event_handler"
 	"api-aprop/internal/handlers/notification_handler"
 	"api-aprop/internal/handlers/preference_handler"
 	"api-aprop/internal/handlers/requester"
 	"api-aprop/internal/handlers/signup_handler"
 	"api-aprop/internal/handlers/user_handler"
+	"api-aprop/internal/middleware/apikey_middleware"
 	"api-aprop/internal/middleware/auth_middleware"
 	postgres_repository "api-aprop/internal/repositories/postgres"
 	"api-aprop/internal/router"
 	"api-aprop/internal/services/assistant_service"
 	"api-aprop/internal/services/auth_service"
+	"api-aprop/internal/services/congestion_service"
 	"api-aprop/internal/services/event_service"
 	"api-aprop/internal/services/notification_service"
 	"api-aprop/internal/services/preference_service"
@@ -61,6 +65,10 @@ const (
 	// CORS environment variable: comma separated origins that can call the API from a browser
 	corsEnvAllowedOrigins = "CORS_ALLOWED_ORIGINS" // optional, defaults to defaultCORSOrigins
 	defaultCORSOrigins    = "*"                    // any origin
+
+	// Mobilicat environment variables
+	mobilicatEnvAPIKey      = "MOBILICAT_API_KEY"      // optional: without it the congestion endpoint answers 503
+	mobilicatEnvCongestionK = "MOBILICAT_CONGESTION_K" // optional, defaults to congestion_service.DefaultK
 )
 
 func runDaily(task func()) {
@@ -207,6 +215,7 @@ func main() {
 	}).Handler
 
 	var authMiddleware func(http.Handler) http.Handler
+	var accountDeleter firebase_client.AccountDeleter // nil without Firebase: accounts are only deleted from the database
 	if _, err := os.Stat(firebaseCredentialsFile); err == nil {
 		firebaseClient, err := firebase_client.NewFirebaseClient(context.Background(), firebaseCredentialsFile)
 		if err != nil {
@@ -214,6 +223,7 @@ func main() {
 			os.Exit(1)
 		}
 		authMiddleware = auth_middleware.NewAuthMiddleware(firebaseClient)
+		accountDeleter = firebaseClient
 	} else {
 		slog.Warn("Firebase credentials file not found; running without auth middleware for local development", "file", firebaseCredentialsFile)
 		authMiddleware = func(next http.Handler) http.Handler { return next }
@@ -228,18 +238,20 @@ func main() {
 	userRepository := postgres_repository.NewUserRepository(postgresDriver.Pool())
 	notificationRepository := postgres_repository.NewNotificationRepository(postgresDriver.Pool())
 	preferenceRepository := postgres_repository.NewPreferenceRepository(postgresDriver.Pool())
+	congestionRepository := postgres_repository.NewCongestionRepository(postgresDriver.Pool())
 
 	// Services
-	eventService := event_service.NewEventService(eventRepository, preferenceRepository, gencatClient, s3Client).WithSignUpRepository(signUpRepository)
+	eventService := event_service.NewEventService(eventRepository, preferenceRepository, gencatClient, s3Client)
 	assistantService := assistant_service.NewAssistantService(
 		chatbotRepository, catalogueRepository, chatClient,
 		func() time.Time { return time.Now().In(location) }, assistant_service.ReplyTimeout,
 	).WithPreferences(preferenceRepository)
 	signUpService := signup_service.NewSignUpService(signUpRepository, eventRepository, notificationRepository)
 	authService := auth_service.NewAuthService(authRepository)
-	userService := user_service.NewUserService(userRepository, notificationRepository, s3Client)
+	userService := user_service.NewUserService(userRepository, notificationRepository, s3Client, accountDeleter)
 	notificationService := notification_service.NewNotificationService(notificationRepository)
 	preferenceService := preference_service.NewPreferenceService(preferenceRepository)
+	congestionService := congestion_service.NewCongestionService(congestionRepository, time.Now, location, congestionK())
 
 	// Handlers
 	eventHandler := event_handler.NewEventHandler(eventService, authService)
@@ -249,6 +261,7 @@ func main() {
 	userHandler := user_handler.NewUserHandler(userService, authService)
 	notificationHandler := notification_handler.NewNotificationHandler(notificationService)
 	preferenceHandler := preference_handler.NewPreferenceHandler(preferenceService, authService)
+	congestionHandler := congestion_handler.NewCongestionHandler(congestionService)
 
 	// Initial data
 	go func() {
@@ -271,6 +284,12 @@ func main() {
 	})
 
 	mux := http.NewServeMux()
+	// Endpoints for Mobilicat: protected by an API key instead of a Firebase token, so they are not in the router
+	mobilicatAPIKey := os.Getenv(mobilicatEnvAPIKey)
+	if mobilicatAPIKey == "" {
+		slog.Warn("Mobilicat API key not set; the congestion endpoint answers 503", "env", mobilicatEnvAPIKey)
+	}
+	mux.Handle(congestion_handler.EstimatePattern, apikey_middleware.New(mobilicatAPIKey)(http.HandlerFunc(congestionHandler.Estimate)))
 	mux.Handle("/", router.NewRouter(corsMiddleware, authMiddleware, eventHandler, assistantHandler, signUpHandler, authHandler, notificationHandler, userHandler, preferenceHandler))
 
 	// Server: HTTP/1.1 and HTTP/2 without TLS (h2c)
@@ -292,6 +311,20 @@ func main() {
 	if err := srv.ListenAndServe(); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
+}
+
+// congestionK reads the optional constant of the congestion formula; invalid values use the default.
+func congestionK() float64 {
+	value := os.Getenv(mobilicatEnvCongestionK)
+	if value == "" {
+		return congestion_service.DefaultK
+	}
+	k, err := strconv.ParseFloat(value, 64)
+	if err != nil || k <= 0 || math.IsNaN(k) || math.IsInf(k, 0) {
+		slog.Warn("Invalid congestion constant; using the default", "env", mobilicatEnvCongestionK, "value", value, "default", congestion_service.DefaultK)
+		return congestion_service.DefaultK
+	}
+	return k
 }
 
 // getEnv returns the value of a required environment variable and exits if it is not set.

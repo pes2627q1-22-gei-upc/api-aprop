@@ -217,38 +217,47 @@ func (r *EventRepository) CreateOrReplace(e event_model.Event) (event_model.Even
 // Delete removes the event together with its sign-ups, ratings, messages, notifications, categories,
 // preference test choices, chatbot recommendations and its official/unofficial row, in a single transaction.
 func (r *EventRepository) Delete(ctx context.Context, id int) error {
-	eventID := int32(id)
 	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
-		q := r.queries.WithTx(tx)
-		dependents := []struct {
-			name   string
-			delete func(context.Context, int32) error
-		}{
-			{"sign-ups", q.DeleteEventSignUps},
-			{"event ratings", q.DeleteEventRatings},
-			{"user ratings", q.DeleteEventUserRatings},
-			{"messages", q.DeleteEventMessages},
-			{"notifications", q.DeleteEventNotifications},
-			{"preference test choices", q.DeleteEventPreferenceTestChoices},
-			{"chatbot recommendations", q.DeleteEventChatbotRecommendations},
-			{"categories", q.RemoveExistingEventCategories},
-			{"unofficial event", q.DeleteUnofficialEvent},
-		}
-		for _, d := range dependents {
-			if err := d.delete(ctx, eventID); err != nil {
-				return fmt.Errorf("delete %s of event %d: %w", d.name, id, err)
-			}
-		}
-
-		deleted, err := q.DeleteEvent(ctx, eventID)
+		deleted, err := deleteEventTx(ctx, r.queries.WithTx(tx), int32(id))
 		if err != nil {
-			return fmt.Errorf("delete event %d: %w", id, err)
+			return err
 		}
 		if deleted == 0 {
 			return fmt.Errorf("delete event %d: %w", id, event_repository.ErrEventNotFound)
 		}
 		return nil
 	})
+}
+
+// deleteEventTx deletes an event and every row that depends on it with the queries of an open
+// transaction. It returns the number of deleted events (0 if it did not exist).
+// UserRepository.DeleteUser also uses it to delete the unofficial events of a user.
+func deleteEventTx(ctx context.Context, q *sqlc.Queries, eventID int32) (int64, error) {
+	dependents := []struct {
+		name   string
+		delete func(context.Context, int32) error
+	}{
+		{"sign-ups", q.DeleteEventSignUps},
+		{"event ratings", q.DeleteEventRatings},
+		{"user ratings", q.DeleteEventUserRatings},
+		{"messages", q.DeleteEventMessages},
+		{"notifications", q.DeleteEventNotifications},
+		{"preference test choices", q.DeleteEventPreferenceTestChoices},
+		{"chatbot recommendations", q.DeleteEventChatbotRecommendations},
+		{"categories", q.RemoveExistingEventCategories},
+		{"unofficial event", q.DeleteUnofficialEvent},
+	}
+	for _, d := range dependents {
+		if err := d.delete(ctx, eventID); err != nil {
+			return 0, fmt.Errorf("delete %s of event %d: %w", d.name, eventID, err)
+		}
+	}
+
+	deleted, err := q.DeleteEvent(ctx, eventID)
+	if err != nil {
+		return 0, fmt.Errorf("delete event %d: %w", eventID, err)
+	}
+	return deleted, nil
 }
 
 func (r *EventRepository) UpdateImage(ctx context.Context, id int, imageURL string) error {
@@ -707,7 +716,7 @@ func (r *EventRepository) GetPopular(pageSize int, pageNum int) ([]event_model.E
 	return events, nil
 }
 
-func activeRowToGetEventRow(row sqlc.ListActiveEventsForRecommendationsRow) sqlc.GetEventRow {
+func recommendedRowToGetEventRow(row sqlc.ListRecommendedEventsRow) sqlc.GetEventRow {
 	return sqlc.GetEventRow{
 		ID:           row.ID,
 		Title:        row.Title,
@@ -743,38 +752,36 @@ func activeRowToGetEventRow(row sqlc.ListActiveEventsForRecommendationsRow) sqlc
 	}
 }
 
-func groupActiveEventRows(rows []sqlc.ListActiveEventsForRecommendationsRow) []event_repository.ActiveEvent {
+func groupRecommendedEventRows(rows []sqlc.ListRecommendedEventsRow) []event_model.Event {
 	if len(rows) == 0 {
-		return []event_repository.ActiveEvent{}
+		return []event_model.Event{}
 	}
-	events := make([]event_repository.ActiveEvent, 0, len(rows))
+	events := make([]event_model.Event, 0, len(rows))
 	current := rows[0]
 	cats := []string{}
 	for _, row := range rows {
 		if row.ID != current.ID {
-			events = append(events, event_repository.ActiveEvent{
-				Event:       toModelExtended(activeRowToGetEventRow(current), cats),
-				SignUpCount: int(current.NumSignups),
-			})
+			events = append(events, toModelExtended(recommendedRowToGetEventRow(current), cats))
 			cats = []string{}
 			current = row
 		}
 		cats = appendCategory(cats, row.Category)
 	}
-	events = append(events, event_repository.ActiveEvent{
-		Event:       toModelExtended(activeRowToGetEventRow(current), cats),
-		SignUpCount: int(current.NumSignups),
-	})
+	events = append(events, toModelExtended(recommendedRowToGetEventRow(current), cats))
 	return events
 }
 
-// ListActive returns all active events (enddate IS NULL OR enddate > now()) with their categories and sign-up counts.
-func (r *EventRepository) ListActive(ctx context.Context) ([]event_repository.ActiveEvent, error) {
-	rows, err := r.queries.ListActiveEventsForRecommendations(ctx)
+// ListRecommended returns a paginated slice of active events ranked in SQL for userID.
+func (r *EventRepository) ListRecommended(ctx context.Context, userID pgtype.UUID, pageSize, pageOffset int) ([]event_model.Event, error) {
+	rows, err := r.queries.ListRecommendedEvents(ctx, sqlc.ListRecommendedEventsParams{
+		UserID:     userID,
+		PageOffset: int32(pageOffset),
+		PageSize:   int32(pageSize),
+	})
 	if err != nil {
-		return nil, fmt.Errorf("list active events: %w", err)
+		return nil, fmt.Errorf("list recommended events: %w", err)
 	}
-	return groupActiveEventRows(rows), nil
+	return groupRecommendedEventRows(rows), nil
 }
 
 func (r *EventRepository) EventExists(eventID int) (bool, error) {

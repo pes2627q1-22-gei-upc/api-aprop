@@ -94,7 +94,7 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Context:** `docs/ai/40-api-i-serveis.md`
 - **Dubte:** rutes, formats, autenticació i versionat dels serveis que intercanviem.
 - **Opcions:** —
-- **Provisionalment:** interfície + fake al backend quan es comenci la integració.
+- **Provisionalment:** interfície + fake al backend quan es comenci la integració. Mobilicat: primer endpoint `POST /api/v1/congestion/estimate` implementat; supòsits a DP-032.
 - **Qui decideix:** altre equip + backend
 - **Resolució:**
 
@@ -332,13 +332,59 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Qui decideix:** frontend + backend
 - **Resolució:**
 
-### DP-030 · Fórmula de recomanació, exclusió d'esdeveniments inscrits i paginació obligatòria
+### DP-030 · Especificació de la consulta GetUserProfile quan es completin els Settings
+- **Estat:** oberta
+- **Obert per:** 2026-11-17 · Lluc Paez · branca `fix/db-corrections` (Storyless)
+- **Context:** `GET /users/{id}`.
+- **Dubte:** (1) La consulta GET /users/{id} actualment retorna el camp showPlans dels Settings de l'usuari, cosa que s'entén perquè és necessari per calcular si els plans de l'usuari objectiu s'han de mostrar a l'usuari que fa la petició. El problema és la resta dels camps, com ara NotificationBefore, però també totes les altres configuracions que s'hauran d'afegir més tard. Hem de decidir què retorna aquesta consulta i què no. Penso que tindria més sentit fer una consulta separada per la resta de configuracions, ja que és informació que no cal per mostrar el perfil d'un usuari (i que els altres usuaris no haurien de tenir).
+- **Opcions:** A) GetUserProfile retorna ShowPlans però cap altre Setting. Els Settings s'obtindran amb una consulta separada GET users/{id}/settings o GET settings/{id} segons convingui. · B) GetUserProfile retorna tots els Settings.
+- **Provisionalment:** A.
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
+### DP-031 · Baixa del compte (`DELETE /users/me`): abast de l'esborrat RGPD
+- **Estat:** oberta
+- **Obert per:** 2026-11-16 · Claude Code (Opus 5.5) · branca `feature/delete-users` (Taiga #116)
+- **Context:** `UserRepository.DeleteUser` (`queries/account_deletion.sql`), `user_service.DeleteAccount`, `firebase_client.DeleteUser`, `s3_client.DeleteAvatar`. Opcions 1–3 confirmades per l'equip (Arnau) abans d'implementar.
+- **Dubte / supòsits:**
+  1. **Esborrat físic** (no anonimització): es treu la fila de `Users`, els seus `Settings` i totes les files que la referencien (notificacions pròpies i les d'altres sobre l'usuari, sol·licituds d'amistat, amistats, bloquejos, inscripcions, valoracions donades i **rebudes**, missatges, test i preferències, nivell, estat i converses del xatbot).
+  2. Els **esdeveniments no oficials creats per l'usuari s'esborren** amb les dades que en depenen (inscripcions i valoracions d'altres usuaris incloses), reutilitzant la lògica de `DELETE /events/{id}` (`deleteEventTx`). Els altres usuaris no en reben cap avís.
+  3. L'**avatar** s'esborra de S3 després del commit, en mode best-effort (un error només es registra). Les imatges dels esdeveniments esborrats **no** s'eliminen de S3. La petició `DELETE` a S3 no va signada, igual que la pujada actual.
+  4. Ordre: transacció a la BD → baixa a Firebase (dins la transacció, abans del commit; si falla → `502` i rollback) → commit. Si el commit fallés després d'esborrar el compte de Firebase, les dades quedarien a la BD sense compte: es registra amb `slog.Error` i s'han d'esborrar a mà. Un compte de Firebase inexistent no és error (idempotent).
+  5. Sense credencials de Firebase (desenvolupament local) només s'esborra de la BD.
+  6. No es demana cap confirmació addicional (contrasenya o reautenticació recent) al backend: la confirmació és responsabilitat del frontend.
+  7. No s'ha provat contra PostgreSQL/Supabase (sense BD a l'entorn de desenvolupament): només tests unitaris.
+- **Opcions:** —
+- **Provisionalment:** els supòsits anteriors.
+- **Qui decideix:** equip (backend + frontend)
+- **Resolució:**
+
+### DP-032 · Contracte amb Mobilicat: estimació de congestió
+- **Estat:** oberta
+- **Obert per:** 2026-11-16 · Claude Code (Opus 5.5) · branca `feature/mobilicat-endpoints` (Taiga #112)
+- **Context:** `POST /api/v1/congestion/estimate` (`congestion_handler`, `congestion_service`, `queries/congestion.sql`), segons el correu de Mobilicat. Opcions 1–4 confirmades per l'equip (Arnau) abans d'implementar; la resta són supòsits pendents de Mobilicat.
+- **Dubte / supòsits:**
+  1. JSON en **snake_case** (`start_time`, `radius_km`, `congestion_factor`, `events_count`) tal com el correu, excepció a la regla kebab-case del projecte.
+  2. Autenticació amb capçalera `X-API-Key` comparada amb `MOBILICAT_API_KEY` (sense la clau configurada → `503`; clau absent o incorrecta → `401`). Cal fer arribar la clau a Mobilicat per un canal privat.
+  3. Fórmula: `score = Σ(1 + inscripcions no marcades com a absents)`, `factor = 0.1 + 0.9·(1 − e^(−score/K))`, K = 20 (`MOBILICAT_CONGESTION_K`), arrodonit a 2 decimals. Nivells: `LOW` < 0.4 ≤ `MEDIUM` < 0.7 ≤ `HIGH`.
+  4. Compten els esdeveniments (oficials i no oficials) amb coordenades dins del radi (haversine) i dates que se solapen amb la franja, excepte els de modalitat `Online`. Un esdeveniment no permanent sense data de fi dura un dia; un de permanent sense data de fi, indefinidament. Sense `StartDate` no compta.
+  5. Granularitat de dia: `Events.StartDate/EndDate` són `date`, així que la franja es converteix a dies de `Europe/Madrid`; les hores de `start_time`/`end_time` no afinen més.
+  6. Valors per defecte: sense `timeframe` → ara; només `start_time` → `end_time = start_time`; només `end_time` → `start_time = ara`; `end_time < start_time` → `400`. Radi per defecte 1 km (també si és 0), màxim 50 km.
+  7. Límits: 1–100 ubicacions per petició; `id` obligatori i retornat; resultats en el mateix ordre. A més de `locations`, s'accepta un objecte `location` individual ("ubicació individual o array" del correu).
+  8. Sense versionat més enllà del prefix `/api/v1` del correu ni límit de peticions (rate limit).
+  9. Mètode `POST` tot i ser una operació de només lectura (segura i idempotent): el cos porta fins a 100 ubicacions amb `id` i una franja niuada, que no caben bé a la query string, i un `GET` amb cos no té semàntica definida (RFC 9110) i molts clients i proxies el descarten. Si Mobilicat ho demana, es pot afegir `GET /api/v1/congestion/estimate?latitude=…&longitude=…` per a una sola ubicació.
+- **Opcions:** —
+- **Provisionalment:** els supòsits anteriors.
+- **Qui decideix:** Mobilicat + backend
+- **Resolució:**
+
+### DP-034 · Fórmula de recomanació en SQL, exclusió d'esdeveniments inscrits i paginació obligatòria
 - **Estat:** oberta
 - **Obert per:** 2026-11-17 · Antigravity · Taiga #51 (`feature/recommended-events`)
-- **Context:** `internal/services/event_service/event_service.go` (`GetRecommendedEvents`, `scoreRecommendedEvent`), `internal/handlers/event_handler/event_handler.go` (`GetRecommendedEvents`) i `internal/repositories/postgres/queries/recommendations.sql`
-- **Dubte:** (1) La tasca demana combinar `Interès./pes` (`UserPreferences`) i `SignUp`, però no fixa una fórmula exacta ni si els esdeveniments on l'usuari ja està inscrit s'han d'excloure o només penalitzar; (2) tampoc no especifica si `pageSize` i `pageNum` han de ser obligatoris amb `pageSize > 0` i `pageNum >= 0` (`400` en cas contrari) o si han de tenir valors per defecte com a `GET /events` (`defaultPageSize = 20`, `pageNum = 0`); (3) `ListActiveEventsForRecommendations` a `recommendations.sql` s'ha generat amb `sqlc` v1.31.1 dins del repositori (`sqlc diff` net), però no s'ha executat encara contra una BD PostgreSQL/Supabase real.
-- **Opcions:** A) Excloure els esdeveniments on l'usuari ja està inscrit, puntuar com a mitjana per categoria de `(pes_preferència [1.0 per defecte] + min(inscripcions_categoria * 0.5, 2.0))` + `min(0.1 * ln(1 + inscripcions_globals), 0.5)` i exigir `pageSize > 0` i `pageNum >= 0` · B) Incloure els ja inscrits (penalitzats o no), ajustar pesos/topalls o posar valors per defecte de paginació.
-- **Provisionalment:** A (`TODO(DP-030)` a `event_service.go` i `event_handler.go`).
+- **Context:** `internal/services/event_service/event_service.go` (`GetRecommendedEvents`), `internal/handlers/event_handler/event_handler.go` (`GetRecommendedEvents`) i `internal/repositories/postgres/queries/recommendations.sql` (`ListRecommendedEvents`)
+- **Dubte:** (1) La tasca demana combinar `Interès./pes` (`UserPreferences`) i `SignUp`, però no fixa una fórmula exacta ni si els esdeveniments on l'usuari ja està inscrit s'han d'excloure o només penalitzar; (2) tampoc no especifica si `pageSize` i `pageNum` han de ser obligatoris amb `pageSize > 0` i `pageNum >= 0` (`400` en cas contrari) o si han de tenir valors per defecte com a `GET /events` (`defaultPageSize = 20`, `pageNum = 0`); (3) `ListRecommendedEvents` a `recommendations.sql` calcula la puntuació, ordena i pagina (`LIMIT`/`OFFSET`) directament a PostgreSQL (generat amb `sqlc` v1.31.1), però encara no s'ha executat contra una BD PostgreSQL/Supabase real.
+- **Opcions:** A) Excloure els esdeveniments on l'usuari ja està inscrit, puntuar a SQL com a mitjana per categoria de `(COALESCE(pes_preferència, 1.0) + LEAST(inscripcions_categoria * 0.5, 2.0))` + `LEAST(0.1 * LN(1 + inscripcions_globals), 0.5)` i exigir `pageSize > 0` i `pageNum >= 0` · B) Incloure els ja inscrits (penalitzats o no), ajustar pesos/topalls o posar valors per defecte de paginació.
+- **Provisionalment:** A (`TODO(DP-034)` a `event_service.go` i `event_handler.go`).
 - **Qui decideix:** backend + equip
 - **Resolució:**
 
