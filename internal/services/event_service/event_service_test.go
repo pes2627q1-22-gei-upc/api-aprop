@@ -50,9 +50,18 @@ type fakeEventRepository struct {
 	state      string
 	stateErr   error
 	stateCalls int
+	// Cancel
+	notified    int64
+	cancelErr   error
+	cancelCalls int
 }
 
 func (f *fakeEventRepository) EventExists(id int) (bool, error) { return false, nil }
+
+func (f *fakeEventRepository) Cancel(_ context.Context, _ int) (int64, error) {
+	f.cancelCalls++
+	return f.notified, f.cancelErr
+}
 
 func (f *fakeEventRepository) GetUnofficialState(_ context.Context, _ int) (string, error) {
 	f.stateCalls++
