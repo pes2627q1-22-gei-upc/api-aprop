@@ -50,6 +50,7 @@ import (
 	"api-aprop/internal/services/signup_service"
 	"api-aprop/internal/services/user_service"
 	"api-aprop/migrations"
+	"api-aprop/supabase"
 )
 
 const (
@@ -181,7 +182,7 @@ func main() {
 	defer postgresDriver.Close()
 
 	// Migrate database
-	if err := postgresDriver.MigrateFS(migrations.EmbedFS, dbConfig.GetConnectionString()); err != nil {
+	if err := postgresDriver.MigrateFSWithSupabase(migrations.EmbedFS, supabase.MigrationsFS); err != nil {
 		slog.Error("Error migrating database", "error", err)
 		os.Exit(1)
 	}
