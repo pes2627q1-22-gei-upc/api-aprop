@@ -101,6 +101,7 @@ paths:
         Ordenats per data de fi ascendent (els que no en tenen, al final).
         Un filtre amb un format invàlid respon `500` (el repositori no distingeix l'error).
       parameters:
+        - $ref: '#/components/parameters/Lang'
         - name: pageSize
           in: query
           description: Nombre d'esdeveniments per pàgina. Si no s'envia val 0 i la llista és buida.
@@ -212,6 +213,7 @@ paths:
       summary: Cerca ponderada per paraules clau
       description: Cerca al títol, l'espai, el municipi i la descripció. Amb una cerca buida es retorna un resultat buit.
       parameters:
+        - $ref: '#/components/parameters/Lang'
         - name: q
           in: query
           description: Text a cercar (també s'accepta `search`)
@@ -247,6 +249,48 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /events/popular:
+    get:
+      tags: [events]
+      operationId: getPopularEvents
+      summary: Llista d'esdeveniments populars
+      description: Esdeveniments ordenats per popularitat, paginats. Admet `lang` com la resta de llistes d'esdeveniments.
+      parameters:
+        - $ref: '#/components/parameters/Lang'
+        - name: pageSize
+          in: query
+          required: true
+          description: Nombre d'esdeveniments per pàgina
+          schema:
+            type: integer
+            minimum: 1
+          example: 20
+        - name: pageNum
+          in: query
+          required: true
+          description: Número de pàgina, començant per 0
+          schema:
+            type: integer
+            minimum: 0
+          example: 0
+      responses:
+        '200':
+          description: Llista paginada d'esdeveniments populars (pot ser buida)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Event'
+        '400':
+          description: "`pageSize`, `pageNum` o `lang` invàlids"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /events/recommended:
     get:
       tags: [events]
@@ -258,6 +302,7 @@ paths:
         categoria (`UserPreferences`), l'afinitat per categories de les seves inscripcions
         (`SignUp`) i la popularitat global (nombre d'inscripcions).
       parameters:
+        - $ref: '#/components/parameters/Lang'
         - name: pageSize
           in: query
           required: true
@@ -313,6 +358,7 @@ paths:
         Sense cap coordenada es retorna tot el món. Si se n'envia alguna, calen les quatre.
         També disponible a `GET /event/map`.
       parameters:
+        - $ref: '#/components/parameters/Lang'
         - $ref: '#/components/parameters/MinLat'
         - $ref: '#/components/parameters/MaxLat'
         - $ref: '#/components/parameters/MinLng'
@@ -337,6 +383,7 @@ paths:
       operationId: listMapEventsLegacy
       summary: Àlies de GET /events/map
       parameters:
+        - $ref: '#/components/parameters/Lang'
         - $ref: '#/components/parameters/MinLat'
         - $ref: '#/components/parameters/MaxLat'
         - $ref: '#/components/parameters/MinLng'
@@ -366,6 +413,8 @@ paths:
         Per als esdeveniments no oficials, inclou `creator-name` (nom visible del creador) i
         `creator-reliability` (mitjana de valoracions rebudes als seus esdeveniments no oficials, o
         `null` si encara no en té cap). Als oficials tots dos són `null`.
+      parameters:
+        - $ref: '#/components/parameters/Lang'
       responses:
         '200':
           description: Esdeveniment
@@ -1056,6 +1105,7 @@ paths:
       operationId: listCreatedEvents
       summary: Esdeveniments no oficials creats per un usuari
       parameters:
+        - $ref: '#/components/parameters/Lang'
         - $ref: '#/components/parameters/UserIdentifier'
       responses:
         '200':
@@ -1112,6 +1162,7 @@ paths:
         (inclusiu; cada límit és opcional).
         TODO(DP-011): no es comprova que l'usuari autenticat sigui el que es consulta.
       parameters:
+        - $ref: '#/components/parameters/Lang'
         - name: userId
           in: path
           required: true
@@ -1541,6 +1592,18 @@ components:
       description: 'Firebase ID token de l''usuari (`Authorization: Bearer <token>`)'
 
   parameters:
+    Lang:
+      name: lang
+      in: query
+      required: false
+      description: |
+        Idioma dels textos de l'esdeveniment (`title` i `description`): `ca`, `es` o `en`. Si no s'envia, s'usa
+        l'idioma de la configuració de l'usuari (`language`) i, sense usuari, l'original (`ca`). Un valor invàlid
+        respon `400`. Les traduccions són automàtiques i es guarden a la BD; si el servei de
+        traducció no està disponible, es retorna el text original sense error.
+      schema:
+        type: string
+        enum: [ca, es, en]
     EventId:
       name: id
       in: path
@@ -2255,6 +2318,10 @@ components:
         show-plans:
           type: boolean
           description: Preferència de privacitat de l'usuari
+        language:
+          type: string
+          enum: [ca, es, en]
+          description: Idioma de l'usuari (configuració). Només al perfil propi.
         is-friend:
           type: boolean
           description: Només al perfil d'un altre usuari
@@ -2278,6 +2345,10 @@ components:
           type: string
         show-plans:
           type: boolean
+        language:
+          type: string
+          enum: [ca, es, en]
+          description: Idioma de l'usuari. Un altre valor respon `400`.
 
     Notification:
       type: object

@@ -586,3 +586,42 @@ func TestSetAttendance(t *testing.T) {
 		})
 	}
 }
+
+// langTranslator prefixes the title with the language it was asked for.
+type langTranslator struct{}
+
+func (langTranslator) UserLanguage(context.Context, string) (string, error) { return "ca", nil }
+func (langTranslator) TranslateEvent(_ context.Context, lang string, e event_model.Event) event_model.Event {
+	e.Title = "[" + lang + "] " + e.Title
+	return e
+}
+func (langTranslator) TranslateEvents(_ context.Context, lang string, events []event_model.Event) []event_model.Event {
+	out := make([]event_model.Event, len(events))
+	for i, e := range events {
+		e.Title = "[" + lang + "] " + e.Title
+		out[i] = e
+	}
+	return out
+}
+func (langTranslator) TranslateMapEvents(_ context.Context, _ string, events []event_model.MapEvent) []event_model.MapEvent {
+	return events
+}
+
+func TestListUserEvents_Lang(t *testing.T) {
+	s := &fakeService{events: []event_model.Event{{ID: 1, Title: "Festa"}}}
+	mux := http.NewServeMux()
+	NewSignUpHandler(s, fakeResolver{id: validUserID}).WithTranslator(langTranslator{}).RegisterRoutes(mux)
+	base := "/users/" + validUserID + "/events?from=2026-01-01&to=2026-12-31"
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, base+"&lang=en", nil))
+	var got []event_model.Event
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != http.StatusOK || got[0].Title != "[en] Festa" {
+		t.Errorf("status %d, body %s, err %v", rec.Code, rec.Body.String(), err)
+	}
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, base+"&lang=fr", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("lang=fr: status = %d, want 400", rec.Code)
+	}
+}

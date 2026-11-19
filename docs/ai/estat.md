@@ -13,6 +13,7 @@
 
 | Taiga | Història / Tasca | Repo | Branca | Responsable | Estat |
 |---|---|---|---|---|---|
+| **#28** | Canviar idioma (part backend): `Settings.Language` (`ca`/`es`/`en`), `?lang=` als endpoints d'esdeveniments i traducció automàtica (`TRANSLATOR_URL`) amb cau a `EventTranslations` | `api-aprop` | `feature/change-language-28` | Wenqiang He | Implementat i provat (tests unitaris + migració 000022 contra PostgreSQL + traductor desplegat a Cloudflare Workers AI); pendent de PR a `develop` (DP-043 oberta) |
 | **#147** | Xat d'esdeveniment: migració `EventMessages` (R1) i `GET`/`POST /events/{id}/messages` amb inscripció obligatòria (R11) | `api-aprop` | `feature/xat-esdeveniment` | Arnau Serra | Implementat amb tests unitaris; migració 000019 i SQL no provats contra BD; PR oberta a `develop` (DP-040 oberta) |
 | **#118** | Recuperar contrasenya (part backend): `POST /auth/password-reset` amb correu o nom d'usuari | `api-aprop` | `feature/recuperar-contrasenya` | Arnau Serra | Implementat amb tests unitaris; enviament real no provat (cal `FIREBASE_WEB_API_KEY`); part frontend pendent (DP-039 oberta) |
 | **#188** | Endpoint `PUT /events/{id}`: autoria, tipus `NoOficial`, estat actiu i R5 | `api-aprop` | `feature/modificar-esdeveniment` | Arnau Serra | Implementat amb tests unitaris; migració 000018 i SQL no provats contra BD; pendent de PR a `develop` (DP-038 oberta) |

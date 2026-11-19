@@ -60,6 +60,20 @@ Totes les respostes i cossos de petició utilitzen claus JSON en **kebab-case**.
 | `GET /users?q=<query>&pageNum=<n>&pageSize=<n>` | `UserHandler.SearchUsers` | Cerca usuaris pel nom d'usuari o el nom (conté el text, sense distingir majúscules; els comodins `%` i `_` es cerquen literalment). Exclou l'usuari que cerca, els usuaris bloquejats en qualsevol sentit i els comptes que no estan en estat `Active`. Primer les coincidències exactes i les que comencen pel text. Paginat com `GET /events/search` (`pageNum` des de 0, `pageSize` 20 per defecte, màxim 50). Resposta `{query, total, page-num, page-size, users: [{id, username, name, profile-picture}]}`; `q` buit → pàgina buida; `400` paginació invàlida o `q` > 100 caràcters; `401` sense identitat | Implementat (DP-037) |
 | `DELETE /users/me` | `UserHandler.DeleteMyAccount` | Baixa del compte (RGPD): esborra en una transacció l'usuari, la seva configuració, els esdeveniments no oficials que ha creat (amb les dades que en depenen) i totes les files que el referencien; dins la transacció esborra el compte de Firebase Auth i, després del commit, l'avatar de S3 (best-effort). `204`; `401` sense identitat; `404` usuari inexistent; `502` si Firebase falla (no s'esborra res) | Implementat (DP-031) |
 
+### Idioma i traducció d'esdeveniments (US #28)
+Idiomes: `ca` (original, per defecte), `es`, `en`. L'idioma de l'usuari es guarda a `Settings.Language` i es llegeix/modifica
+amb el camp `language` de `GET /users/me` (només al perfil propi) i `PATCH /users/me` (`400` si no és `ca`/`es`/`en`).
+
+Els endpoints que retornen esdeveniments (`GET /events`, `/events/{id}`, `/events/search`, `/events/map`, `/event/map`, `/events/recommended`,
+`/events/popular`, `/users/{id}/created-events`, `/users/{userId}/events`) accepten `?lang=ca|es|en`. Resolució: `?lang` → idioma de
+l'usuari autenticat → original. `lang` invàlid → `400`. Es tradueixen `title` i `description` (no `subtitle`, `schedule`, etc.).
+El xatbot (`assistant_handler`) **no** tradueix (DP-043).
+
+Traducció: `translate_client` (`POST {TRANSLATOR_URL}/translate`, `TRANSLATOR_API_KEY` opcional; desplegat sobre Cloudflare Workers AI) →
+`translation_service`, que cacheja a `EventTranslations` (clau `(Event, Lang)`, `SourceHash` = SHA-256 del títol i la descripció
+originals: si l'esdeveniment canvia, es torna a traduir). Sense `TRANSLATOR_URL`, o si el servei falla, es retorna el text original
+(i es registra el motiu); mai no falla la petició. Detalls i supòsits a DP-043.
+
 ### Integració amb Mobilicat (`congestion_handler`)
 Fora del router i del middleware de Firebase: s'autentica amb la capçalera `X-API-Key` (`MOBILICAT_API_KEY`).
 **Excepció:** claus JSON en **snake_case**, segons el contracte acordat amb Mobilicat (DP-032).
