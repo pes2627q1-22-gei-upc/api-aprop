@@ -40,7 +40,7 @@ Totes les respostes i cossos de petició utilitzen claus JSON en **kebab-case**.
 | Mètode i ruta | Handler | Descripció | Estat |
 |---|---|---|---|
 | `GET /events/{id}/messages?pageNum=<n>&pageSize=<n>` | `MessageHandler.ListMessages` | Missatges del xat de l'esdeveniment, del més nou al més antic, amb l'autor (`user-id`, `username`, `name`, `profile-picture`). Només per als inscrits (R11, `403`). Resposta `{event-id, total, page-num, page-size, messages: [...]}`; `pageNum` des de 0, `pageSize` 50 per defecte i màxim 100 (`400` si no); `404` si l'esdeveniment no existeix | Implementat (Tasca #147, DP-040) |
-| `POST /events/{id}/messages` | `MessageHandler.SendMessage` | Envia un missatge (cos `{"text": "..."}`, retallat, 1–1000 caràcters). R11: l'autor ha d'estar inscrit (`403`). `201` amb el missatge; `400`/`401`/`404`; `409` si el mateix usuari n'envia dos en el mateix instant (clau R1). Taula `EventMessages` (migració 000019) | Implementat (Tasca #147, DP-040) |
+| `POST /events/{id}/messages` | `MessageHandler.SendMessage` | Envia un missatge (cos `{"text": "..."}`, retallat, 1–1000 caràcters). R11: l'autor ha d'estar inscrit (`403`). `201` amb el missatge; `400`/`401`/`404`; `409` si el mateix usuari n'envia dos en el mateix instant (clau R1). Taula `EventMessages` (migració 000019); el text es desa comprimit amb DEFLATE quan ocupa menys (`bytea` amb byte de format) | Implementat (Tasca #147, DP-040) |
 
 ### Assistent Virtual i Xatbot (`assistant_handler`)
 | Mètode i ruta | Handler | Descripció | Estat |

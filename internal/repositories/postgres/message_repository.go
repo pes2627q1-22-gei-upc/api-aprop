@@ -31,7 +31,11 @@ func (r *MessageRepository) Create(ctx context.Context, userID string, eventID i
 	if err != nil {
 		return message_model.Message{}, err
 	}
-	row, err := r.queries.CreateEventMessage(ctx, sqlc.CreateEventMessageParams{UserID: uid, EventID: int32(eventID), Message: text})
+	encoded, err := encodeMessage(text)
+	if err != nil {
+		return message_model.Message{}, err
+	}
+	row, err := r.queries.CreateEventMessage(ctx, sqlc.CreateEventMessageParams{UserID: uid, EventID: int32(eventID), Message: encoded})
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
 		switch pgErr.Code {
@@ -44,7 +48,7 @@ func (r *MessageRepository) Create(ctx context.Context, userID string, eventID i
 	if err != nil {
 		return message_model.Message{}, fmt.Errorf("send message to event %d: %w", eventID, err)
 	}
-	return toMessage(eventID, row.Userid, row.Username, row.Name, row.Profilepicture, row.Message, row.Datesent), nil
+	return toMessage(eventID, row.Userid, row.Username, row.Name, row.Profilepicture, row.Message, row.Datesent)
 }
 
 func (r *MessageRepository) List(ctx context.Context, eventID, limit, offset int) ([]message_model.Message, error) {
@@ -58,7 +62,11 @@ func (r *MessageRepository) List(ctx context.Context, eventID, limit, offset int
 	}
 	messages := make([]message_model.Message, 0, len(rows))
 	for _, row := range rows {
-		messages = append(messages, toMessage(eventID, row.Userid, row.Username, row.Name, row.Profilepicture, row.Message, row.Datesent))
+		message, err := toMessage(eventID, row.Userid, row.Username, row.Name, row.Profilepicture, row.Message, row.Datesent)
+		if err != nil {
+			return nil, fmt.Errorf("list messages of event %d: %w", eventID, err)
+		}
+		messages = append(messages, message)
 	}
 	return messages, nil
 }
@@ -83,7 +91,11 @@ func (r *MessageRepository) IsSignedUp(ctx context.Context, userID string, event
 	return ok, nil
 }
 
-func toMessage(eventID int, userID pgtype.UUID, username string, name, picture pgtype.Text, text string, sent pgtype.Timestamp) message_model.Message {
+func toMessage(eventID int, userID pgtype.UUID, username string, name, picture pgtype.Text, encoded []byte, sent pgtype.Timestamp) (message_model.Message, error) {
+	text, err := decodeMessage(encoded)
+	if err != nil {
+		return message_model.Message{}, err
+	}
 	return message_model.Message{
 		UserID:         userID.String(),
 		Username:       username,
@@ -92,5 +104,5 @@ func toMessage(eventID int, userID pgtype.UUID, username string, name, picture p
 		EventID:        eventID,
 		Text:           text,
 		DateSent:       sent.Time,
-	}
+	}, nil
 }

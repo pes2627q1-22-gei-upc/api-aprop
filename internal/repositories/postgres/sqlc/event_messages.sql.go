@@ -27,7 +27,7 @@ func (q *Queries) CountEventMessages(ctx context.Context, eventID int32) (int64,
 const createEventMessage = `-- name: CreateEventMessage :one
 WITH m AS (
     INSERT INTO EventMessages (UserID, Event, DateSent, Message)
-    VALUES ($1::uuid, $2::integer, now(), $3::text)
+    VALUES ($1::uuid, $2::integer, now(), $3::bytea)
     RETURNING UserID, Message, DateSent
 )
 SELECT m.UserID, u.Username, u.Name, u.ProfilePicture, m.Message, m.DateSent
@@ -38,7 +38,7 @@ JOIN Users u ON u.ID = m.UserID
 type CreateEventMessageParams struct {
 	UserID  pgtype.UUID
 	EventID int32
-	Message string
+	Message []byte
 }
 
 type CreateEventMessageRow struct {
@@ -46,11 +46,12 @@ type CreateEventMessageRow struct {
 	Username       string
 	Name           pgtype.Text
 	Profilepicture pgtype.Text
-	Message        string
+	Message        []byte
 	Datesent       pgtype.Timestamp
 }
 
 // Stores a chat message of the event and returns it with its author. DateSent is part of the R1 key.
+// message is the text encoded by the repository (format byte + plain or compressed text, DP-040).
 func (q *Queries) CreateEventMessage(ctx context.Context, arg CreateEventMessageParams) (CreateEventMessageRow, error) {
 	row := q.db.QueryRow(ctx, createEventMessage, arg.UserID, arg.EventID, arg.Message)
 	var i CreateEventMessageRow
@@ -85,7 +86,7 @@ type ListEventMessagesRow struct {
 	Username       string
 	Name           pgtype.Text
 	Profilepicture pgtype.Text
-	Message        string
+	Message        []byte
 	Datesent       pgtype.Timestamp
 }
 

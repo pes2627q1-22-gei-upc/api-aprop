@@ -1,8 +1,9 @@
 -- name: CreateEventMessage :one
 -- Stores a chat message of the event and returns it with its author. DateSent is part of the R1 key.
+-- message is the text encoded by the repository (format byte + plain or compressed text, DP-040).
 WITH m AS (
     INSERT INTO EventMessages (UserID, Event, DateSent, Message)
-    VALUES (sqlc.arg(user_id)::uuid, sqlc.arg(event_id)::integer, now(), sqlc.arg(message)::text)
+    VALUES (sqlc.arg(user_id)::uuid, sqlc.arg(event_id)::integer, now(), sqlc.arg(message)::bytea)
     RETURNING UserID, Message, DateSent
 )
 SELECT m.UserID, u.Username, u.Name, u.ProfilePicture, m.Message, m.DateSent
