@@ -465,6 +465,24 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Qui decideix:** frontend + backend
 - **Resolució:**
 
+### DP-040 · Xat d'esdeveniment: taula `EventMessages` i `GET`/`POST /events/{id}/messages`
+- **Estat:** oberta
+- **Obert per:** 2026-11-19 · Claude Code (Opus 5.5) · branca `feature/xat-esdeveniment` (Taiga #147)
+- **Context:** `message_handler`, `message_service`, `queries/event_messages.sql`, migració 000019. La tasca demanava una migració de la taula `event_messages`, però la taula ja existia com a `Messages` (migració 000001) amb la PK `(UserID, Event, DateSent)`, que és la clau R1 (autor + esdeveniment + dataEnviament). L'equip (Arnau) ha triat reanomenar-la.
+- **Dubte / supòsits:**
+  1. Migració 000019: `Messages` → `EventMessages` (com `EventRatings`), `DateSent DEFAULT now()`, `CHECK` de text retallat entre 1 i 1000 caràcters i índex `(Event, DateSent DESC)`. Es mantenen la PK i les FK. S'han actualitzat `DeleteUserMessages` i `DeleteEventMessages`. Si ja hi hagués missatges buits o de més de 1000 caràcters, la migració fallaria (fins ara cap endpoint no n'escrivia).
+  2. R11 també s'aplica a la lectura: només els inscrits poden veure el xat (`403` en tots dos casos, com R10 a les valoracions). «Inscripció activa» = existeix una fila a `SignUp` (desapuntar-se l'esborra).
+  3. El creador d'un esdeveniment no oficial no hi té accés si no s'hi ha inscrit.
+  4. No es comprova l'estat de l'esdeveniment (`Withdrawn`), ni si ja ha acabat, ni els bloqueigs entre usuaris: tots els inscrits veuen tots els missatges.
+  5. Paginació: del més nou al més antic, `pageNum` des de 0, `pageSize` 50 per defecte i màxim 100. Sense temps real (el client fa polling).
+  6. Dos missatges del mateix usuari al mateix esdeveniment en el mateix microsegon violen la clau R1 → `409`.
+  7. Cada missatge porta `user-id`, `username`, `name`, `profile-picture`, `event-id`, `text` i `date-sent`.
+  8. La migració i les consultes no s'han provat contra PostgreSQL/Supabase; `event_messages.sql.go` s'ha escrit a mà en el format de sqlc.
+- **Opcions:** —
+- **Provisionalment:** els supòsits anteriors.
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
 ## Resoltes
 
 (cap)

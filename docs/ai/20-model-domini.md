@@ -28,7 +28,7 @@
 | Categoria | Tipus d'activitat (teatre, dansa…) | nom (únic). Cada Esdeveniment en té ≥ 1 |
 | Inscripció | Usuari apuntat a un Esdeveniment | exportadaGoogle, *assistència*? (bool) |
 | Valoració | Puntuació 1–5 d'un esdeveniment assistit | *puntuació* |
-| Missatge | Xat d'un Esdeveniment | text, *dataEnviament*, → autor, → Esdeveniment |
+| Missatge | Xat d'un Esdeveniment | text, *dataEnviament*, → autor, → Esdeveniment. Taula `EventMessages` (migració 000019) |
 | Interès | Grau d'interès Usuari–Categoria | /pes |
 | TestInteressos | Test inicial de 25 Esdeveniments (1 per Usuari) | |
 | RespostaTest | M'agrada / no m'agrada per Esdeveniment del test | valor |
