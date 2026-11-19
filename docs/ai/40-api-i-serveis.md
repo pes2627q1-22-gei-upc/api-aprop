@@ -18,6 +18,7 @@ Totes les respostes i cossos de petició utilitzen claus JSON en **kebab-case**.
 | `POST /events` | `EventHandler.CreateEvent` | Creació d'esdeveniments no oficials | Implementat |
 | `PUT /events/{id}` | `EventHandler.UpdateEvent` | Modificació d'un esdeveniment no oficial: només el creador (`403` si no ho és o si és oficial), només si l'estat és `Active` (`409` si no, p. ex. `Withdrawn`) i complint R5 contra la data de creació (`400`) | Implementat (DP-038) |
 | `DELETE /events/{id}` | `EventHandler.DeleteEvent` | Esborrat d'un esdeveniment no oficial i de les dades que en depenen (només el creador; 204) | Implementat |
+| `POST /events/{id}/cancel` | `EventHandler.CancelEvent` | Cancel·lació d'un esdeveniment no oficial: només el creador (`403`). En una transacció, l'estat passa d'`Active` a `Cancelled` i cada inscrit (excepte el creador) rep una notificació `Cancelacio` («<títol> s'ha cancel·lat.»). `200` amb `{event-id, state, notified-users}`; `409` si ja no és actiu o ja ha acabat; `404` si no existeix. Després, `PUT /events/{id}` respon `409` | Implementat (Tasca #180, DP-041) |
 | `GET /events/map` | `EventHandler.ListMapEvents` | Esdeveniments amb coordenades i metadades bàsiques per al mapa | Implementat |
 | `GET /categories` | `EventHandler.GetCategories` | Llistat de totes les categories del catàleg | Implementat |
 | `GET /categories/{id}` | `EventHandler.GetCategory` | Detall d'una categoria específica | Implementat |

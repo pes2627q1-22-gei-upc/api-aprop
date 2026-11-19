@@ -431,6 +431,41 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /events/{id}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/EventId'
+    post:
+      tags: [events]
+      operationId: cancelEvent
+      summary: Cancel·la un esdeveniment no oficial
+      description: >
+        Només el creador. L'estat de l'esdeveniment passa d'`Active` a `Cancelled` i cada usuari inscrit (excepte el
+        creador) rep una notificació de tipus `Cancelacio`, tot en una transacció. Un esdeveniment cancel·lat ja no es
+        pot modificar (`PUT` respon `409`). No es poden cancel·lar els esdeveniments ja acabats. Veure DP-041.
+      responses:
+        '200':
+          description: Esdeveniment cancel·lat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventCancellation'
+        '400':
+          $ref: '#/components/responses/InvalidEventId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/NotCreator'
+        '404':
+          $ref: '#/components/responses/EventNotFound'
+        '409':
+          description: L'esdeveniment ja no és actiu (cancel·lat o retirat) o ja ha acabat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /events/{id}/image:
     parameters:
       - $ref: '#/components/parameters/EventId'
@@ -2003,6 +2038,19 @@ components:
           type: integer
         has-attended:
           type: boolean
+
+    EventCancellation:
+      type: object
+      required: [event-id, state, notified-users]
+      properties:
+        event-id:
+          type: integer
+        state:
+          type: string
+          enum: [Cancelled]
+        notified-users:
+          type: integer
+          description: Nombre d'usuaris inscrits que han rebut la notificació de cancel·lació
 
     Rating:
       type: object
