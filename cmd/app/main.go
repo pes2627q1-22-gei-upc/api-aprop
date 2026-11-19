@@ -258,7 +258,7 @@ func main() {
 		func() time.Time { return time.Now().In(location) }, assistant_service.ReplyTimeout,
 	).WithPreferences(preferenceRepository)
 	signUpService := signup_service.NewSignUpService(signUpRepository, eventRepository, notificationRepository)
-	ratingService := rating_service.NewRatingService(ratingRepository, eventRepository)
+	ratingService := rating_service.NewRatingService(ratingRepository, eventRepository, userRepository)
 	messageService := message_service.NewMessageService(messageRepository, eventRepository)
 	authService := auth_service.NewAuthService(authRepository)
 	userService := user_service.NewUserService(userRepository, notificationRepository, s3Client, accountDeleter)

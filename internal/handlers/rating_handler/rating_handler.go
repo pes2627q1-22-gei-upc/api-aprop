@@ -26,6 +26,10 @@ func (h *RatingHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /events/{id}/ratings", h.Rate)
 	mux.HandleFunc("PUT /events/{id}/ratings/me", h.UpdateMine)
 	mux.HandleFunc("DELETE /events/{id}/ratings/me", h.DeleteMine)
+	mux.HandleFunc("POST /events/{id}/creator/ratings", h.RateUser)
+	//TODO
+	//mux.HandleFunc("PUT /events/{id}/creator/ratings/me", h.UpdateUserRating)
+	//mux.HandleFunc("DELETE /events/{id}/creator/ratings/me", h.DeleteUserRating)
 	mux.HandleFunc("GET /events/{id}/enrollment/attendance", h.HasAttended)
 	mux.HandleFunc("GET /events/{id}/signup/attendance", h.HasAttended)
 }
@@ -70,6 +74,33 @@ func (h *RatingHandler) Rate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rating, err := h.service.Rate(r.Context(), userID, eventID, *body.Score)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	response.WriteJSON(w, http.StatusCreated, rating)
+}
+
+func (h *RatingHandler) RateUser(w http.ResponseWriter, r *http.Request) {
+	eventID, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil {
+		response.WriteError(w, http.StatusBadRequest, "invalid event id")
+		return
+	}
+
+	userID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
+		return
+	}
+	var body struct {
+		Score *int `json:"score"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Score == nil {
+		response.WriteError(w, http.StatusBadRequest, `invalid body, expected {"score": 1..5}`)
+		return
+	}
+
+	rating, err := h.service.RateUser(r.Context(), userID, eventID, *body.Score)
 	if err != nil {
 		writeServiceError(w, err)
 		return

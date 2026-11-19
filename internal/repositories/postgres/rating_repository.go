@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/repositories/postgres/sqlc"
@@ -36,6 +37,14 @@ func (r *RatingRepository) Create(ctx context.Context, userID string, eventID, s
 	}
 	if err != nil {
 		return false, fmt.Errorf("rate event %d: %w", eventID, err)
+	}
+	return rows > 0, nil
+}
+
+func (r *RatingRepository) CreateUserRating(ctx context.Context, userID pgtype.UUID, targetID pgtype.UUID, eventID int, score int) (bool, error) {
+	rows, err := r.queries.CreateUserRating(ctx, sqlc.CreateUserRatingParams{Rater: userID, Rated: targetID, Event: int32(eventID), Rating: int32(score)})
+	if err != nil {
+		return false, err
 	}
 	return rows > 0, nil
 }

@@ -32,6 +32,32 @@ func (q *Queries) CreateEventRating(ctx context.Context, arg CreateEventRatingPa
 	return result.RowsAffected(), nil
 }
 
+const createUserRating = `-- name: CreateUserRating :execrows
+INSERT INTO UserRatings (rater, rated, ratingdate, event, rating)
+VALUES ($1::uuid, $2::uuid, now(), $3::integer, $4::integer)
+ON CONFLICT (rater, rated, event) DO NOTHING
+`
+
+type CreateUserRatingParams struct {
+	Rater  pgtype.UUID
+	Rated  pgtype.UUID
+	Event  int32
+	Rating int32
+}
+
+func (q *Queries) CreateUserRating(ctx context.Context, arg CreateUserRatingParams) (int64, error) {
+	result, err := q.db.Exec(ctx, createUserRating,
+		arg.Rater,
+		arg.Rated,
+		arg.Event,
+		arg.Rating,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteEventRating = `-- name: DeleteEventRating :execrows
 DELETE FROM EventRatings
 WHERE UserID = $1::uuid AND Event = $2::integer
@@ -44,6 +70,24 @@ type DeleteEventRatingParams struct {
 
 func (q *Queries) DeleteEventRating(ctx context.Context, arg DeleteEventRatingParams) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteEventRating, arg.UserID, arg.EventID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteUserRating = `-- name: DeleteUserRating :execrows
+DELETE FROM UserRatings
+WHERE rater=$1::uuid and rated=$2::uuid
+`
+
+type DeleteUserRatingParams struct {
+	Rater pgtype.UUID
+	Rated pgtype.UUID
+}
+
+func (q *Queries) DeleteUserRating(ctx context.Context, arg DeleteUserRatingParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteUserRating, arg.Rater, arg.Rated)
 	if err != nil {
 		return 0, err
 	}
@@ -83,6 +127,25 @@ type UpdateEventRatingParams struct {
 // Changes the score of the user's own rating; RatingDate is kept (DP-036).
 func (q *Queries) UpdateEventRating(ctx context.Context, arg UpdateEventRatingParams) (int64, error) {
 	result, err := q.db.Exec(ctx, updateEventRating, arg.Rating, arg.UserID, arg.EventID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updateUserRating = `-- name: UpdateUserRating :execrows
+UPDATE UserRatings SET Rating=$1::integer
+WHERE rater=$2::uuid and rated=$3::uuid
+`
+
+type UpdateUserRatingParams struct {
+	Rating int32
+	Rater  pgtype.UUID
+	Rated  pgtype.UUID
+}
+
+func (q *Queries) UpdateUserRating(ctx context.Context, arg UpdateUserRatingParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateUserRating, arg.Rating, arg.Rater, arg.Rated)
 	if err != nil {
 		return 0, err
 	}

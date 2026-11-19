@@ -5,8 +5,11 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"api-aprop/internal/models/rating_model"
 	"api-aprop/internal/models/user_model"
+	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/repositories/rating_repository"
 )
 
@@ -20,26 +23,24 @@ var (
 	ErrRatingNotFound = errors.New("rating not found")
 )
 
-// Service contains the business logic for rating events.
-type Service interface {
-	Rate(ctx context.Context, userID string, eventID, score int) (rating_model.Rating, error)
-	HasAttended(ctx context.Context, userID string, eventID int) (rating_model.AttendanceStatus, error)
-	UpdateRating(ctx context.Context, userID string, eventID, score int) (rating_model.Rating, error)
-	DeleteRating(ctx context.Context, userID string, eventID int) error
-}
-
 // EventChecker is the part of event_repository.Repository the service needs.
 type EventChecker interface {
 	EventExists(id int) (bool, error)
+	Get(id int) (event_model.Event, error)
+}
+
+type UserChecker interface {
+	GetByID(ctx context.Context, userID pgtype.UUID) (user_model.User, error)
 }
 
 type RatingService struct {
-	ratings rating_repository.Repository
-	events  EventChecker
+	ratings 	rating_repository.Repository
+	users		UserChecker
+	events  	EventChecker
 }
 
-func NewRatingService(ratings rating_repository.Repository, events EventChecker) *RatingService {
-	return &RatingService{ratings: ratings, events: events}
+func NewRatingService(ratings rating_repository.Repository, events EventChecker, users UserChecker) *RatingService {
+	return &RatingService{ratings: ratings, events: events, users: users}
 }
 
 // HasAttended reports whether the user has confirmed attendance (SignUp.Attendance = true) at the event.
@@ -105,8 +106,62 @@ func (s *RatingService) Rate(ctx context.Context, userID string, eventID, score 
 	return rating_model.Rating{UserID: userID, EventID: eventID, Score: score}, nil
 }
 
-// UpdateRating changes the score of the user's own rating (R9: 1..5). The organizer's Users.Rating is refreshed by the
-// EventRatings trigger (migration 000017), so nothing else needs recalculating.
+func (s *RatingService) RateUser(ctx context.Context, userID string, eventID int, score int) (rating_model.UserRating, error) {
+	userID, err := user_model.NormalizeID(userID)
+	if err != nil {
+		return rating_model.UserRating{}, err
+	}
+	
+	if score < 1 || score > 5 {
+		return rating_model.UserRating{}, fmt.Errorf("%w: %d", ErrInvalidScore, score)
+	}
+
+	rateruid, err := user_model.ParseID(userID)
+	if err!=nil{
+		return rating_model.UserRating{}, fmt.Errorf("%w: %d", ErrInvalidScore, score)
+	}
+	
+	rater, err := s.users.GetByID(ctx, rateruid)
+	if err!=nil{
+		return rating_model.UserRating{}, err
+	}
+
+	exists, err := s.events.EventExists(eventID)
+	if err != nil {
+		return rating_model.UserRating{}, err
+	}
+	if !exists {
+		return rating_model.UserRating{}, fmt.Errorf("rate organizer of event %d: %w", eventID, ErrEventNotFound)
+	}
+	attended, err := s.ratings.HasAttended(ctx, userID, eventID)
+	if err != nil {
+		return rating_model.UserRating{}, err
+	}
+	if !attended {
+		return rating_model.UserRating{}, fmt.Errorf("rate organizer of event %d: %w", eventID, ErrNotAttended)
+	}
+
+	event, err := s.events.Get(eventID)
+	if err!=nil{
+		return rating_model.UserRating{}, err
+	}
+	creator := event.Creator
+	if !creator.Valid{
+		return rating_model.UserRating{}, err
+	}
+
+	created, err := s.ratings.CreateUserRating(ctx, rater.ID, creator, eventID, score)
+	if err != nil {
+		return rating_model.UserRating{}, err
+	}
+	if !created {
+		return rating_model.UserRating{}, fmt.Errorf("rate organizer of event %d: user already rated", eventID)
+	}
+	return rating_model.UserRating{Rater: userID, Rated: UUIDToString(creator), Score: score}, nil
+}
+
+// UpdateRating changes the score of the user's own rating (R9: 1..5). The event's Event.Rating is refreshed by the
+// EventRatings trigger (migration 000020), so nothing else needs recalculating.
 // TODO(DP-036): R10 is not re-checked on edit/delete, nor whether the event already ended; RatingDate is kept.
 func (s *RatingService) UpdateRating(ctx context.Context, userID string, eventID, score int) (rating_model.Rating, error) {
 	userID, err := user_model.NormalizeID(userID)
@@ -163,4 +218,16 @@ func (s *RatingService) requireEvent(eventID int) error {
 		return fmt.Errorf("event %d: %w", eventID, ErrEventNotFound)
 	}
 	return nil
+}
+
+func UUIDToString(id pgtype.UUID) string {
+    if !id.Valid {
+        return ""
+    }
+
+    b := id.Bytes
+    return fmt.Sprintf(
+        "%08x-%04x-%04x-%04x-%012x",
+        b[0:4], b[4:6], b[6:8], b[8:10], b[10:16],
+    )
 }
