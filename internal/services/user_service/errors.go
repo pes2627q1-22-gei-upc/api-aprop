@@ -16,6 +16,6 @@ var (
 	ErrNotFriends           = errors.New("requester and target are not friends")
 	ErrSameUser             = errors.New("requester and target cannot be the same")
 	// ErrAuthProvider means Firebase Auth could not delete the account, so nothing was deleted.
-	ErrAuthProvider 		= errors.New("could not delete the authentication account")
-	ErrInvalidInterval		= errors.New("invalid format for time interval")
+	ErrAuthProvider    = errors.New("could not delete the authentication account")
+	ErrInvalidInterval = errors.New("invalid format for time interval")
 )

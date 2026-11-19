@@ -68,8 +68,8 @@ type FriendRequest struct {
 }
 
 type Settings struct {
-	ID                 int    	`json:"id"`
-	ShowPlans          bool   	`json:"show-plans"`
-	NotificationBefore string	`json:"notification-before"`
-	AllowedNotifTypes  []int	`json:"allowed-notif-types"`
+	ID                 int    `json:"id"`
+	ShowPlans          bool   `json:"show-plans"`
+	NotificationBefore string `json:"notification-before"`
+	AllowedNotifTypes  []int  `json:"allowed-notif-types"`
 }

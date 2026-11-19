@@ -101,14 +101,14 @@ func (s *userService) DeleteAccount(ctx context.Context, requesterID string) err
 	return nil
 }
 
-func (s *userService) GetSettings(ctx context.Context, userId string) (user_model.Settings, error){
+func (s *userService) GetSettings(ctx context.Context, userId string) (user_model.Settings, error) {
 	user, err := s.findUser(ctx, userId)
-	if err!=nil{
+	if err != nil {
 		return user_model.Settings{}, err
 	}
 
 	settings, err := s.userRepo.GetSettings(ctx, user.Settings)
-	if err!=nil{
+	if err != nil {
 		return user_model.Settings{}, err
 	}
 	return settings, nil
@@ -251,7 +251,7 @@ func (s *userService) ListReceivedRatings(ctx context.Context, targetIdentifier 
 func (s *userService) UpdateProfile(ctx context.Context, requesterIdentifier string, input UpdateProfileInput) (user_model.UserProfile, error) {
 	settingsChanged := false
 	profileChanged := false
-	
+
 	if requesterIdentifier == "" {
 		return user_model.UserProfile{}, ErrUnauthorized
 	}
@@ -294,7 +294,7 @@ func (s *userService) UpdateProfile(ctx context.Context, requesterIdentifier str
 		profileChanged = true
 	}
 
-	if input.ProfilePicture != nil{
+	if input.ProfilePicture != nil {
 		profileChanged = true
 	}
 
@@ -303,12 +303,12 @@ func (s *userService) UpdateProfile(ctx context.Context, requesterIdentifier str
 		settingsChanged = true
 	}
 
-	if input.NotificationBefore!=nil{
+	if input.NotificationBefore != nil {
 		settings.NotificationBefore = *(input.NotificationBefore)
 		settingsChanged = true
 	}
 
-	if input.AllowedNotifTypes!=nil{
+	if input.AllowedNotifTypes != nil {
 		settings.AllowedNotifTypes = *(input.AllowedNotifTypes)
 		settingsChanged = true
 	}
@@ -326,7 +326,7 @@ func (s *userService) UpdateProfile(ctx context.Context, requesterIdentifier str
 
 	if settingsChanged {
 		err := s.userRepo.UpdateSettings(ctx, settings)
-		if errors.Is(err, user_repository.ErrInvalidInterval){
+		if errors.Is(err, user_repository.ErrInvalidInterval) {
 			return user_model.UserProfile{}, ErrInvalidInterval
 		} else if err != nil {
 			return user_model.UserProfile{}, err

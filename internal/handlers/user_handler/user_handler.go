@@ -41,7 +41,7 @@ func (h *UserHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /users/me/settings", h.GetSettings)
 }
 
-func (h *UserHandler) GetSettings(w http.ResponseWriter, r *http.Request){
+func (h *UserHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
 	requesterID, ok := requester.ID(w, r, h.resolver)
 	if !ok {
 		return

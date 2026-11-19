@@ -76,16 +76,16 @@ func (r *NotificationRepository) GetNotificationTypes() ([]notification_model.No
 
 func (r *NotificationRepository) Create(n notification_model.Notification) (int, error) {
 	user, err := r.queries.GetUserByUUID(context.Background(), n.UserID)
-	if err!=nil{
+	if err != nil {
 		return 0, fmt.Errorf("fetch user: %w", err)
 	}
 
 	settings, err := r.queries.GetSettings(context.Background(), int32(user.Settings))
-	if err!=nil{
+	if err != nil {
 		return 0, fmt.Errorf("fetch settings: %w", err)
 	}
 
-	for _, v := range(settings){
+	for _, v := range settings {
 		if v.Notificationtype == int32(n.Type) {
 			row, err := r.queries.CreateNotification(context.Background(), sqlc.CreateNotificationParams{
 				Userid:      n.UserID,

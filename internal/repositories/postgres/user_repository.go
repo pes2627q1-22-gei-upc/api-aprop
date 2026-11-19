@@ -208,13 +208,13 @@ func (r *UserRepository) UpdateProfile(ctx context.Context, id pgtype.UUID, name
 }
 
 func isInvalidInterval(err error) bool {
-    var pgErr *pgconn.PgError
-    if errors.As(err, &pgErr) {
-        return pgErr.Code == "22007" ||
-            pgErr.Code == "22008" ||
-            pgErr.Code == "22015"
-    }
-    return false
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "22007" ||
+			pgErr.Code == "22008" ||
+			pgErr.Code == "22015"
+	}
+	return false
 }
 
 func (r *UserRepository) UpdateSettings(ctx context.Context, settings user_model.Settings) error {
@@ -227,30 +227,30 @@ func (r *UserRepository) UpdateSettings(ctx context.Context, settings user_model
 	}()
 
 	qtx := r.queries.WithTx(tx)
-	
+
 	_, err = qtx.UpdateUserSettings(ctx, sqlc.UpdateUserSettingsParams{
 		ID:                 int32(settings.ID),
 		ShowPlans:          settings.ShowPlans,
 		NotificationBefore: settings.NotificationBefore,
 	})
-	if isInvalidInterval(err){
+	if isInvalidInterval(err) {
 		return user_repository.ErrInvalidInterval
 	} else if err != nil {
 		return fmt.Errorf("update settings %d: %w", settings.ID, err)
 	}
 
 	int32types := []int32{}
-	for _, v := range(settings.AllowedNotifTypes){
-		int32types=append(int32types, int32(v))
+	for _, v := range settings.AllowedNotifTypes {
+		int32types = append(int32types, int32(v))
 	}
 
 	err = qtx.DeleteAllowedNotificationTypes(ctx, int32(settings.ID))
-	if err!=nil{
+	if err != nil {
 		return fmt.Errorf("update settings %d: %w", settings.ID, err)
 	}
 
 	err = qtx.UpdateAllowedNotificationTypes(ctx, sqlc.UpdateAllowedNotificationTypesParams{SettingsID: int32(settings.ID), NotificationTypes: int32types})
-	if err!=nil{
+	if err != nil {
 		return fmt.Errorf("update settings %d: %w", settings.ID, err)
 	}
 
@@ -426,9 +426,9 @@ func (r *UserRepository) GetSettings(ctx context.Context, id int) (user_model.Se
 	}
 
 	allowed := []int{}
-	if rows[0].Notificationtype != -1{
-		for _, val := range(rows){
-			allowed=append(allowed, int(val.Notificationtype))
+	if rows[0].Notificationtype != -1 {
+		for _, val := range rows {
+			allowed = append(allowed, int(val.Notificationtype))
 		}
 	}
 	return user_model.Settings{ID: int(rows[0].ID), NotificationBefore: intervalToString(rows[0].Notificationbefore), ShowPlans: rows[0].Showplans, AllowedNotifTypes: allowed}, nil
