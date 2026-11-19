@@ -76,7 +76,7 @@ func (q *Queries) DeleteUserLevel(ctx context.Context, userID pgtype.UUID) error
 }
 
 const deleteUserMessages = `-- name: DeleteUserMessages :exec
-DELETE FROM Messages WHERE UserID = $1::uuid
+DELETE FROM EventMessages WHERE UserID = $1::uuid
 `
 
 func (q *Queries) DeleteUserMessages(ctx context.Context, userID pgtype.UUID) error {
