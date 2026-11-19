@@ -38,6 +38,15 @@ type fakeUserService struct {
 	searchQuery     string
 	searchPageNum   int
 	searchPageSize  int
+
+	blocked      user_model.BlockedUser
+	blockedList  []user_model.BlockedUser
+	blockErr     error
+	blockCalls   int
+	unblockCalls int
+	listCalls    int
+	gotRequester string
+	gotTarget    string
 }
 
 func (f *fakeUserService) SearchUsers(_ context.Context, requesterID, query string, pageNum, pageSize int) (user_model.UserSearchResult, error) {
@@ -139,6 +148,21 @@ func (f *fakeUserService) AcceptFriendRequest(ctx context.Context, userid string
 }
 func (f *fakeUserService) DenyFriendRequest(ctx context.Context, userid string, targetid string, date time.Time) (user_model.FriendRequest, error) {
 	return user_model.FriendRequest{}, nil
+}
+func (f *fakeUserService) BlockUser(_ context.Context, requesterID, targetID string) (user_model.BlockedUser, error) {
+	f.blockCalls++
+	f.gotRequester, f.gotTarget = requesterID, targetID
+	return f.blocked, f.blockErr
+}
+func (f *fakeUserService) UnblockUser(_ context.Context, requesterID, targetID string) error {
+	f.unblockCalls++
+	f.gotRequester, f.gotTarget = requesterID, targetID
+	return f.blockErr
+}
+func (f *fakeUserService) ListBlockedUsers(_ context.Context, requesterID string) ([]user_model.BlockedUser, error) {
+	f.listCalls++
+	f.gotRequester = requesterID
+	return f.blockedList, f.blockErr
 }
 func (f *fakeUserService) Unfriend(ctx context.Context, userid string, targetid string) error {
 	return nil
