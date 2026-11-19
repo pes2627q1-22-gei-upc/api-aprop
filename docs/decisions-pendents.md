@@ -465,6 +465,22 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Qui decideix:** frontend + backend
 - **Resolució:**
 
+### DP-042 · Bloquejar i desbloquejar usuaris (`/users/{id}/block`, `GET /users/me/blocked`)
+- **Estat:** oberta
+- **Obert per:** 2026-11-19 · Claude Code (Opus 5.5) · branca `feature/usuaris-bloquejats` (Taiga #108, part backend)
+- **Context:** `user_handler/blocked_users.go`, `user_service/blocked_users.go`, `postgres/blocked_users.go`, `queries/blocked_users.sql`, migració 000021. La taula `Blocked` ja existia (000001: PK `(BlockingUser, BlockedUser)`, `CHECK` R2, FK a `Users` des de la 000009) i ja s'usava a `IsBlocked` (sol·licituds d'amistat) i a la cerca d'usuaris, però no hi havia cap endpoint. (La DP-040 i la DP-041 són a les PR #69 i #70.)
+- **Dubte / supòsits:**
+  1. Migració 000021: columna `DateBlocked` (`DEFAULT now()`; els bloquejos existents queden amb la data de la migració) per ordenar la llista, i índex per `BlockedUser`.
+  2. R3: en bloquejar, en una sola transacció s'elimina l'amistat (les dues files de `Friendships`) i les sol·licituds `Pending` o `Accepted` entre tots dos passen a `Rejected` (es manté la `DateResolved` de les acceptades). No s'esborren perquè les notificacions socials les referencien.
+  3. En desbloquejar no es recupera l'amistat: cal tornar a enviar una sol·licitud.
+  4. L'usuari bloquejat no rep cap notificació. Bloquejar no amaga els esdeveniments, el xat ni les notificacions antigues de l'altre usuari; només impedeix les sol·licituds d'amistat (`IsBlocked`) i el treu de la cerca.
+  5. Rutes: `POST /users/{id}/block` (`201` amb l'usuari bloquejat), `DELETE /users/{id}/block` (`204`) i `GET /users/me/blocked` (`200`, del més recent al més antic, sense paginació). `{id}` accepta UUID, Firebase UID o nom d'usuari, com `unfriend`. Codis: `400` R2, `404` usuari inexistent o no bloquejat, `409` ja bloquejat.
+  6. La migració i les consultes no s'han provat contra PostgreSQL/Supabase; `blocked_users.sql.go` s'ha escrit a mà en el format de sqlc.
+- **Opcions:** —
+- **Provisionalment:** els supòsits anteriors.
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
 ## Resoltes
 
 (cap)
