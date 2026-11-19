@@ -842,6 +842,13 @@ func mapEventRowToModel(row sqlc.ListMapEventsRow, cats []string) event_model.Ma
 // toModel converts a database row to the domain model.
 // The code is not stored in the events table, so it is passed separately.
 func toModel(row sqlc.Event, code int64) event_model.Event {
+	var rating *float32
+	
+	if row.Rating.Valid{
+		r:=row.Rating.Float32
+		rating=&r
+	}
+
 	return event_model.Event{
 		ID:           int(row.ID),
 		Code:         code,
@@ -872,10 +879,18 @@ func toModel(row sqlc.Event, code int64) event_model.Event {
 		ActivityURL:  row.Activityurl.String,
 		StartDate:    row.Startdate.Time,
 		EndDate:      row.Enddate.Time,
+		Rating:		  rating,
 	}
 }
 
 func toModelExtended(row sqlc.GetEventRow, cats []string) event_model.Event {
+	var rating *float32
+	
+	if row.Rating.Valid{
+		r:=row.Rating.Float32
+		rating=&r
+	}
+	
 	return event_model.Event{
 		ID:           int(row.ID),
 		Code:         row.Code.Int64,
@@ -909,6 +924,7 @@ func toModelExtended(row sqlc.GetEventRow, cats []string) event_model.Event {
 		Creator:      row.Creator,
 		DateCreated:  row.Datecreated.Time,
 		Categories:   cats,
+		Rating:		  rating,
 	}
 }
 

@@ -27,7 +27,6 @@ type Repository interface {
 	AreFriends(ctx context.Context, user1UUID pgtype.UUID, user2UUID pgtype.UUID) (bool, error)
 	CountPlans(ctx context.Context, userUUID pgtype.UUID) (int, error)
 	CountCompletedPlans(ctx context.Context, userUUID pgtype.UUID) (int, error)
-	GetReliability(ctx context.Context, creatorUUID pgtype.UUID) (*float32, error)
 	ListReceivedRatings(ctx context.Context, creatorUUID pgtype.UUID) ([]user_model.ReceivedRating, error)
 	ListCreatedEvents(ctx context.Context, creatorUUID pgtype.UUID) ([]event_model.Event, error)
 	UpdateProfile(ctx context.Context, id pgtype.UUID, name, username, biography, profilePicture *string) (user_model.User, error)

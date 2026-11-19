@@ -47,6 +47,7 @@ type Event struct {
 	Creator            pgtype.UUID `json:"creator"`
 	CreatorName        *string     `json:"creator-name"`
 	CreatorReliability *float32    `json:"creator-reliability"`
+	Rating			   *float32	   `json:"rating"`
 	DateCreated        time.Time   `json:"date-created"`
 }
 

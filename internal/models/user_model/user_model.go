@@ -35,7 +35,6 @@ type UserProfile struct {
 	AccountState        int         `json:"account-state"`
 	Experience          int         `json:"experience"`
 	Level               *int        `json:"level"`
-	Rating              *float32    `json:"rating"`
 	Reliability         *float32    `json:"reliability"`
 	FriendsCount        int         `json:"friends-count"`
 	PlansCount          int         `json:"plans-count"`

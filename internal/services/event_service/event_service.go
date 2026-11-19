@@ -74,11 +74,7 @@ func (s *EventService) GetEvent(id int) (event_model.Event, error) {
 				e.CreatorName = &displayName
 			}
 		}
-		if rel, rErr := s.userRepository.GetReliability(ctx, e.Creator); rErr != nil {
-			log.Printf("event %d: creator reliability failed: %v", id, rErr)
-		} else {
-			e.CreatorReliability = rel
-		}
+		e.CreatorReliability = u.Rating
 	}
 	return e, nil
 }

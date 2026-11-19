@@ -351,26 +351,6 @@ func (q *Queries) GetUserFriends(ctx context.Context, user1 pgtype.UUID) ([]pgty
 	return items, nil
 }
 
-const getUserReliability = `-- name: GetUserReliability :one
-SELECT COALESCE(AVG(er.Rating), 0)::real AS reliability, COUNT(er.Rating)::bigint AS ratings_count
-FROM EventRatings er
-JOIN UnofficialEvents ue ON ue.ID = er.Event
-WHERE ue.Creator = $1::uuid
-`
-
-type GetUserReliabilityRow struct {
-	Reliability  float32
-	RatingsCount int64
-}
-
-// Mean of the ratings of every NoOficial event created by the user; count = 0 means "no ratings".
-func (q *Queries) GetUserReliability(ctx context.Context, creator pgtype.UUID) (GetUserReliabilityRow, error) {
-	row := q.db.QueryRow(ctx, getUserReliability, creator)
-	var i GetUserReliabilityRow
-	err := row.Scan(&i.Reliability, &i.RatingsCount)
-	return i, err
-}
-
 const isBlocked = `-- name: IsBlocked :one
 SELECT EXISTS (SELECT 1 from blocked where (blockeduser = $1 and blockinguser = $2) or (blockeduser = $2 and blockinguser = $1) limit 1)
 `
