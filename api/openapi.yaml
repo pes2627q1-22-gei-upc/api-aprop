@@ -717,6 +717,100 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /events/{id}/messages:
+    parameters:
+      - $ref: '#/components/parameters/EventId'
+    get:
+      tags: [events]
+      operationId: listEventMessages
+      summary: Llista els missatges del xat d'un esdeveniment
+      description: >
+        Pàgina de missatges del xat, del més nou al més antic. Només els usuaris inscrits a l'esdeveniment el poden
+        llegir (R11, `403` si no). `pageNum` comença a 0; `pageSize` és 50 per defecte i com a màxim 100. Veure DP-040.
+      parameters:
+        - name: pageNum
+          in: query
+          schema: {type: integer, minimum: 0, default: 0}
+        - name: pageSize
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+      responses:
+        '200':
+          description: Pàgina de missatges
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventMessagePage'
+        '400':
+          description: Id o paginació invàlids
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: L'usuari no està inscrit a l'esdeveniment (R11)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          $ref: '#/components/responses/EventNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags: [events]
+      operationId: sendEventMessage
+      summary: Envia un missatge al xat d'un esdeveniment
+      description: >
+        Desa el missatge de l'usuari autenticat. Regla R11: l'autor ha d'estar inscrit a l'esdeveniment, si no `403`.
+        El text es retalla i ha de tenir entre 1 i 1000 caràcters. La clau R1 és autor + esdeveniment + data d'enviament:
+        dos missatges del mateix usuari en el mateix instant donen `409`. Veure DP-040.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text:
+                  type: string
+                  minLength: 1
+                  maxLength: 1000
+      responses:
+        '201':
+          description: Missatge enviat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventMessage'
+        '400':
+          description: Id invàlid, cos invàlid o text buit o massa llarg
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: L'usuari no està inscrit a l'esdeveniment (R11)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          $ref: '#/components/responses/EventNotFound'
+        '409':
+          description: L'usuari ja ha enviat un missatge en el mateix instant (clau R1)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /events/{id}/enrollment/attendance:
     parameters:
       - $ref: '#/components/parameters/EventId'
@@ -2003,6 +2097,44 @@ components:
           type: integer
         has-attended:
           type: boolean
+
+    EventMessage:
+      type: object
+      required: [user-id, username, event-id, text, date-sent]
+      properties:
+        user-id:
+          type: string
+        username:
+          type: string
+        name:
+          type: string
+        profile-picture:
+          type: string
+        event-id:
+          type: integer
+        text:
+          type: string
+        date-sent:
+          type: string
+          format: date-time
+
+    EventMessagePage:
+      type: object
+      required: [event-id, total, page-num, page-size, messages]
+      properties:
+        event-id:
+          type: integer
+        total:
+          type: integer
+          description: Nombre total de missatges de l'esdeveniment
+        page-num:
+          type: integer
+        page-size:
+          type: integer
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventMessage'
 
     Rating:
       type: object

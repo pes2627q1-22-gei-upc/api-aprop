@@ -465,6 +465,25 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Qui decideix:** frontend + backend
 - **Resolució:**
 
+### DP-040 · Xat d'esdeveniment: taula `EventMessages` i `GET`/`POST /events/{id}/messages`
+- **Estat:** oberta
+- **Obert per:** 2026-11-19 · Claude Code (Opus 5.5) · branca `feature/xat-esdeveniment` (Taiga #147)
+- **Context:** `message_handler`, `message_service`, `queries/event_messages.sql`, migració 000019. La tasca demanava una migració de la taula `event_messages`, però la taula ja existia com a `Messages` (migració 000001) amb la PK `(UserID, Event, DateSent)`, que és la clau R1 (autor + esdeveniment + dataEnviament). L'equip (Arnau) ha triat reanomenar-la.
+- **Dubte / supòsits:**
+  1. Migració 000019: `Messages` → `EventMessages` (com `EventRatings`), `DateSent DEFAULT now()` i índex `(Event, DateSent DESC)`. Es mantenen la PK i les FK. S'han actualitzat `DeleteUserMessages` i `DeleteEventMessages`.
+  1b. **Compressió del text** (demanada per l'equip per estalviar espai a la BD): Postgres només comprimeix files de més d'~2 kB, que un missatge no arriba a fer, així que la comprimeix l'API (`message_codec.go`). `Message` passa a `bytea`: 1 byte de format (`0` = text UTF-8 tal qual, `1` = DEFLATE de `compress/flate`, sense dependències noves) + el text. Només es comprimeix si ocupa menys; els missatges curts (menys d'~100 bytes, la majoria) queden igual (+1 byte). Els llargs ocupen aproximadament la meitat. Conseqüències: el text ja no es pot llegir ni cercar des de SQL o el panell de Supabase (afecta, p. ex., futures denúncies de missatges); la BD només limita la mida (2..4001 bytes) i el límit de 1–1000 caràcters el comprova l'API; les files existents es converteixen al format `0`; el `down` no pot descomprimir els missatges en format `1` i els substitueix per `[missatge comprimit]`. L'alternativa que estalviaria més espai és esborrar els xats dels esdeveniments acabats fa N dies (tasca diària a `runDaily`), pendent de decidir.
+  2. R11 també s'aplica a la lectura: només els inscrits poden veure el xat (`403` en tots dos casos, com R10 a les valoracions). «Inscripció activa» = existeix una fila a `SignUp` (desapuntar-se l'esborra).
+  3. El creador d'un esdeveniment no oficial no hi té accés si no s'hi ha inscrit.
+  4. No es comprova l'estat de l'esdeveniment (`Withdrawn`), ni si ja ha acabat, ni els bloqueigs entre usuaris: tots els inscrits veuen tots els missatges.
+  5. Paginació: del més nou al més antic, `pageNum` des de 0, `pageSize` 50 per defecte i màxim 100. Sense temps real (el client fa polling).
+  6. Dos missatges del mateix usuari al mateix esdeveniment en el mateix microsegon violen la clau R1 → `409`.
+  7. Cada missatge porta `user-id`, `username`, `name`, `profile-picture`, `event-id`, `text` i `date-sent`.
+  8. La migració i les consultes no s'han provat contra PostgreSQL/Supabase; `event_messages.sql.go` s'ha escrit a mà en el format de sqlc.
+- **Opcions:** —
+- **Provisionalment:** els supòsits anteriors.
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
 ## Resoltes
 
 (cap)
