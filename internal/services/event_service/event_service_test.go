@@ -893,3 +893,75 @@ func TestGetEvent_CreatorReliability(t *testing.T) {
 		})
 	}
 }
+
+func TestCancelUnofficialEvent(t *testing.T) {
+	var creator pgtype.UUID
+	if err := creator.Scan(validUserID); err != nil {
+		t.Fatal(err)
+	}
+	today := time.Now().UTC()
+	upcoming := event_model.Event{ID: 7, Title: "Taller", Creator: creator, StartDate: today.AddDate(0, 0, 3)}
+
+	tests := []struct {
+		name         string
+		stored       event_model.Event
+		getErr       error
+		state        string
+		stateErr     error
+		notified     int64
+		cancelErr    error
+		wantErr      error
+		wantCancels  int
+		wantNotified int64
+	}{
+		{name: "active event is cancelled and its sign ups notified", stored: upcoming, notified: 4, wantCancels: 1, wantNotified: 4},
+		{name: "event without sign ups", stored: upcoming, wantCancels: 1},
+		{name: "event in progress can be cancelled", stored: event_model.Event{ID: 7, Creator: creator, StartDate: today.AddDate(0, 0, -1), EndDate: today.AddDate(0, 0, 1)}, wantCancels: 1},
+		{name: "event that ends today can be cancelled", stored: event_model.Event{ID: 7, Creator: creator, StartDate: today}, wantCancels: 1},
+		{name: "official event", stored: event_model.Event{ID: 7, Title: "Festa Major", Code: 1, IsOfficial: true}, wantErr: ErrInvalidEvent},
+		{name: "event not found", getErr: event_repository.ErrEventNotFound, wantErr: ErrEventNotFound},
+		{name: "finished event", stored: event_model.Event{ID: 7, Creator: creator, StartDate: today.AddDate(0, 0, -5), EndDate: today.AddDate(0, 0, -1)}, wantErr: ErrEventFinished},
+		{name: "finished event without end date", stored: event_model.Event{ID: 7, Creator: creator, StartDate: today.AddDate(0, 0, -1)}, wantErr: ErrEventFinished},
+		{name: "already cancelled", stored: upcoming, state: event_model.UnofficialStateCancelled, wantErr: ErrEventNotActive},
+		{name: "withdrawn event", stored: upcoming, state: event_model.UnofficialStateWithdrawn, wantErr: ErrEventNotActive},
+		{name: "state not found", stored: upcoming, stateErr: event_repository.ErrEventNotFound, wantErr: ErrEventNotFound},
+		{name: "cancelled meanwhile by another request", stored: upcoming, cancelErr: event_repository.ErrEventNotActive, wantErr: ErrEventNotActive, wantCancels: 1},
+		{name: "deleted meanwhile", stored: upcoming, cancelErr: event_repository.ErrEventNotFound, wantErr: ErrEventNotFound, wantCancels: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := fakeEventRepository{getEvent: tt.stored, getErr: tt.getErr, state: tt.state, stateErr: tt.stateErr, notified: tt.notified, cancelErr: tt.cancelErr}
+			svc := NewEventService(&repo, nil, nil, nil)
+			got, err := svc.CancelUnofficialEvent(context.Background(), 7)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("error = %v, want %v", err, tt.wantErr)
+			}
+			if repo.cancelCalls != tt.wantCancels {
+				t.Errorf("repository cancels = %d, want %d", repo.cancelCalls, tt.wantCancels)
+			}
+			if tt.wantErr != nil {
+				return
+			}
+			want := event_model.Cancellation{EventID: 7, State: event_model.UnofficialStateCancelled, NotifiedUsers: tt.wantNotified}
+			if got != want {
+				t.Errorf("cancellation = %+v, want %+v", got, want)
+			}
+		})
+	}
+}
+
+func TestCancelledEventCannotBeUpdated(t *testing.T) {
+	var creator pgtype.UUID
+	if err := creator.Scan(validUserID); err != nil {
+		t.Fatal(err)
+	}
+	repo := fakeEventRepository{getEvent: event_model.Event{ID: 7, Creator: creator}, state: event_model.UnofficialStateCancelled}
+	svc := NewEventService(&repo, nil, nil, nil)
+	if _, err := svc.UpdateUnofficialEvent(context.Background(), 7, event_model.Event{Title: "Nou títol"}); !errors.Is(err, ErrEventNotActive) {
+		t.Fatalf("error = %v, want ErrEventNotActive", err)
+	}
+	if repo.updateCalls != 0 {
+		t.Errorf("repository updates = %d, want 0", repo.updateCalls)
+	}
+}

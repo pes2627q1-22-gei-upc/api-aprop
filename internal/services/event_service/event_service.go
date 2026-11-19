@@ -262,6 +262,56 @@ func (s *EventService) DeleteUnofficialEvent(ctx context.Context, id int) error 
 	return err
 }
 
+// CancelUnofficialEvent cancels an Active unofficial event that has not finished yet: its state becomes Cancelled and
+// every user signed up to it, except the creator, gets a Cancel·lació notification. The handler checks that the
+// requester is the creator.
+// TODO(DP-041): finished events cannot be cancelled, and the event stays in the lists and open to sign ups.
+func (s *EventService) CancelUnofficialEvent(ctx context.Context, id int) (event_model.Cancellation, error) {
+	stored, err := s.getEvent(id)
+	if err != nil {
+		return event_model.Cancellation{}, err
+	}
+	if stored.IsOfficial || !stored.Creator.Valid {
+		return event_model.Cancellation{}, fmt.Errorf("cancel event %d: %w: official events cannot be cancelled", id, ErrInvalidEvent)
+	}
+	if eventFinished(stored, time.Now()) {
+		return event_model.Cancellation{}, fmt.Errorf("cancel event %d: %w", id, ErrEventFinished)
+	}
+
+	state, err := s.eventRepository.GetUnofficialState(ctx, id)
+	if errors.Is(err, event_repository.ErrEventNotFound) {
+		return event_model.Cancellation{}, fmt.Errorf("%w: %w", ErrEventNotFound, err)
+	}
+	if err != nil {
+		return event_model.Cancellation{}, err
+	}
+	if state != event_model.UnofficialStateActive {
+		return event_model.Cancellation{}, fmt.Errorf("cancel event %d: %w: state is %s", id, ErrEventNotActive, state)
+	}
+
+	// The repository checks the state again inside the transaction, in case another request cancelled it meanwhile
+	notified, err := s.eventRepository.Cancel(ctx, id)
+	switch {
+	case errors.Is(err, event_repository.ErrEventNotFound):
+		return event_model.Cancellation{}, fmt.Errorf("%w: %w", ErrEventNotFound, err)
+	case errors.Is(err, event_repository.ErrEventNotActive):
+		return event_model.Cancellation{}, fmt.Errorf("%w: %w", ErrEventNotActive, err)
+	case err != nil:
+		return event_model.Cancellation{}, err
+	}
+	return event_model.Cancellation{EventID: id, State: event_model.UnofficialStateCancelled, NotifiedUsers: notified}, nil
+}
+
+// eventFinished reports whether the last day of the event (its end date, or its start date when it has none) is
+// before today. Dates are compared by day, like rule R5.
+func eventFinished(e event_model.Event, now time.Time) bool {
+	last := e.EndDate
+	if last.IsZero() {
+		last = e.StartDate
+	}
+	return !last.IsZero() && day(last).Before(day(now.UTC()))
+}
+
 // UploadEventImage uploads an event poster/image to S3 storage and associates it with the event.
 func (s *EventService) UploadEventImage(ctx context.Context, eventID int, filename string, contentType string, reader io.Reader) (string, error) {
 	if eventID <= 0 {
