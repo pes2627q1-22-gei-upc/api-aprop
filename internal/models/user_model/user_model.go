@@ -81,6 +81,12 @@ type UserSummary struct {
 	ProfilePicture string      `json:"profile-picture"`
 }
 
+// BlockedUser is a user in the list of GET /users/me/blocked, with the date it was blocked.
+type BlockedUser struct {
+	UserSummary
+	DateBlocked time.Time `json:"date-blocked"`
+}
+
 // UserSearchResult is a page of GET /users?q=. Total counts every match, not only the ones in the page.
 type UserSearchResult struct {
 	Query    string        `json:"query"`
