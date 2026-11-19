@@ -1067,36 +1067,306 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
-  /notifications:
-    post:
-      tags: [notifications]
-      operationId: createNotification
-      summary: Crea una notificació
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateNotificationRequest'
+  /users/me/friends:
+    get:
+      tags: [friends]
+      operationId: listUserFriends
+      summary: Amics de l'usuari
+      description: Retorna tots els usuaris que són amics amb l'usuari que fa la consulta.
       responses:
-        '201':
-          description: Notificació creada
+        '200':
+          description: Amics (pot ser buida)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Notification'
+                type: array
+                items:
+                  type: string
+                  format: uuid
+              example:
+                - "550e8400-e29b-41d4-a716-446655440000"
+                - "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  
+  /users/me/friend-requests:
+    get:
+      tags: [friends]
+      operationId: listUserFriendRequests
+      summary: Sol·licituds d'amistat de l'usuari
+      description: Retorna totes les sol·licituds d'amistat que ha rebut l'usuari que fa la consulta.
+      responses:
+        '200':
+          description: Sol·licituds d'amistat (pot ser buida)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FriendRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  
+  /users/{id}/friends:
+    get:
+      tags: [friends]
+      operationId: listUserFriends
+      summary: Amics d'un usuari
+      description: Retorna tots els usuaris que són amics amb l'usuari indicat.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID de l'usuari (UUID)
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Amics (pot ser buida)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  format: uuid
+              example:
+                - "550e8400-e29b-41d4-a716-446655440000"
+                - "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
         '400':
-          description: Cos invàlid (també si `user-id` o `friend` no són UUID)
+          $ref: '#/components/responses/InvalidUserId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+  
+  /users/{id}/friend-requests:
+    post:
+      tags: [friends]
+      operationId: createFriendRequest
+      summary: Envia sol·licitud d'amistat
+      description: Crea una sol·licitud d'amistat de l'usuari que fa la consulta cap a l'usuari especificat.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID de l'usuari (UUID)
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '201':
+          description: Sol·licitud d'amistat creada
+          content:
+            application-json:
+              schema:
+                $ref: '#/components/schemas/FriendRequest'
+        '400':
+          description: UUID invàlid o usuari conflictiu
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-              example:
-                error: invalid request body
+              examples:
+                userId:
+                  value:
+                    error: invalid user id
+                requestExists:
+                  value:
+                    error: pending friend request exists between these users
+                blocked:
+                  value:
+                    error: requester has blocked or been blocked by target user
+                alreadyFriends:
+                  value:
+                    error: requester is already friends with target user
+                sameUser:
+                  value:
+                    error: requester and target cannot be the same
+                range:
+                  value:
+                    error: 'invalid date range: from must not be after to'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalError'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+  
+  /users/{id}/friend-requests/{date}/accept:
+    post:
+      tags: [friends]
+      operationId: acceptFriendRequest
+      summary: Accepta sol·licitud d'amistat
+      description: Accepta una sol·licitud d'amistat de l'usuari especificat cap a l'usuari que fa la consulta.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID de l'usuari que va enviar la sol·licitud (UUID)
+          schema:
+            type: string
+            format: uuid
+        - name: date
+          in: path
+          required: true
+          description: Data de la sol·licitud a acceptar
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Sol·licitud d'amistat acceptada
+          content:
+            application-json:
+              schema:
+                $ref: '#/components/schemas/FriendRequest'
+        '400':
+          description: UUID invàlid o usuari conflictiu
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                userId:
+                  value:
+                    error: invalid user id
+                sameUser:
+                  value:
+                    error: requester and target cannot be the same
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Usuari o sol·licitud d'amistat no existeixen
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                user:
+                  value:
+                    error: user not found
+                request:
+                  value:
+                    error: request not found
+  
+  /users/{id}/friend-requests/{date}/deny:
+    post:
+      tags: [friends]
+      operationId: denyFriendRequest
+      summary: Rebutja sol·licitud d'amistat
+      description: Rebutja una sol·licitud d'amistat de l'usuari especificat cap a l'usuari que fa la consulta.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID de l'usuari que va enviar la sol·licitud (UUID)
+          schema:
+            type: string
+            format: uuid
+        - name: date
+          in: path
+          required: true
+          description: Data de la sol·licitud a acceptar
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Sol·licitud d'amistat rebutjada
+          content:
+            application-json:
+              schema:
+                $ref: '#/components/schemas/FriendRequest'
+        '400':
+          description: UUID invàlid o usuari conflictiu
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                userId:
+                  value:
+                    error: invalid user id
+                sameUser:
+                  value:
+                    error: requester and target cannot be the same
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Usuari o sol·licitud d'amistat no existeixen
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                user:
+                  value:
+                    error: user not found
+                request:
+                  value:
+                    error: request not found
+
+  /users/{id}/unfriend:
+    post:
+      tags: [friends]
+      operationId: unfriend
+      summary: Elimina una amistat
+      description: Elimina l'amistat entre l'usuari especificat i l'usuari que fa la consulta.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID de l'usuari
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                  example: "friendship with {id} deleted successfully"
+              example:
+                message: "friendship with 550e8400-e29b-41d4-a716-446655440000 deleted successfully"
+        '400':
+          description: UUID invàlid o usuari conflictiu
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                userId:
+                  value:
+                    error: invalid user id
+                notFriends:
+                  value:
+                    error: requester and target are not friends
+                sameUser:
+                  value:
+                    error: requester and target cannot be the same
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+  
+  /users/me/settings:
+    get:
+      tags: [users]
+      operationId: getSettings
+      summary: Configuració de l'usuari
+      description: Retorna la configuració de l'usuari que fa la consulta.
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Settings'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   /notifications/{id}:
     get:
@@ -2146,6 +2416,14 @@ components:
           type: string
         show-plans:
           type: boolean
+        notification-before:
+          type: string
+          pattern: '^[0-9]+ days$'
+        allowed-notif-types:
+          type: array
+          items:
+            type: integer
+            format: int32
 
     Notification:
       type: object
@@ -2386,3 +2664,46 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ChatMessage'
+    
+    FriendRequest:
+      type: object
+      required: [sender-id, receiver-id, date-sent, state]
+      properties:
+        sender-id:
+          type: string
+          format: uuid
+        receiver-id:
+          type: string
+          format: uuid
+        date-sent:
+          type: string
+          format: date-time
+        state:
+          type: string
+          enum:
+            - Pending
+            - Accepted
+            - Rejected
+          example: Pending
+        date-resolved:
+          type: string
+          format: date-time
+    
+    Settings:
+      type: object
+      required: [id, show-plans, notification-before, allowed-notif-types]
+      properties:
+        id:
+          type: integer
+        show-plans:
+          type: boolean
+          description: Si els amics de l'usuari poden veure els seus plans
+        notification-before:
+          type: string
+          format: '^[0-9]+ days$'
+          description: Dies d'antelació amb el qual un usuari rep recordatoris.
+        allowed-notif-types:
+          type: array
+          description: Tipus de notificacions que l'usuari vol rebre.
+          items:
+            type: integer

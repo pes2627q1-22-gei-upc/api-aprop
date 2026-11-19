@@ -247,7 +247,7 @@ func (h *UserHandler) SendFriendRequest(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	response.WriteJSON(w, http.StatusOK, friendreq)
+	response.WriteJSON(w, http.StatusCreated, friendreq)
 }
 
 func (h *UserHandler) AcceptFriendRequest(w http.ResponseWriter, r *http.Request) {
