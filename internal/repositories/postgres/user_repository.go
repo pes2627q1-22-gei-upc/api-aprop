@@ -252,7 +252,7 @@ func (r *UserRepository) UpdateSettings(ctx context.Context, settings user_model
 		}
 		return nil
 	}
-	_, err := r.queries.UpdateUserSettings(ctx, sqlc.UpdateUserSettingsParams{
+	_, err = r.queries.UpdateUserSettings(ctx, sqlc.UpdateUserSettingsParams{
 		ID:                 int32(settings.ID),
 		ShowPlans:          settings.ShowPlans,
 		NotificationBefore: settings.NotificationBefore,
