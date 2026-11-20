@@ -17,6 +17,7 @@ import (
 	"api-aprop/internal/clients/firebase_client"
 	"api-aprop/internal/clients/s3_client"
 	"api-aprop/internal/models/event_model"
+	"api-aprop/internal/models/language_model"
 	"api-aprop/internal/models/notification_model"
 	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/repositories/notification_repository"
@@ -204,6 +205,7 @@ func (s *userService) GetUserProfile(ctx context.Context, targetIdentifier strin
 
 	if isSelf {
 		profile.Email = target.Email
+		profile.Language = settings.Language
 	}
 
 	return profile, nil
@@ -245,6 +247,11 @@ func (s *userService) UpdateProfile(ctx context.Context, requesterIdentifier str
 		return user_model.UserProfile{}, err
 	}
 
+	// Validation: language (US #28)
+	if input.Language != nil && !language_model.Valid(*input.Language) {
+		return user_model.UserProfile{}, fmt.Errorf("%w: language must be ca, es or en", ErrInvalidInput)
+	}
+
 	// Validation R1: Username
 	if input.Username != nil {
 		trimmedUser := strings.TrimSpace(*input.Username)
@@ -272,8 +279,13 @@ func (s *userService) UpdateProfile(ctx context.Context, requesterIdentifier str
 		input.Biography = &trimmedBio
 	}
 
-	if input.ShowPlans != nil {
-		settings.ShowPlans = *(input.ShowPlans)
+	if input.ShowPlans != nil || input.Language != nil {
+		if input.ShowPlans != nil {
+			settings.ShowPlans = *(input.ShowPlans)
+		}
+		if input.Language != nil {
+			settings.Language = *(input.Language)
+		}
 		if err := s.userRepo.UpdateSettings(ctx, settings); err != nil {
 			return user_model.UserProfile{}, err
 		}

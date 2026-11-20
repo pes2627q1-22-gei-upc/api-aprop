@@ -51,6 +51,9 @@ type fakeEventService struct {
 	getErr               error
 	updateErr            error
 	deleteErr            error
+	cancelErr            error
+	cancelCalls          int
+	notified             int64
 	mapEvents            []event_model.MapEvent
 	mapErr               error
 	createdUnofficial    event_model.Event
@@ -78,6 +81,14 @@ type fakeEventService struct {
 
 func (f *fakeEventService) GetEvent(_ int) (event_model.Event, error) {
 	return f.event, f.getErr
+}
+
+func (f *fakeEventService) CancelUnofficialEvent(_ context.Context, id int) (event_model.Cancellation, error) {
+	f.cancelCalls++
+	if f.cancelErr != nil {
+		return event_model.Cancellation{}, f.cancelErr
+	}
+	return event_model.Cancellation{EventID: id, State: event_model.UnofficialStateCancelled, NotifiedUsers: f.notified}, nil
 }
 
 func (f *fakeEventService) DeleteUnofficialEvent(_ context.Context, _ int) error {
@@ -1129,5 +1140,117 @@ func TestGetEventHandler(t *testing.T) {
 				t.Errorf("creator-reliability = %v, want %v", crel, tt.wantReliability)
 			}
 		})
+	}
+}
+
+func TestCancelEventHandler(t *testing.T) {
+	tests := []struct {
+		name       string
+		path       string
+		userID     string
+		service    fakeEventService
+		wantStatus int
+		wantCalls  int
+	}{
+		{
+			name:       "creator cancels the event",
+			path:       "/events/7/cancel",
+			userID:     validUserID,
+			service:    fakeEventService{event: unofficialEvent(t, 7, validUserID), notified: 3},
+			wantStatus: http.StatusOK,
+			wantCalls:  1,
+		},
+		{
+			name:       "another user cannot cancel the event",
+			path:       "/events/7/cancel",
+			userID:     otherUserID,
+			service:    fakeEventService{event: unofficialEvent(t, 7, validUserID)},
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "official events cannot be cancelled",
+			path:       "/events/7/cancel",
+			userID:     validUserID,
+			service:    fakeEventService{event: officialEvent(7)},
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "missing user",
+			path:       "/events/7/cancel",
+			service:    fakeEventService{event: unofficialEvent(t, 7, validUserID)},
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "event not found",
+			path:       "/events/99/cancel",
+			userID:     validUserID,
+			service:    fakeEventService{getErr: event_service.ErrEventNotFound},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "invalid event id",
+			path:       "/events/abc/cancel",
+			userID:     validUserID,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "event already cancelled",
+			path:       "/events/7/cancel",
+			userID:     validUserID,
+			service:    fakeEventService{event: unofficialEvent(t, 7, validUserID), cancelErr: fmt.Errorf("x: %w", event_service.ErrEventNotActive)},
+			wantStatus: http.StatusConflict,
+			wantCalls:  1,
+		},
+		{
+			name:       "event already finished",
+			path:       "/events/7/cancel",
+			userID:     validUserID,
+			service:    fakeEventService{event: unofficialEvent(t, 7, validUserID), cancelErr: fmt.Errorf("x: %w", event_service.ErrEventFinished)},
+			wantStatus: http.StatusConflict,
+			wantCalls:  1,
+		},
+		{
+			name:       "database error",
+			path:       "/events/7/cancel",
+			userID:     validUserID,
+			service:    fakeEventService{event: unofficialEvent(t, 7, validUserID), cancelErr: errors.New("db down")},
+			wantStatus: http.StatusInternalServerError,
+			wantCalls:  1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := tt.service
+			req := httptest.NewRequest(http.MethodPost, tt.path, nil)
+			if tt.userID != "" {
+				req.Header.Set(requester.UserIDHeader, tt.userID)
+			}
+
+			rec := serve(&s, req)
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d (body %s)", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+			if s.cancelCalls != tt.wantCalls {
+				t.Errorf("service cancel calls = %d, want %d", s.cancelCalls, tt.wantCalls)
+			}
+		})
+	}
+}
+
+func TestCancelEventHandler_Body(t *testing.T) {
+	s := fakeEventService{event: unofficialEvent(t, 7, validUserID), notified: 3}
+	req := httptest.NewRequest(http.MethodPost, "/events/7/cancel", nil)
+	req.Header.Set(requester.UserIDHeader, validUserID)
+	rec := serve(&s, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d (body %s)", rec.Code, rec.Body.String())
+	}
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["event-id"] != float64(7) || got["state"] != "Cancelled" || got["notified-users"] != float64(3) {
+		t.Errorf("body = %v", got)
 	}
 }

@@ -22,6 +22,7 @@ import (
 type mockUserRepo struct {
 	usersByID               map[pgtype.UUID]*user_model.User
 	showPlans               map[int]bool
+	languages               map[int]string
 	friends                 map[pgtype.UUID]map[pgtype.UUID]bool
 	plansCount              map[pgtype.UUID]int
 	completedPlans          map[pgtype.UUID]int
@@ -41,8 +42,19 @@ type mockUserRepo struct {
 	acceptFriendRequestErr  error
 	denyFriendRequestErr    error
 	unfriendErr             error
-	deleteUserErr           error
-	deleteUserCalls         int
+
+	blockDate       time.Time
+	blockErr        error
+	blockCalls      int
+	unblocked       bool
+	unblockErr      error
+	unblockCalls    int
+	blockedList     []user_model.BlockedUser
+	blockedErr      error
+	gotBlocker      pgtype.UUID
+	gotBlocked      pgtype.UUID
+	deleteUserErr   error
+	deleteUserCalls int
 
 	searchResult    []user_model.UserSummary
 	searchTotal     int64
@@ -58,6 +70,7 @@ func newMockUserRepo() *mockUserRepo {
 	return &mockUserRepo{
 		usersByID:       make(map[pgtype.UUID]*user_model.User),
 		showPlans:       make(map[int]bool),
+		languages:       make(map[int]string),
 		friends:         make(map[pgtype.UUID]map[pgtype.UUID]bool),
 		plansCount:      make(map[pgtype.UUID]int),
 		completedPlans:  make(map[pgtype.UUID]int),
@@ -82,7 +95,7 @@ func (m *mockUserRepo) GetByID(_ context.Context, id pgtype.UUID) (user_model.Us
 }
 
 func (m *mockUserRepo) GetSettings(_ context.Context, settings int) (user_model.Settings, error) {
-	return user_model.Settings{ID: settings, ShowPlans: m.showPlans[settings]}, nil
+	return user_model.Settings{ID: settings, ShowPlans: m.showPlans[settings], Language: m.languages[settings]}, nil
 }
 
 func (m *mockUserRepo) GetByUsername(_ context.Context, username string) (user_model.User, error) {
@@ -173,6 +186,7 @@ func (m *mockUserRepo) UpdateProfile(_ context.Context, id pgtype.UUID, name, us
 
 func (m *mockUserRepo) UpdateSettings(_ context.Context, settings user_model.Settings) error {
 	m.showPlans[settings.ID] = settings.ShowPlans
+	m.languages[settings.ID] = settings.Language
 	return nil
 }
 
@@ -205,6 +219,23 @@ func (m *mockUserRepo) DenyFriendRequest(_ context.Context, _, _ pgtype.UUID, _ 
 
 func (m *mockUserRepo) Unfriend(_ context.Context, _, _ pgtype.UUID) error {
 	return m.unfriendErr
+}
+
+func (m *mockUserRepo) BlockUser(_ context.Context, blocker, blocked pgtype.UUID) (time.Time, error) {
+	m.blockCalls++
+	m.gotBlocker, m.gotBlocked = blocker, blocked
+	return m.blockDate, m.blockErr
+}
+
+func (m *mockUserRepo) UnblockUser(_ context.Context, blocker, blocked pgtype.UUID) (bool, error) {
+	m.unblockCalls++
+	m.gotBlocker, m.gotBlocked = blocker, blocked
+	return m.unblocked, m.unblockErr
+}
+
+func (m *mockUserRepo) ListBlockedUsers(_ context.Context, blocker pgtype.UUID) ([]user_model.BlockedUser, error) {
+	m.gotBlocker = blocker
+	return m.blockedList, m.blockedErr
 }
 
 // DeleteUser simulates the transaction: the user is only removed if beforeCommit succeeds.
@@ -508,6 +539,35 @@ func TestUpdateProfile_Valid(t *testing.T) {
 	}
 	if profile.ShowPlans != false {
 		t.Errorf("expected showPlans to be updated to false")
+	}
+}
+
+func TestUpdateProfile_Language(t *testing.T) {
+	repo := newMockUserRepo()
+	repo.addUser(user_model.User{ID: testID(1), FirebaseUID: "fb-alice", Username: "alice", Settings: 1}, true)
+	svc := user_service.NewUserService(repo, &mockNotificationRepo{}, &mockS3Client{}, nil)
+
+	lang := "en"
+	profile, err := svc.UpdateProfile(context.Background(), "fb-alice", user_service.UpdateProfileInput{Language: &lang})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if profile.Language != "en" || repo.languages[1] != "en" {
+		t.Errorf("language = %q, stored = %q, want en", profile.Language, repo.languages[1])
+	}
+	if !profile.ShowPlans {
+		t.Error("changing the language must keep show-plans")
+	}
+
+	for _, bad := range []string{"fr", "", "EN"} {
+		bad := bad
+		_, err := svc.UpdateProfile(context.Background(), "fb-alice", user_service.UpdateProfileInput{Language: &bad})
+		if !errors.Is(err, user_service.ErrInvalidInput) {
+			t.Errorf("language %q: err = %v, want ErrInvalidInput", bad, err)
+		}
+	}
+	if repo.languages[1] != "en" {
+		t.Errorf("an invalid language must not be stored, got %q", repo.languages[1])
 	}
 }
 

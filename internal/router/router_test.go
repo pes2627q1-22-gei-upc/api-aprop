@@ -56,6 +56,10 @@ func (s *stubEventService) UpdateUnofficialEvent(_ context.Context, id int, e ev
 	return e, nil
 }
 
+func (s *stubEventService) CancelUnofficialEvent(_ context.Context, _ int) (event_model.Cancellation, error) {
+	return event_model.Cancellation{}, nil
+}
+
 func (s *stubEventService) DeleteUnofficialEvent(_ context.Context, _ int) error {
 	return nil
 }

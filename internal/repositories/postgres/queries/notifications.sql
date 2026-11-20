@@ -28,7 +28,8 @@ DELETE FROM notificationtypes;
 INSERT INTO notificationtypes (name) values
     ('Social'),
     ('Recomanacio'),
-    ('Recordatori');
+    ('Recordatori'),
+    ('Cancelacio');
 
 -- name: CreateReminders :many
 INSERT INTO notifications (userid, notificationdate, type, event, text)
@@ -45,3 +46,12 @@ CONCAT((select username from users where id = @userid::uuid), ' s''ha ', @signup
 FROM friendships f join users u on f.user1=u.id join settings s on u.settings=s.id
 WHERE f.user1 = @userid::uuid and s.showplans
 RETURNING id;
+
+-- name: CreateCancellationNotifications :execrows
+-- Notifies once every user signed up to the cancelled event, except its creator (NotificacióEsdeveniment Cancel·lació).
+INSERT INTO notifications (userid, notificationdate, type, event, text)
+SELECT su.userid, now(), (SELECT id FROM notificationtypes WHERE name = 'Cancelacio'), e.id, CONCAT(e.title, ' s''ha cancel·lat.')
+FROM (SELECT DISTINCT userid FROM signup WHERE event = sqlc.arg(event_id)::integer) su
+JOIN events e ON e.id = sqlc.arg(event_id)::integer
+JOIN unofficialevents ue ON ue.id = e.id
+WHERE su.userid <> ue.creator;

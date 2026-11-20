@@ -442,7 +442,7 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
   2. `PUT /events/{id}` respon `409 Conflict` si l'estat no és `Active`. L'ordre de comprovacions és: autoria i tipus (`403`) → estat (`409`) → camps i R5 (`400`).
   3. De moment cap endpoint no canvia l'estat (la retirada arribarà amb les denúncies, R7). L'estat no surt a les respostes JSON dels esdeveniments.
   4. No s'ha bloquejat `POST /events/{id}/image` ni `DELETE /events/{id}` per als esdeveniments retirats, ni s'amaguen dels llistats: fora de l'abast de #188.
-  5. Pendent de confirmar si cal un estat `Cancelled` (cancel·lat pel creador), diferent de `Withdrawn`.
+  5. Pendent de confirmar si cal un estat `Cancelled` (cancel·lat pel creador), diferent de `Withdrawn`. → La Tasca #180 l'afegeix (DP-041).
   6. La migració i la consulta `GetUnofficialEventState` no s'han provat contra PostgreSQL/Supabase; `events.sql.go` s'ha escrit a mà en el format de sqlc (sense regenerar, pels ajustos manuals del fitxer).
 - **Opcions:** —
 - **Provisionalment:** els supòsits anteriors.
@@ -479,6 +479,59 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
   6. Dos missatges del mateix usuari al mateix esdeveniment en el mateix microsegon violen la clau R1 → `409`.
   7. Cada missatge porta `user-id`, `username`, `name`, `profile-picture`, `event-id`, `text` i `date-sent`.
   8. La migració i les consultes no s'han provat contra PostgreSQL/Supabase; `event_messages.sql.go` s'ha escrit a mà en el format de sqlc.
+- **Opcions:** —
+- **Provisionalment:** els supòsits anteriors.
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
+### DP-041 · Cancel·lar un esdeveniment no oficial (`POST /events/{id}/cancel`)
+- **Estat:** oberta
+- **Obert per:** 2026-11-19 · Claude Code (Opus 5.5) · branca `feature/cancellar-esdeveniment` (Taiga #180)
+- **Context:** `EventHandler.CancelEvent`, `EventService.CancelUnofficialEvent`, `EventRepository.Cancel`, consultes `CancelUnofficialEvent` i `CreateCancellationNotifications`, migració 000020. (La DP-040 és a la PR #69 del xat.)
+- **Dubte / supòsits:**
+  1. Migració 000020: nou valor `Cancelled` a `UnofficialEventState` (diferent de `Withdrawn`, que és per denúncies, R7) i nou tipus de notificació `Cancelacio` a `NotificationTypes` (`NumNotificationTypes` passa a 4). El tipus s'insereix amb la migració perquè `NotificationRepository` esborra i recrea els tipus quan no n'hi ha `NumNotificationTypes`, i aquest esborrat fallaria si ja hi ha notificacions. El `down` no pot treure el valor de l'enum (Postgres no ho permet) i torna els cancel·lats a `Active`.
+  2. Autoria com a `PUT`/`DELETE`: només el creador (`403` per a la resta i per als oficials). Ordre: autoria (`403`) → acabat (`409`) → estat (`409`).
+  3. Només es pot cancel·lar un esdeveniment `Active` que no hagi acabat (darrer dia = `EndDate`, o `StartDate` si no en té, abans d'avui → `409`). Un esdeveniment en curs sí que es pot cancel·lar. Tornar-lo a cancel·lar dona `409`.
+  4. El canvi d'estat i les notificacions van en una sola transacció; l'`UPDATE` només actua si l'estat encara és `Active`, així dues peticions alhora no generen notificacions duplicades.
+  5. Es notifica un cop cada usuari inscrit, excepte el creador, amb el text «<títol> s'ha cancel·lat.» (en català, com els recordatoris). No es tenen en compte les preferències de notificació de `Settings`. Com que ja tenen una notificació de l'esdeveniment, `CreateReminders` ja no els enviarà el recordatori.
+  6. Les inscripcions no s'esborren, l'esdeveniment segueix als llistats i el JSON de l'esdeveniment no mostra l'estat. Tampoc no es bloquegen les noves inscripcions, el xat ni la imatge d'un esdeveniment cancel·lat. Cal decidir-ho amb el frontend.
+  7. Resposta `200 {event-id, state, notified-users}`. No hi ha manera de desfer la cancel·lació.
+  8. La migració i les consultes no s'han provat contra PostgreSQL/Supabase; el codi de `sqlc` s'ha escrit a mà en el seu format.
+- **Opcions:** —
+- **Provisionalment:** els supòsits anteriors.
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
+### DP-042 · Bloquejar i desbloquejar usuaris (`/users/{id}/block`, `GET /users/me/blocked`)
+- **Estat:** oberta
+- **Obert per:** 2026-11-19 · Claude Code (Opus 5.5) · branca `feature/usuaris-bloquejats` (Taiga #108, part backend)
+- **Context:** `user_handler/blocked_users.go`, `user_service/blocked_users.go`, `postgres/blocked_users.go`, `queries/blocked_users.sql`, migració 000021. La taula `Blocked` ja existia (000001: PK `(BlockingUser, BlockedUser)`, `CHECK` R2, FK a `Users` des de la 000009) i ja s'usava a `IsBlocked` (sol·licituds d'amistat) i a la cerca d'usuaris, però no hi havia cap endpoint. (La DP-040 i la DP-041 són a les PR #69 i #70.)
+- **Dubte / supòsits:**
+  1. Migració 000021: columna `DateBlocked` (`DEFAULT now()`; els bloquejos existents queden amb la data de la migració) per ordenar la llista, i índex per `BlockedUser`.
+  2. R3: en bloquejar, en una sola transacció s'elimina l'amistat (les dues files de `Friendships`) i les sol·licituds `Pending` o `Accepted` entre tots dos passen a `Rejected` (es manté la `DateResolved` de les acceptades). No s'esborren perquè les notificacions socials les referencien.
+  3. En desbloquejar no es recupera l'amistat: cal tornar a enviar una sol·licitud.
+  4. L'usuari bloquejat no rep cap notificació. Bloquejar no amaga els esdeveniments, el xat ni les notificacions antigues de l'altre usuari; només impedeix les sol·licituds d'amistat (`IsBlocked`) i el treu de la cerca.
+  5. Rutes: `POST /users/{id}/block` (`201` amb l'usuari bloquejat), `DELETE /users/{id}/block` (`204`) i `GET /users/me/blocked` (`200`, del més recent al més antic, sense paginació). `{id}` accepta UUID, Firebase UID o nom d'usuari, com `unfriend`. Codis: `400` R2, `404` usuari inexistent o no bloquejat, `409` ja bloquejat.
+  6. La migració i les consultes no s'han provat contra PostgreSQL/Supabase; `blocked_users.sql.go` s'ha escrit a mà en el format de sqlc.
+- **Opcions:** —
+- **Provisionalment:** els supòsits anteriors.
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
+### DP-043 · Canviar idioma (#28): idioma de l'usuari i traducció d'esdeveniments
+- **Estat:** oberta
+- **Obert per:** 2026-11-19 · Claude Code (Sonnet 5.5) · branca `feature/change-language-28` (Taiga #28)
+- **Context:** `translate_client`, `translation_service`, `translation_repository`, `handlers/language`, `queries/translations.sql`, migració 000022. Decisions ja preses per l'usuari: idiomes `ca`/`es`/`en` (original `ca`), servei traductor extern sobre Cloudflare Workers AI (`TRANSLATOR_URL`), cau a BD i idioma persistit a `Settings`.
+- **Dubte / supòsits:**
+  1. **Numeració de la migració:** `develop` ja té fusionades `000020` (`event_cancellation`) i `000021` (`blocked_users`), així que s'usa **000022** (`supabase/migrations/20261119000022_event_translations.sql`). Compte amb la PR #73 (`feature/settings-improvements`), que també porta una migració pendent: si es fusiona abans, caldrà renumerar aquesta.
+  2. **Idioma de resolució:** `?lang` guanya; sense ell, l'idioma de `Settings` de l'usuari autenticat; sense usuari (o si no es pot identificar o llegir), l'original. Un usuari sense `POST /auth/sync` no rep `401` per això: simplement veu l'original. `ca` no crida mai el traductor.
+  3. **Camps traduïts:** arran de la revisió de la PR #74 (Lluc), es tradueixen `title`, `subtitle`, `description`, `schedule`, `tickets` i `url-names` (separat per comes per traduir cada nom d'enllaç sense trencar la correspondència amb `related-urls`). Pendent de confirmar amb el frontend si s'acaba mostrant `subtitle`. `place`, `municipality`, `region`, `address`, etc. queden sense traduir. L'esdeveniment retornat per `POST`/`PUT /events` tampoc es tradueix (és el text de l'autor).
+  4. **Cau:** `EventTranslations(Event, Lang, Title, Subtitle, Description, Schedule, Tickets, URLNames, SourceHash, UpdatedAt)` amb PK `(Event, Lang)`, `ON DELETE CASCADE` i RLS. `SourceHash` = SHA-256 dels sis camps originals separats per `0x00`; un canvi a qualsevol dels sis camps invalida la traducció. No hi ha caducitat ni esborrat de traduccions antigues.
+  5. **Fallada de traducció:** es retorna el text original, es registra (`slog`) i no es desa res a la cau; amb `TRANSLATOR_URL` buit el client queda desactivat (`ErrDisabled`, no es registra per petició). Els esdeveniments sense cau d'una petició es divideixen en lots de 3 (fins a 4 en paral·lel, màxim 20 per petició) amb deduplicació dels textos repetits dins de cada lot i un timeout compartit de 12 s (`context.WithTimeout`, per sota del `WriteTimeout` de 15 s del servidor); cada lot es desa a la cau independentment, de manera que si un lot falla o expira, la resta igualment es tradueixen i es guarden. Cas del mapa: `GET /events/map` no té `LIMIT`, així que amb un mapa fred es tradueixen els primers 20 esdeveniments sense cau (els que ja són a la cau sempre es serveixen traduïts); la resta apareixen en català fins que la cau s'escalfi. El timeout de 15 s del client HTTP és només el límit superior.
+  6. **Camp `Settings.Language`:** no s'ha regenerat `sqlc` (`models.go` té ajustos manuals). Les consultes noves són a `queries/translations.sql` i `sqlc/translations.sql.go` s'ha escrit a mà; `GetSettings`/`UpdateUserSettings` generats no coneixen la columna, així que `UserRepository` fa una consulta addicional per llegir-la, i en desar-la usa la consulta manual `UpdateSettings` (un sol `UPDATE` amb `ShowPlans`, `NotificationBefore` i `Language`, atòmic). Si es regenera `sqlc`, `Setting` guanyarà el camp `Language` i les consultes duplicades es podran fusionar.
+  7. **Fora d'abast:** el xatbot (`assistant_handler`/MCP) no tradueix els esdeveniments ni respon en l'idioma de l'usuari; la qualitat de totes les traduccions automàtiques no s'ha revisat manualment.
+  8. **Millores conegudes, no corregides:** (a) cada petició autenticada fa cerques d'usuari addicionals (resolució de Firebase UID → UUID i lectura de `Settings.Language`); (b) `language.Resolve` accepta el fallback de capçalera `X-User-ID` (com la resta de l'API en mode de proves), cosa que permetria llegir l'idioma d'un altre usuari amb només conèixer el seu ID; (c) no hi ha `singleflight`: peticions concurrents pels mateixos esdeveniments sense cau tradueixen i desen dues vegades.
+  9. La versió inicial (títol i descripció) es va verificar contra PostgreSQL local i Cloudflare Workers AI; l'ampliació amb `Subtitle`, `Schedule`, `Tickets` i `URLNames` està verificada amb tests unitaris i queda pendent de re-provar contra PostgreSQL/Supabase i el Worker real.
 - **Opcions:** —
 - **Provisionalment:** els supòsits anteriors.
 - **Qui decideix:** frontend + backend

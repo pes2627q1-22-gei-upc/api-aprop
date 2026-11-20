@@ -33,6 +33,10 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		response.WriteError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, user_service.ErrSameUser):
 		response.WriteError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, user_service.ErrAlreadyBlocked):
+		response.WriteError(w, http.StatusConflict, "user already blocked")
+	case errors.Is(err, user_service.ErrNotBlocked):
+		response.WriteError(w, http.StatusNotFound, "user is not blocked")
 	case errors.Is(err, user_service.ErrAuthProvider):
 		log.Printf("delete account: %v", err)
 		response.WriteError(w, http.StatusBadGateway, "could not delete the authentication account")

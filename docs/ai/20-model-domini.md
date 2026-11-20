@@ -35,7 +35,7 @@
 | ConversaXatbot | Conversa amb l'assistent | *dataInici* |
 | MissatgeXatbot | Missatge de la conversa | *emissor* (Usuari/Xatbot), *perVeu*, *dataEnviament*, → recomanats* |
 | GuanyExperiència | Punts guanyats | *acció*, *data*, *punts* |
-| (bloqueig) | Usuari bloqueja Usuari | associació reflexiva |
+| (bloqueig) | Usuari bloqueja Usuari | associació reflexiva. Taula `Blocked` (`BlockingUser`, `BlockedUser`, `DateBlocked` des de la migració 000021) |
 
 ## Enumeracions (valors coneguts)
 
@@ -43,9 +43,9 @@
 |---|---|---|
 | Sol·licitudAmistat.estat | Pendent, Acceptada, *Rebutjada* | confirmar el nom de l'estat rebutjat |
 | Usuari.estatCompte | Desactivat, … | `TODO(confirmar)` valor actiu |
-| NoOficial.estat | `Active` (actiu), `Withdrawn` (Retirat) | Columna `UnofficialEvents.State` (migració 000018). `TODO(DP-038)`: confirmar si cal `Cancelled` |
+| NoOficial.estat | `Active` (actiu), `Withdrawn` (Retirat), `Cancelled` (cancel·lat pel creador) | Columna `UnofficialEvents.State` (migracions 000018 i 000020). `Cancelled` el posa `POST /events/{id}/cancel` (DP-041) |
 | Denúncia.estat | Pendent, Acceptada, … | `TODO(confirmar)` (rebutjada?) |
-| NotificacióEsdeveniment.tipus | Recordatori, Cancel·lació, RecordatoriValorar, Recomanació, InscripcióAmic | noms exactes al diagrama |
+| NotificacióEsdeveniment.tipus | Recordatori, Cancel·lació, RecordatoriValorar, Recomanació, InscripcióAmic | noms exactes al diagrama. A `NotificationTypes` hi ha `Social`, `Recomanacio`, `Recordatori` i `Cancelacio` (migració 000020) |
 | MissatgeXatbot.emissor | Usuari, Xatbot | |
 | Nivell | Curiós/a → Explorador/a → Aventurer/a cultural → Descobridor/a cultural → Ambaixador/a cultural | llindars d'XP `TODO(confirmar)` (mockup: 340/500) |
 | Configuració.idioma | ca, es (+ en?) | mockup diu ca/es; NFR diu ca/es/en |
