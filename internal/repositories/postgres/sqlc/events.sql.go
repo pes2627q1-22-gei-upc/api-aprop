@@ -196,7 +196,7 @@ func (q *Queries) DeleteEventChatbotRecommendations(ctx context.Context, event i
 }
 
 const deleteEventMessages = `-- name: DeleteEventMessages :exec
-DELETE FROM messages WHERE event = $1
+DELETE FROM EventMessages WHERE Event = $1
 `
 
 func (q *Queries) DeleteEventMessages(ctx context.Context, event int32) error {

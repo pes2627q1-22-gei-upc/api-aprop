@@ -28,7 +28,7 @@ DELETE FROM EventRatings WHERE UserID = sqlc.arg(user_id)::uuid;
 DELETE FROM UserRatings WHERE Rater = sqlc.arg(user_id)::uuid OR Rated = sqlc.arg(user_id)::uuid;
 
 -- name: DeleteUserMessages :exec
-DELETE FROM Messages WHERE UserID = sqlc.arg(user_id)::uuid;
+DELETE FROM EventMessages WHERE UserID = sqlc.arg(user_id)::uuid;
 
 -- name: DeleteUserPreferenceTestChoices :exec
 DELETE FROM PreferenceTestChoices WHERE TestUser = sqlc.arg(user_id)::uuid;

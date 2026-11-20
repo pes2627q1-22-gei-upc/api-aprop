@@ -13,6 +13,7 @@
 
 | Taiga | Història / Tasca | Repo | Branca | Responsable | Estat |
 |---|---|---|---|---|---|
+| **#147** | Xat d'esdeveniment: migració `EventMessages` (R1) i `GET`/`POST /events/{id}/messages` amb inscripció obligatòria (R11) | `api-aprop` | `feature/xat-esdeveniment` | Arnau Serra | Implementat amb tests unitaris; migració 000019 i SQL no provats contra BD; PR oberta a `develop` (DP-040 oberta) |
 | **#180** | Cancel·lar esdeveniment: `POST /events/{id}/cancel` amb autoria, estat `Cancelled` i notificacions de cancel·lació als inscrits | `api-aprop` | `feature/cancellar-esdeveniment` | Arnau Serra | Implementat amb tests unitaris; migració 000020 i SQL no provats contra BD; PR oberta a `develop` (DP-041 oberta) |
 | **#118** | Recuperar contrasenya (part backend): `POST /auth/password-reset` amb correu o nom d'usuari | `api-aprop` | `feature/recuperar-contrasenya` | Arnau Serra | Implementat amb tests unitaris; enviament real no provat (cal `FIREBASE_WEB_API_KEY`); part frontend pendent (DP-039 oberta) |
 | **#188** | Endpoint `PUT /events/{id}`: autoria, tipus `NoOficial`, estat actiu i R5 | `api-aprop` | `feature/modificar-esdeveniment` | Arnau Serra | Implementat amb tests unitaris; migració 000018 i SQL no provats contra BD; pendent de PR a `develop` (DP-038 oberta) |

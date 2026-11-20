@@ -136,7 +136,7 @@ DELETE FROM eventratings WHERE event = $1;
 DELETE FROM userratings WHERE event = $1;
 
 -- name: DeleteEventMessages :exec
-DELETE FROM messages WHERE event = $1;
+DELETE FROM EventMessages WHERE Event = $1;
 
 -- name: DeleteEventNotifications :exec
 DELETE FROM notifications WHERE event = @event::int;
