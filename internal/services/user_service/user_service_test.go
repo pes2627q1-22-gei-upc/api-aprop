@@ -23,6 +23,7 @@ type mockUserRepo struct {
 	usersByID               map[pgtype.UUID]*user_model.User
 	showPlans               map[int]bool
 	languages               map[int]string
+	pushEnabled             map[int]bool
 	friends                 map[pgtype.UUID]map[pgtype.UUID]bool
 	plansCount              map[pgtype.UUID]int
 	completedPlans          map[pgtype.UUID]int
@@ -71,6 +72,7 @@ func newMockUserRepo() *mockUserRepo {
 		usersByID:       make(map[pgtype.UUID]*user_model.User),
 		showPlans:       make(map[int]bool),
 		languages:       make(map[int]string),
+		pushEnabled:     make(map[int]bool),
 		friends:         make(map[pgtype.UUID]map[pgtype.UUID]bool),
 		plansCount:      make(map[pgtype.UUID]int),
 		completedPlans:  make(map[pgtype.UUID]int),
@@ -95,7 +97,7 @@ func (m *mockUserRepo) GetByID(_ context.Context, id pgtype.UUID) (user_model.Us
 }
 
 func (m *mockUserRepo) GetSettings(_ context.Context, settings int) (user_model.Settings, error) {
-	return user_model.Settings{ID: settings, ShowPlans: m.showPlans[settings], Language: m.languages[settings]}, nil
+	return user_model.Settings{ID: settings, ShowPlans: m.showPlans[settings], Language: m.languages[settings], PushEnabled: m.pushEnabled[settings]}, nil
 }
 
 func (m *mockUserRepo) GetByUsername(_ context.Context, username string) (user_model.User, error) {
@@ -191,6 +193,7 @@ func (m *mockUserRepo) UpdateProfile(_ context.Context, id pgtype.UUID, name, us
 func (m *mockUserRepo) UpdateSettings(_ context.Context, settings user_model.Settings) error {
 	m.showPlans[settings.ID] = settings.ShowPlans
 	m.languages[settings.ID] = settings.Language
+	m.pushEnabled[settings.ID] = settings.PushEnabled
 	return nil
 }
 
@@ -572,6 +575,34 @@ func TestUpdateProfile_Language(t *testing.T) {
 	}
 	if repo.languages[1] != "en" {
 		t.Errorf("an invalid language must not be stored, got %q", repo.languages[1])
+	}
+}
+
+func TestUpdateProfile_PushEnabled(t *testing.T) {
+	repo := newMockUserRepo()
+	repo.addUser(user_model.User{ID: testID(1), FirebaseUID: "fb-alice", Username: "alice", Settings: 1}, true)
+	repo.pushEnabled[1] = true
+	repo.languages[1] = "es"
+	svc := user_service.NewUserService(repo, &mockNotificationRepo{}, &mockS3Client{}, nil)
+
+	off := false
+	profile, err := svc.UpdateProfile(context.Background(), "fb-alice", user_service.UpdateProfileInput{PushEnabled: &off})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if profile.PushEnabled == nil || *profile.PushEnabled || repo.pushEnabled[1] {
+		t.Errorf("push-enabled = %v, stored = %v, want false", profile.PushEnabled, repo.pushEnabled[1])
+	}
+	if !profile.ShowPlans || repo.languages[1] != "es" {
+		t.Error("changing push-enabled must keep the other settings")
+	}
+
+	other, err := svc.GetUserProfile(context.Background(), "alice", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if other.PushEnabled != nil {
+		t.Error("push-enabled must only be in the own profile")
 	}
 }
 

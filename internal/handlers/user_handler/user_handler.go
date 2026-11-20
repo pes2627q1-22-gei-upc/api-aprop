@@ -109,6 +109,7 @@ func (h *UserHandler) UpdateMyProfile(w http.ResponseWriter, r *http.Request) {
 		ProfilePicture *string `json:"profile-picture"`
 		ShowPlans      *bool   `json:"show-plans"`
 		Language       *string `json:"language"`
+		PushEnabled    *bool   `json:"push-enabled"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -123,6 +124,7 @@ func (h *UserHandler) UpdateMyProfile(w http.ResponseWriter, r *http.Request) {
 		ProfilePicture: body.ProfilePicture,
 		ShowPlans:      body.ShowPlans,
 		Language:       body.Language,
+		PushEnabled:    body.PushEnabled,
 	})
 	if err != nil {
 		writeServiceError(w, err)

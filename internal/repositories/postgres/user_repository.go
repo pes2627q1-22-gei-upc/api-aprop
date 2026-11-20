@@ -207,29 +207,38 @@ func (r *UserRepository) UpdateProfile(ctx context.Context, id pgtype.UUID, name
 	return u, nil
 }
 
+// UpdateSettings stores every field of settings, so it must come from GetSettings with the changes applied.
 func (r *UserRepository) UpdateSettings(ctx context.Context, settings user_model.Settings) error {
-	// TODO(DP-043): with a language, a hand-written query updates everything in one statement (the generated Setting model does not have Language).
-	if settings.Language != "" {
-		err := r.queries.UpdateSettings(ctx, sqlc.UpdateSettingsParams{
-			ID:                 int32(settings.ID),
-			ShowPlans:          settings.ShowPlans,
-			NotificationBefore: settings.NotificationBefore,
-			Language:           settings.Language,
-		})
+	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+		q := r.queries.WithTx(tx)
+		// TODO(DP-043): with a language, a hand-written query updates everything in one statement (the generated Setting model does not have Language).
+		if settings.Language != "" {
+			err := q.UpdateSettings(ctx, sqlc.UpdateSettingsParams{
+				ID:                 int32(settings.ID),
+				ShowPlans:          settings.ShowPlans,
+				NotificationBefore: settings.NotificationBefore,
+				Language:           settings.Language,
+			})
+			if err != nil {
+				return fmt.Errorf("update settings %d: %w", settings.ID, err)
+			}
+		} else {
+			_, err := q.UpdateUserSettings(ctx, sqlc.UpdateUserSettingsParams{
+				ID:                 int32(settings.ID),
+				ShowPlans:          settings.ShowPlans,
+				NotificationBefore: settings.NotificationBefore,
+			})
+			if err != nil {
+				return fmt.Errorf("update settings %d: %w", settings.ID, err)
+			}
+		}
+		// TODO(DP-044): PushEnabled has its own query, like Language, to leave the generated Setting model untouched.
+		err := q.UpdateSettingsPushEnabled(ctx, sqlc.UpdateSettingsPushEnabledParams{ID: int32(settings.ID), PushEnabled: settings.PushEnabled})
 		if err != nil {
-			return fmt.Errorf("update settings %d: %w", settings.ID, err)
+			return fmt.Errorf("update push setting %d: %w", settings.ID, err)
 		}
 		return nil
-	}
-	_, err := r.queries.UpdateUserSettings(ctx, sqlc.UpdateUserSettingsParams{
-		ID:                 int32(settings.ID),
-		ShowPlans:          settings.ShowPlans,
-		NotificationBefore: settings.NotificationBefore,
 	})
-	if err != nil {
-		return fmt.Errorf("update settings %d: %w", settings.ID, err)
-	}
-	return nil
 }
 
 func (r *UserRepository) GetUserFriends(ctx context.Context, userid pgtype.UUID) ([]string, error) {
@@ -405,7 +414,12 @@ func (r *UserRepository) GetSettings(ctx context.Context, id int) (user_model.Se
 		return user_model.Settings{}, err
 	}
 
-	return user_model.Settings{ID: int(row.ID), NotificationBefore: intervalToString(row.Notificationbefore), ShowPlans: row.Showplans, Language: language}, nil
+	pushEnabled, err := r.queries.GetSettingsPushEnabled(ctx, int32(id))
+	if err != nil {
+		return user_model.Settings{}, err
+	}
+
+	return user_model.Settings{ID: int(row.ID), NotificationBefore: intervalToString(row.Notificationbefore), ShowPlans: row.Showplans, Language: language, PushEnabled: pushEnabled}, nil
 }
 
 func toTimestamp(t time.Time) pgtype.Timestamp {
