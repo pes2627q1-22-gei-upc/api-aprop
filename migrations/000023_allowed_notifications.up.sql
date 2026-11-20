@@ -4,4 +4,4 @@ create table allowednotifications (
     primary key (Settings, NotificationType)
 );
 
-insert into allowednotifications (settings, notificationtype) select s.id, nt.id from settings, notificationtypes where not exists (select * from allowednotifications an where an.settings=s.id);
+insert into allowednotifications (settings, notificationtype) select s.id, nt.id from settings s, notificationtypes nt where not exists (select * from allowednotifications an where an.settings=s.id);
