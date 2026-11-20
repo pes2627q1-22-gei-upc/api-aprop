@@ -23,11 +23,11 @@ type EventService struct {
 	eventRepository      event_repository.Repository
 	gencatClient         gencat_client.Client
 	preferenceRepository preference_repository.Repository
-	s3Client             s3_client.Client
+	s3Client             s3_client.EventImageUploader
 	userRepository       user_repository.Repository
 }
 
-func NewEventService(eventRepository event_repository.Repository, preferenceRepository preference_repository.Repository, gencatClient gencat_client.Client, s3Client s3_client.Client) *EventService {
+func NewEventService(eventRepository event_repository.Repository, preferenceRepository preference_repository.Repository, gencatClient gencat_client.Client, s3Client s3_client.EventImageUploader) *EventService {
 	return &EventService{
 		eventRepository:      eventRepository,
 		preferenceRepository: preferenceRepository,

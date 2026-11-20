@@ -27,22 +27,24 @@ import (
 var usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9_]{3,30}$`)
 
 const (
-	maxNameLength = 100
-	maxBioLength  = 500
+	maxNameLength       = 100
+	maxBioLength        = 500
+	maxPictureURLLength = 2048
 )
 
 type userService struct {
 	userRepo         user_repository.Repository
 	notificationRepo notification_repository.Repository
-	s3Client         s3_client.Client
+	s3Client         s3_client.AvatarStorage
 	accountDeleter   firebase_client.AccountDeleter
 }
 
 var _ Service = (*userService)(nil)
 
-// NewUserService creates the service. accountDeleter deletes the Firebase Auth account when a user
-// deletes its account; it can be nil when the API runs without Firebase (local development).
-func NewUserService(userRepo user_repository.Repository, notificationRepo notification_repository.Repository, s3Client s3_client.Client, accountDeleter firebase_client.AccountDeleter) Service {
+// NewUserService creates the service. s3Client stores the avatars in a private bucket and signs their URLs (#247).
+// accountDeleter deletes the Firebase Auth account when a user deletes its account; it can be nil when the API
+// runs without Firebase (local development).
+func NewUserService(userRepo user_repository.Repository, notificationRepo notification_repository.Repository, s3Client s3_client.AvatarStorage, accountDeleter firebase_client.AccountDeleter) Service {
 	return &userService{
 		userRepo:         userRepo,
 		notificationRepo: notificationRepo,
@@ -181,6 +183,7 @@ func (s *userService) GetUserProfile(ctx context.Context, targetIdentifier strin
 	}
 
 	profilePic := target.ProfilePicture
+	s.resolveAvatars(ctx, s3_client.AvatarField{UserID: target.ID.String(), Picture: &profilePic})
 	if profilePic == "" {
 		profilePic = "https://ui-avatars.com/api/?name=" + url.QueryEscape(displayName) + "&background=random"
 	}
@@ -282,6 +285,15 @@ func (s *userService) UpdateProfile(ctx context.Context, requesterIdentifier str
 		input.Biography = &trimmedBio
 	}
 
+	// #247: avatars of the private bucket can only be set with POST /users/me/avatar
+	if input.ProfilePicture != nil {
+		trimmedPicture := strings.TrimSpace(*input.ProfilePicture)
+		if err := validatePictureURL(trimmedPicture); err != nil {
+			return user_model.UserProfile{}, err
+		}
+		input.ProfilePicture = &trimmedPicture
+	}
+
 	if input.ShowPlans != nil || input.Language != nil {
 		if input.ShowPlans != nil {
 			settings.ShowPlans = *(input.ShowPlans)
@@ -302,6 +314,7 @@ func (s *userService) UpdateProfile(ctx context.Context, requesterIdentifier str
 		if err != nil {
 			return user_model.UserProfile{}, err
 		}
+		s.deleteReplacedAvatar(ctx, user, updatedUser.ProfilePicture)
 		user = updatedUser
 	}
 
@@ -318,20 +331,28 @@ func (s *userService) UploadAvatar(ctx context.Context, requesterIdentifier stri
 	}
 
 	if s.s3Client == nil {
-		return user_model.UserProfile{}, fmt.Errorf("%w: storage service unconfigured", ErrInvalidInput)
+		return user_model.UserProfile{}, ErrStorageUnavailable
 	}
 
-	targetUID := user.ID
-
-	avatarURL, err := s.s3Client.UploadAvatar(ctx, targetUID.String(), filename, contentType, reader)
-	if err != nil {
-		return user_model.UserProfile{}, fmt.Errorf("%w: %v", ErrInvalidInput, err)
+	avatarPath, err := s.s3Client.UploadAvatar(ctx, user.ID.String(), filename, contentType, reader)
+	switch {
+	case errors.Is(err, s3_client.ErrInvalidContentType):
+		return user_model.UserProfile{}, fmt.Errorf("%w: %w", ErrInvalidInput, err)
+	case errors.Is(err, s3_client.ErrStorageNotConfigured):
+		return user_model.UserProfile{}, fmt.Errorf("%w: %w", ErrStorageUnavailable, err)
+	case err != nil:
+		return user_model.UserProfile{}, fmt.Errorf("%w: %w", ErrStorageFailed, err)
 	}
 
-	updatedUser, err := s.userRepo.UpdateProfile(ctx, user.ID, nil, nil, nil, &avatarURL)
+	updatedUser, err := s.userRepo.UpdateProfile(ctx, user.ID, nil, nil, nil, &avatarPath)
 	if err != nil {
+		// the uploaded object is not referenced by anyone
+		if delErr := s.s3Client.DeleteAvatar(ctx, user.ID.String(), avatarPath); delErr != nil {
+			slog.Warn("could not delete an unused avatar", "user", user.ID.String(), "error", delErr)
+		}
 		return user_model.UserProfile{}, err
 	}
+	s.deleteReplacedAvatar(ctx, user, updatedUser.ProfilePicture)
 
 	return s.GetUserProfile(ctx, updatedUser.ID.String(), requesterIdentifier)
 }
@@ -533,6 +554,42 @@ func (s *userService) Unfriend(ctx context.Context, userid string, targetid stri
 	}
 
 	return err
+}
+
+// resolveAvatars replaces stored profile pictures with URLs that clients can load (#247). A failure only hides
+// the pictures, the response is still served.
+func (s *userService) resolveAvatars(ctx context.Context, fields ...s3_client.AvatarField) {
+	if err := s3_client.ResolveAvatars(ctx, s.s3Client, fields); err != nil {
+		slog.Warn("could not sign profile pictures", "error", err)
+	}
+}
+
+// deleteReplacedAvatar deletes, best-effort, the avatar of before from the bucket once the profile points to
+// another picture. External URLs are ignored by DeleteAvatar.
+func (s *userService) deleteReplacedAvatar(ctx context.Context, before user_model.User, current string) {
+	if s.s3Client == nil || before.ProfilePicture == "" || before.ProfilePicture == current {
+		return
+	}
+	if err := s.s3Client.DeleteAvatar(ctx, before.ID.String(), before.ProfilePicture); err != nil {
+		slog.Warn("could not delete a replaced avatar", "user", before.ID.String(), "error", err)
+	}
+}
+
+// validatePictureURL checks the profile-picture of PATCH /users/me: empty (no picture) or an external http(s)
+// URL. Object paths of the private bucket are rejected so a user cannot point to the avatar of another one.
+// TODO(DP-044): external URLs are still accepted (e.g. the Google photo).
+func validatePictureURL(picture string) error {
+	if picture == "" {
+		return nil
+	}
+	if len(picture) > maxPictureURLLength {
+		return fmt.Errorf("%w: profile-picture cannot exceed %d characters", ErrInvalidInput, maxPictureURLLength)
+	}
+	u, err := url.Parse(picture)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || !s3_client.IsExternalPicture(picture) {
+		return fmt.Errorf("%w: profile-picture must be empty or an http(s) URL; upload avatars with POST /users/me/avatar", ErrInvalidInput)
+	}
+	return nil
 }
 
 func (s *userService) findUser(ctx context.Context, identifier string) (user_model.User, error) {

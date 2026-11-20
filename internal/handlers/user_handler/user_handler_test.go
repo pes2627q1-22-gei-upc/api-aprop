@@ -32,6 +32,8 @@ type fakeUserService struct {
 	deleteErr  error
 	deletedIDs []string
 
+	uploadErr error
+
 	searchResult    user_model.UserSearchResult
 	searchErr       error
 	searchCalls     int
@@ -131,6 +133,9 @@ func (f *fakeUserService) UpdateProfile(_ context.Context, requesterIdentifier s
 func (f *fakeUserService) UploadAvatar(_ context.Context, requesterIdentifier string, filename string, contentType string, _ io.Reader) (user_model.UserProfile, error) {
 	if requesterIdentifier == "" {
 		return user_model.UserProfile{}, user_service.ErrUnauthorized
+	}
+	if f.uploadErr != nil {
+		return user_model.UserProfile{}, f.uploadErr
 	}
 	p, ok := f.profiles[requesterIdentifier]
 	if !ok {
@@ -456,6 +461,40 @@ func TestUploadAvatar_Success(t *testing.T) {
 	}
 	if res.ProfilePicture != "https://uploaded.example.com/profile.png" {
 		t.Errorf("expected updated avatar, got %s", res.ProfilePicture)
+	}
+}
+
+// #247: storage errors of the avatar upload.
+func TestUploadAvatar_StorageErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"storage not configured", user_service.ErrStorageUnavailable, http.StatusServiceUnavailable},
+		{"storage failed", user_service.ErrStorageFailed, http.StatusBadGateway},
+		{"invalid image", user_service.ErrInvalidInput, http.StatusBadRequest},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &fakeUserService{profiles: map[string]user_model.UserProfile{aliceID: {ID: testID(1)}}, uploadErr: tt.err}
+			mux := setupMux(svc)
+
+			var buf bytes.Buffer
+			writer := multipart.NewWriter(&buf)
+			part, _ := writer.CreateFormFile("avatar", "profile.png")
+			_, _ = part.Write([]byte("fake-image-bytes"))
+			writer.Close()
+			req := httptest.NewRequest(http.MethodPost, "/users/me/avatar", &buf)
+			req.Header.Set("Content-Type", writer.FormDataContentType())
+			req.Header.Set("X-User-ID", aliceID)
+			w := httptest.NewRecorder()
+			mux.ServeHTTP(w, req)
+
+			if w.Code != tt.want {
+				t.Fatalf("status = %d, want %d: %s", w.Code, tt.want, w.Body.String())
+			}
+		})
 	}
 }
 
