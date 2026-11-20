@@ -17,6 +17,7 @@ import (
 	"api-aprop/internal/handlers/user_handler"
 	"api-aprop/internal/middleware/auth_middleware"
 	"api-aprop/internal/models/event_model"
+	"api-aprop/internal/models/language_model"
 	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/services/auth_service"
 	"api-aprop/internal/services/user_service"
@@ -30,6 +31,29 @@ type fakeUserService struct {
 
 	deleteErr  error
 	deletedIDs []string
+
+	searchResult    user_model.UserSearchResult
+	searchErr       error
+	searchCalls     int
+	searchRequester string
+	searchQuery     string
+	searchPageNum   int
+	searchPageSize  int
+
+	blocked      user_model.BlockedUser
+	blockedList  []user_model.BlockedUser
+	blockErr     error
+	blockCalls   int
+	unblockCalls int
+	listCalls    int
+	gotRequester string
+	gotTarget    string
+}
+
+func (f *fakeUserService) SearchUsers(_ context.Context, requesterID, query string, pageNum, pageSize int) (user_model.UserSearchResult, error) {
+	f.searchCalls++
+	f.searchRequester, f.searchQuery, f.searchPageNum, f.searchPageSize = requesterID, query, pageNum, pageSize
+	return f.searchResult, f.searchErr
 }
 
 func (f *fakeUserService) DeleteAccount(_ context.Context, requesterID string) error {
@@ -94,6 +118,12 @@ func (f *fakeUserService) UpdateProfile(_ context.Context, requesterIdentifier s
 	if input.ShowPlans != nil {
 		p.ShowPlans = *input.ShowPlans
 	}
+	if input.Language != nil {
+		if !language_model.Valid(*input.Language) {
+			return user_model.UserProfile{}, user_service.ErrInvalidInput
+		}
+		p.Language = *input.Language
+	}
 	f.profiles[requesterIdentifier] = p
 	return p, nil
 }
@@ -125,6 +155,21 @@ func (f *fakeUserService) AcceptFriendRequest(ctx context.Context, userid string
 }
 func (f *fakeUserService) DenyFriendRequest(ctx context.Context, userid string, targetid string, date time.Time) (user_model.FriendRequest, error) {
 	return user_model.FriendRequest{}, nil
+}
+func (f *fakeUserService) BlockUser(_ context.Context, requesterID, targetID string) (user_model.BlockedUser, error) {
+	f.blockCalls++
+	f.gotRequester, f.gotTarget = requesterID, targetID
+	return f.blocked, f.blockErr
+}
+func (f *fakeUserService) UnblockUser(_ context.Context, requesterID, targetID string) error {
+	f.unblockCalls++
+	f.gotRequester, f.gotTarget = requesterID, targetID
+	return f.blockErr
+}
+func (f *fakeUserService) ListBlockedUsers(_ context.Context, requesterID string) ([]user_model.BlockedUser, error) {
+	f.listCalls++
+	f.gotRequester = requesterID
+	return f.blockedList, f.blockErr
 }
 func (f *fakeUserService) Unfriend(ctx context.Context, userid string, targetid string) error {
 	return nil
@@ -510,4 +555,70 @@ func TestListReceivedRatings(t *testing.T) {
 // testID builds a deterministic user UUID for the fakes.
 func testID(n byte) pgtype.UUID {
 	return pgtype.UUID{Bytes: [16]byte{15: n}, Valid: true}
+}
+
+// langTranslator prefixes the title with the language it was asked for.
+type langTranslator struct{}
+
+func (langTranslator) UserLanguage(context.Context, string) (string, error) { return "ca", nil }
+func (langTranslator) TranslateEvent(_ context.Context, lang string, e event_model.Event) event_model.Event {
+	e.Title = "[" + lang + "] " + e.Title
+	return e
+}
+func (langTranslator) TranslateEvents(_ context.Context, lang string, events []event_model.Event) []event_model.Event {
+	out := make([]event_model.Event, len(events))
+	for i, e := range events {
+		e.Title = "[" + lang + "] " + e.Title
+		out[i] = e
+	}
+	return out
+}
+func (langTranslator) TranslateMapEvents(_ context.Context, _ string, events []event_model.MapEvent) []event_model.MapEvent {
+	return events
+}
+
+func TestUpdateMyProfile_Language(t *testing.T) {
+	tests := []struct {
+		body     string
+		wantCode int
+		wantLang string
+	}{
+		{`{"language":"en"}`, http.StatusOK, "en"},
+		{`{"language":"fr"}`, http.StatusBadRequest, "ca"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.body, func(t *testing.T) {
+			svc := &fakeUserService{profiles: map[string]user_model.UserProfile{aliceID: {ID: testID(1), Username: "alice", Language: "ca"}}}
+			req := httptest.NewRequest(http.MethodPatch, "/users/me", bytes.NewReader([]byte(tt.body)))
+			req.Header.Set("X-User-ID", aliceID)
+			w := httptest.NewRecorder()
+			setupMux(svc).ServeHTTP(w, req)
+			if w.Code != tt.wantCode {
+				t.Fatalf("status = %d, want %d: %s", w.Code, tt.wantCode, w.Body.String())
+			}
+			if got := svc.profiles[aliceID].Language; got != tt.wantLang {
+				t.Errorf("stored language = %q, want %q", got, tt.wantLang)
+			}
+		})
+	}
+}
+
+func TestListCreatedEvents_Lang(t *testing.T) {
+	svc := &fakeUserService{createdEvents: map[string][]event_model.Event{"alice": {{ID: 10, Title: "Expo"}}}}
+	mux := http.NewServeMux()
+	user_handler.NewUserHandler(svc, fakeResolver{}).WithTranslator(langTranslator{}).RegisterRoutes(mux)
+
+	for target, want := range map[string]string{"/users/alice/created-events?lang=es": "[es] Expo", "/users/alice/created-events": "[ca] Expo"} {
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, target, nil))
+		var events []event_model.Event
+		if err := json.NewDecoder(w.Body).Decode(&events); err != nil || w.Code != http.StatusOK || events[0].Title != want {
+			t.Errorf("%s: status %d, events %+v, err %v; want title %q", target, w.Code, events, err, want)
+		}
+	}
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/users/alice/created-events?lang=fr", nil))
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("lang=fr: status = %d, want 400", w.Code)
+	}
 }

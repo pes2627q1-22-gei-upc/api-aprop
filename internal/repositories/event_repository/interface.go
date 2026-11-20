@@ -26,4 +26,11 @@ type Repository interface {
 	GetCategory(id int) (event_model.Category, error)
 	ListMapEvents(ctx context.Context, filter event_model.MapFilter) ([]event_model.MapEvent, error)
 	EventExists(id int) (bool, error)
+	// GetUnofficialState returns the state of an unofficial event (event_model.UnofficialState*).
+	// It returns ErrEventNotFound if the event does not exist or is official.
+	GetUnofficialState(ctx context.Context, id int) (string, error)
+	// Cancel marks an Active unofficial event as Cancelled and notifies the users signed up to it, except its creator,
+	// in a single transaction. It returns the number of notified users, ErrEventNotFound if the event does not exist
+	// or is official, and ErrEventNotActive if it is no longer Active.
+	Cancel(ctx context.Context, id int) (int64, error)
 }

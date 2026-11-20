@@ -267,6 +267,48 @@ func (r *EventRepository) UpdateImage(ctx context.Context, id int, imageURL stri
 	})
 }
 
+func (r *EventRepository) GetUnofficialState(ctx context.Context, id int) (string, error) {
+	state, err := r.queries.GetUnofficialEventState(ctx, int32(id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", fmt.Errorf("get state of event %d: %w", id, event_repository.ErrEventNotFound)
+	}
+	if err != nil {
+		return "", fmt.Errorf("get state of event %d: %w", id, err)
+	}
+	return state, nil
+}
+
+func (r *EventRepository) Cancel(ctx context.Context, id int) (int64, error) {
+	var notified int64
+	err := pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+		q := r.queries.WithTx(tx)
+		cancelled, err := q.CancelUnofficialEvent(ctx, int32(id))
+		if err != nil {
+			return fmt.Errorf("cancel event %d: %w", id, err)
+		}
+		if cancelled == 0 {
+			// Not Active or not an unofficial event: tell both cases apart
+			state, err := q.GetUnofficialEventState(ctx, int32(id))
+			if errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("cancel event %d: %w", id, event_repository.ErrEventNotFound)
+			}
+			if err != nil {
+				return fmt.Errorf("cancel event %d: %w", id, err)
+			}
+			return fmt.Errorf("cancel event %d: %w: state is %s", id, event_repository.ErrEventNotActive, state)
+		}
+		notified, err = q.CreateCancellationNotifications(ctx, int32(id))
+		if err != nil {
+			return fmt.Errorf("notify the cancellation of event %d: %w", id, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return notified, nil
+}
+
 func (r *EventRepository) SetCategories(id int, cats []string, _ bool) error {
 	return setCategories(context.Background(), r.queries, id, cats)
 }

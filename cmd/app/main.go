@@ -21,12 +21,15 @@ import (
 	"api-aprop/internal/clients/gencat_client"
 	"api-aprop/internal/clients/groq_client"
 	"api-aprop/internal/clients/s3_client"
+	"api-aprop/internal/clients/translate_client"
 	"api-aprop/internal/drivers/postgres_driver"
 	"api-aprop/internal/handlers/assistant_handler"
 	"api-aprop/internal/handlers/auth_handler"
 	"api-aprop/internal/handlers/congestion_handler"
 	"api-aprop/internal/handlers/event_handler"
+	"api-aprop/internal/handlers/message_handler"
 	"api-aprop/internal/handlers/notification_handler"
+	"api-aprop/internal/handlers/password_reset_handler"
 	"api-aprop/internal/handlers/preference_handler"
 	"api-aprop/internal/handlers/rating_handler"
 	"api-aprop/internal/handlers/requester"
@@ -40,12 +43,16 @@ import (
 	"api-aprop/internal/services/auth_service"
 	"api-aprop/internal/services/congestion_service"
 	"api-aprop/internal/services/event_service"
+	"api-aprop/internal/services/message_service"
 	"api-aprop/internal/services/notification_service"
+	"api-aprop/internal/services/password_reset_service"
 	"api-aprop/internal/services/preference_service"
 	"api-aprop/internal/services/rating_service"
 	"api-aprop/internal/services/signup_service"
+	"api-aprop/internal/services/translation_service"
 	"api-aprop/internal/services/user_service"
 	"api-aprop/migrations"
+	"api-aprop/supabase"
 )
 
 const (
@@ -71,6 +78,13 @@ const (
 	// Mobilicat environment variables
 	mobilicatEnvAPIKey      = "MOBILICAT_API_KEY"      // optional: without it the congestion endpoint answers 503
 	mobilicatEnvCongestionK = "MOBILICAT_CONGESTION_K" // optional, defaults to congestion_service.DefaultK
+
+	// Translator service (event translations, US #28)
+	translatorEnvURL    = "TRANSLATOR_URL"     // optional: without it events are not translated
+	translatorEnvAPIKey = "TRANSLATOR_API_KEY" // optional: only if the server requires a key
+
+	// Firebase Web API key (Firebase console > Project settings > General): Firebase Auth REST API
+	firebaseEnvWebAPIKey = "FIREBASE_WEB_API_KEY" // optional: without it the password reset endpoint answers 503
 )
 
 func runDaily(task func()) {
@@ -174,11 +188,17 @@ func main() {
 	defer postgresDriver.Close()
 
 	// Migrate database
-	if err := postgresDriver.MigrateFS(migrations.EmbedFS, dbConfig.GetConnectionString()); err != nil {
+	if err := postgresDriver.MigrateFSWithSupabase(migrations.EmbedFS, supabase.MigrationsFS); err != nil {
 		slog.Error("Error migrating database", "error", err)
 		os.Exit(1)
 	}
 	slog.Info("Database schema is up to date.")
+
+	// `api migrate` only migrates and exits: used by CI and, once Render's plan allows it,
+	// as preDeployCommand so a failed migration never replaces the running version.
+	if len(os.Args) > 1 && os.Args[1] == "migrate" {
+		return
+	}
 
 	// Clients
 	httpClient := &http.Client{Timeout: 15 * time.Second}
@@ -237,11 +257,13 @@ func main() {
 	catalogueRepository := postgres_repository.NewCatalogueRepository(postgresDriver.Pool())
 	signUpRepository := postgres_repository.NewSignUpRepository(postgresDriver.Pool())
 	ratingRepository := postgres_repository.NewRatingRepository(postgresDriver.Pool())
+	messageRepository := postgres_repository.NewMessageRepository(postgresDriver.Pool())
 	authRepository := postgres_repository.NewAuthRepository(postgresDriver.Pool())
 	userRepository := postgres_repository.NewUserRepository(postgresDriver.Pool())
 	notificationRepository := postgres_repository.NewNotificationRepository(postgresDriver.Pool())
 	preferenceRepository := postgres_repository.NewPreferenceRepository(postgresDriver.Pool())
 	congestionRepository := postgres_repository.NewCongestionRepository(postgresDriver.Pool())
+	translationRepository := postgres_repository.NewTranslationRepository(postgresDriver.Pool())
 
 	// Services
 	eventService := event_service.NewEventService(eventRepository, preferenceRepository, gencatClient, s3Client).WithUserRepository(userRepository)
@@ -251,22 +273,28 @@ func main() {
 	).WithPreferences(preferenceRepository)
 	signUpService := signup_service.NewSignUpService(signUpRepository, eventRepository, notificationRepository)
 	ratingService := rating_service.NewRatingService(ratingRepository, eventRepository)
+	messageService := message_service.NewMessageService(messageRepository, eventRepository)
 	authService := auth_service.NewAuthService(authRepository)
 	userService := user_service.NewUserService(userRepository, notificationRepository, s3Client, accountDeleter)
 	notificationService := notification_service.NewNotificationService(notificationRepository)
 	preferenceService := preference_service.NewPreferenceService(preferenceRepository)
 	congestionService := congestion_service.NewCongestionService(congestionRepository, time.Now, location, congestionK())
+	passwordResetService := password_reset_service.NewPasswordResetService(userRepository, passwordResetSender(), time.Now)
+
+	translationService := translation_service.NewTranslationService(translationRepository, translateClient())
 
 	// Handlers
-	eventHandler := event_handler.NewEventHandler(eventService, authService)
+	eventHandler := event_handler.NewEventHandler(eventService, authService).WithTranslator(translationService)
 	assistantHandler := assistant_handler.NewAssistantHandler(assistantService, authService)
-	signUpHandler := signup_handler.NewSignUpHandler(signUpService, authService)
+	signUpHandler := signup_handler.NewSignUpHandler(signUpService, authService).WithTranslator(translationService)
 	ratingHandler := rating_handler.NewRatingHandler(ratingService, authService)
+	messageHandler := message_handler.NewMessageHandler(messageService, authService)
 	authHandler := auth_handler.NewAuthHandler(authService)
-	userHandler := user_handler.NewUserHandler(userService, authService)
+	userHandler := user_handler.NewUserHandler(userService, authService).WithTranslator(translationService)
 	notificationHandler := notification_handler.NewNotificationHandler(notificationService)
 	preferenceHandler := preference_handler.NewPreferenceHandler(preferenceService, authService)
 	congestionHandler := congestion_handler.NewCongestionHandler(congestionService)
+	passwordResetHandler := password_reset_handler.NewPasswordResetHandler(passwordResetService)
 
 	// Initial data
 	go func() {
@@ -295,7 +323,9 @@ func main() {
 		slog.Warn("Mobilicat API key not set; the congestion endpoint answers 503", "env", mobilicatEnvAPIKey)
 	}
 	mux.Handle(congestion_handler.EstimatePattern, apikey_middleware.New(mobilicatAPIKey)(http.HandlerFunc(congestionHandler.Estimate)))
-	mux.Handle("/", router.NewRouter(corsMiddleware, authMiddleware, eventHandler, assistantHandler, signUpHandler, ratingHandler, authHandler, notificationHandler, userHandler, preferenceHandler))
+	// Public endpoint: whoever forgot the password has no Firebase token. The CORS preflight goes through the router
+	mux.Handle(password_reset_handler.ResetPattern, corsMiddleware(http.HandlerFunc(passwordResetHandler.Reset)))
+	mux.Handle("/", router.NewRouter(corsMiddleware, authMiddleware, eventHandler, assistantHandler, signUpHandler, ratingHandler, messageHandler, authHandler, notificationHandler, userHandler, preferenceHandler))
 
 	// Server: HTTP/1.1 and HTTP/2 without TLS (h2c)
 	protocols := new(http.Protocols)
@@ -330,6 +360,25 @@ func congestionK() float64 {
 		return congestion_service.DefaultK
 	}
 	return k
+}
+
+// translateClient returns the translator client; without TRANSLATOR_URL it is disabled and events keep their original text.
+func translateClient() translate_client.Client {
+	url := os.Getenv(translatorEnvURL)
+	if url == "" {
+		slog.Warn("Translator URL not set; events are not translated", "env", translatorEnvURL)
+	}
+	return translate_client.NewTranslatorClient(url, os.Getenv(translatorEnvAPIKey), nil)
+}
+
+// passwordResetSender returns the client that sends the password reset emails, or nil without the Web API key.
+func passwordResetSender() firebase_client.PasswordResetSender {
+	apiKey := os.Getenv(firebaseEnvWebAPIKey)
+	if apiKey == "" {
+		slog.Warn("Firebase Web API key not set; the password reset endpoint answers 503", "env", firebaseEnvWebAPIKey)
+		return nil
+	}
+	return firebase_client.NewIdentityToolkitClient(apiKey, "", nil)
 }
 
 // getEnv returns the value of a required environment variable and exits if it is not set.

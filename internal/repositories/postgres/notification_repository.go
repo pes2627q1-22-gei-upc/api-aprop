@@ -21,7 +21,7 @@ type NotificationRepository struct {
 
 var _ notification_repository.Repository = (*NotificationRepository)(nil)
 
-const NumNotificationTypes int = 3
+const NumNotificationTypes int = 4
 
 func (r *NotificationRepository) loadNotificationTypes() error {
 	rows, err := r.queries.GetNotificationTypes(context.Background())

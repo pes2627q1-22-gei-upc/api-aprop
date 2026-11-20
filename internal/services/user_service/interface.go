@@ -17,6 +17,7 @@ type UpdateProfileInput struct {
 	ShowPlans          *bool   `json:"show-plans"`
 	NotificationBefore *string `json:"notification-before"`
 	AllowedNotifTypes  *[]int  `json:"allowed-notif-types"`
+  Language           *string `json:"language"` // ca, es or en
 }
 
 type Service interface {
@@ -34,4 +35,13 @@ type Service interface {
 	Unfriend(ctx context.Context, userid string, targetid string) error
 	// DeleteAccount erases the requester and its data (RGPD) and deletes its Firebase Auth account.
 	DeleteAccount(ctx context.Context, requesterID string) error
+	// SearchUsers finds active users by username or name for the requester, without the blocked ones. pageNum
+	// starts at 0 and a pageSize of 0 uses DefaultSearchPageSize.
+	SearchUsers(ctx context.Context, requesterID, query string, pageNum, pageSize int) (user_model.UserSearchResult, error)
+	// BlockUser blocks the target user and removes the friendship and the active friend requests with it (R2, R3).
+	BlockUser(ctx context.Context, requesterID, targetID string) (user_model.BlockedUser, error)
+	// UnblockUser removes the block of the target user.
+	UnblockUser(ctx context.Context, requesterID, targetID string) error
+	// ListBlockedUsers returns the users blocked by the requester, the most recent first.
+	ListBlockedUsers(ctx context.Context, requesterID string) ([]user_model.BlockedUser, error)
 }

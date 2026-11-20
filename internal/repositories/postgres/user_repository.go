@@ -239,7 +239,20 @@ func (r *UserRepository) UpdateSettings(ctx context.Context, settings user_model
 
 	qtx := r.queries.WithTx(tx)
 
-	_, err = qtx.UpdateUserSettings(ctx, sqlc.UpdateUserSettingsParams{
+	// TODO(DP-043): with a language, a hand-written query updates everything in one statement (the generated Setting model does not have Language).
+	if settings.Language != "" {
+		err := r.queries.UpdateSettings(ctx, sqlc.UpdateSettingsParams{
+			ID:                 int32(settings.ID),
+			ShowPlans:          settings.ShowPlans,
+			NotificationBefore: settings.NotificationBefore,
+			Language:           settings.Language,
+		})
+		if err != nil {
+			return fmt.Errorf("update settings %d: %w", settings.ID, err)
+		}
+		return nil
+	}
+	_, err := r.queries.UpdateUserSettings(ctx, sqlc.UpdateUserSettingsParams{
 		ID:                 int32(settings.ID),
 		ShowPlans:          settings.ShowPlans,
 		NotificationBefore: settings.NotificationBefore,
@@ -442,7 +455,13 @@ func (r *UserRepository) GetSettings(ctx context.Context, id int) (user_model.Se
 			allowed = append(allowed, int(val.Notificationtype))
 		}
 	}
-	return user_model.Settings{ID: int(rows[0].ID), NotificationBefore: intervalToString(rows[0].Notificationbefore), ShowPlans: rows[0].Showplans, AllowedNotifTypes: allowed}, nil
+  
+  language, err := r.queries.GetSettingsLanguage(ctx, int32(id))
+	if err != nil {
+		return user_model.Settings{}, err
+	}
+  
+	return user_model.Settings{ID: int(rows[0].ID), NotificationBefore: intervalToString(rows[0].Notificationbefore), ShowPlans: rows[0].Showplans, AllowedNotifTypes: allowed, Language: language}, nil
 }
 
 func toTimestamp(t time.Time) pgtype.Timestamp {

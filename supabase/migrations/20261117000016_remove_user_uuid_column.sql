@@ -1,1 +1,1 @@
-alter table users drop column uuid;
+ALTER TABLE users DROP COLUMN IF EXISTS uuid;

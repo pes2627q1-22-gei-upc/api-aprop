@@ -7,10 +7,12 @@ import (
 	"net/http"
 	"strconv"
 
+	"api-aprop/internal/handlers/language"
 	"api-aprop/internal/handlers/requester"
 	"api-aprop/internal/handlers/response"
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/services/event_service"
+	"api-aprop/internal/services/translation_service"
 )
 
 const maxBodyBytes = 1 << 20
@@ -21,10 +23,17 @@ const maxImageBytes = 5 << 20
 type EventHandler struct {
 	eventService event_service.Service
 	resolver     requester.Resolver
+	translator   translation_service.Service // optional: without it the events are always in the original language
 }
 
 func NewEventHandler(eventService event_service.Service, resolver requester.Resolver) *EventHandler {
 	return &EventHandler{eventService: eventService, resolver: resolver}
+}
+
+// WithTranslator sets the service that translates the events when ?lang= or the user language asks for it (US #28).
+func (h *EventHandler) WithTranslator(t translation_service.Service) *EventHandler {
+	h.translator = t
+	return h
 }
 
 // RegisterRoutes registers the event endpoints.
@@ -38,6 +47,7 @@ func (h *EventHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /events", h.CreateEvent)
 	mux.HandleFunc("PUT /events/{id}", h.UpdateEvent)
 	mux.HandleFunc("DELETE /events/{id}", h.DeleteEvent)
+	mux.HandleFunc("POST /events/{id}/cancel", h.CancelEvent)
 	mux.HandleFunc("POST /events/{id}/image", h.UploadEventImage)
 	mux.HandleFunc("GET /categories", h.GetCategories)
 	mux.HandleFunc("GET /categories/{id}", h.GetCategory)
@@ -86,6 +96,10 @@ func intParam(w http.ResponseWriter, r *http.Request, name string, def int) (int
 
 // ListEvents handles GET /events
 func (h *EventHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
+	lang, ok := language.Resolve(w, r, h.translator, h.resolver)
+	if !ok {
+		return
+	}
 	params := make(map[string]any)
 	pageSize, ok := intParam(w, r, "pageSize", defaultPageSize)
 	if !ok {
@@ -121,7 +135,15 @@ func (h *EventHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response.WriteJSON(w, http.StatusOK, list)
+	response.WriteJSON(w, http.StatusOK, h.translateEvents(r, lang, list))
+}
+
+// translateEvents translates the events into lang; without a translator or for the original language it is a no-op.
+func (h *EventHandler) translateEvents(r *http.Request, lang string, events []event_model.Event) []event_model.Event {
+	if h.translator == nil {
+		return events
+	}
+	return h.translator.TranslateEvents(r.Context(), lang, events)
 }
 
 // GetRecommendedEvents handles GET /events/recommended?pageSize={m}&pageNum={n}
@@ -137,6 +159,10 @@ func (h *EventHandler) GetRecommendedEvents(w http.ResponseWriter, r *http.Reque
 		response.WriteError(w, http.StatusBadRequest, "invalid page num")
 		return
 	}
+	lang, ok := language.Resolve(w, r, h.translator, h.resolver)
+	if !ok {
+		return
+	}
 	userID, ok := requester.ID(w, r, h.resolver)
 	if !ok {
 		return
@@ -147,7 +173,7 @@ func (h *EventHandler) GetRecommendedEvents(w http.ResponseWriter, r *http.Reque
 		writeServiceError(w, err)
 		return
 	}
-	response.WriteJSON(w, http.StatusOK, ev)
+	response.WriteJSON(w, http.StatusOK, h.translateEvents(r, lang, ev))
 }
 
 // GetEvent handles GET /events/{id}
@@ -157,11 +183,18 @@ func (h *EventHandler) GetEvent(w http.ResponseWriter, r *http.Request) {
 		response.WriteError(w, http.StatusBadRequest, "invalid event id")
 		return
 	}
+	lang, ok := language.Resolve(w, r, h.translator, h.resolver)
+	if !ok {
+		return
+	}
 
 	event, err := h.eventService.GetEvent(id)
 	if err != nil {
 		writeServiceError(w, err)
 		return
+	}
+	if h.translator != nil {
+		event = h.translator.TranslateEvent(r.Context(), lang, event)
 	}
 	response.WriteJSON(w, http.StatusOK, event)
 }
@@ -231,6 +264,27 @@ func (h *EventHandler) DeleteEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// CancelEvent handles POST /events/{id}/cancel. Only the creator of an unofficial event can cancel it; the users signed
+// up to it are notified.
+func (h *EventHandler) CancelEvent(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil {
+		response.WriteError(w, http.StatusBadRequest, "invalid event id")
+		return
+	}
+
+	if !h.authorizeCreator(w, r, id) {
+		return
+	}
+
+	cancellation, err := h.eventService.CancelUnofficialEvent(r.Context(), id)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	response.WriteJSON(w, http.StatusOK, cancellation)
 }
 
 // UploadEventImage handles POST /events/{id}/image. Only the creator of an unofficial event can change its image.
@@ -305,6 +359,10 @@ func (h *EventHandler) ListMapEvents(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	lang, ok := language.Resolve(w, r, h.translator, h.resolver)
+	if !ok {
+		return
+	}
 	if requester.Present(r) {
 		if filter.UserID, ok = requester.ID(w, r, h.resolver); !ok {
 			return
@@ -316,10 +374,17 @@ func (h *EventHandler) ListMapEvents(w http.ResponseWriter, r *http.Request) {
 		writeServiceError(w, err)
 		return
 	}
+	if h.translator != nil {
+		events = h.translator.TranslateMapEvents(r.Context(), lang, events)
+	}
 	response.WriteJSON(w, http.StatusOK, events)
 }
 
 func (h *EventHandler) GetPopularEvents(w http.ResponseWriter, r *http.Request) {
+	lang, ok := language.Resolve(w, r, h.translator, h.resolver)
+	if !ok {
+		return
+	}
 	pageSize, err := strconv.Atoi(r.URL.Query().Get("pageSize"))
 	if err != nil {
 		response.WriteError(w, http.StatusBadRequest, "invalid page size")
@@ -335,7 +400,7 @@ func (h *EventHandler) GetPopularEvents(w http.ResponseWriter, r *http.Request) 
 		writeServiceError(w, err)
 		return
 	}
-	response.WriteJSON(w, http.StatusOK, ev)
+	response.WriteJSON(w, http.StatusOK, h.translateEvents(r, lang, ev))
 }
 
 // GetCategory handles GET /categories/{id}
@@ -418,6 +483,10 @@ func parseCoordParam(w http.ResponseWriter, name, value string) (float32, bool) 
 
 // SearchEvents handles GET /events/search?q={query}&pageNum={n}&pageSize={m}
 func (h *EventHandler) SearchEvents(w http.ResponseWriter, r *http.Request) {
+	lang, ok := language.Resolve(w, r, h.translator, h.resolver)
+	if !ok {
+		return
+	}
 	q := r.URL.Query().Get("q")
 	if q == "" {
 		q = r.URL.Query().Get("search")
@@ -434,5 +503,6 @@ func (h *EventHandler) SearchEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	result.Events = h.translateEvents(r, lang, result.Events)
 	response.WriteJSON(w, http.StatusOK, result)
 }
