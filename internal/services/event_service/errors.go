@@ -22,4 +22,6 @@ var (
 	ErrImageUploadFailed       = errors.New("failed to upload event image")
 	// ErrEventNotActive means the unofficial event is not Active (e.g. it was withdrawn), so it cannot be modified.
 	ErrEventNotActive = errors.New("event is not active")
+	// ErrEventFinished means the event already finished, so it cannot be cancelled.
+	ErrEventFinished = errors.New("event has already finished")
 )

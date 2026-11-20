@@ -11,6 +11,24 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const createCancellationNotifications = `-- name: CreateCancellationNotifications :execrows
+INSERT INTO notifications (userid, notificationdate, type, event, text)
+SELECT su.userid, now(), (SELECT id FROM notificationtypes WHERE name = 'Cancelacio'), e.id, CONCAT(e.title, ' s''ha cancel·lat.')
+FROM (SELECT DISTINCT userid FROM signup WHERE event = $1::integer) su
+JOIN events e ON e.id = $1::integer
+JOIN unofficialevents ue ON ue.id = e.id
+WHERE su.userid <> ue.creator
+`
+
+// Notifies once every user signed up to the cancelled event, except its creator (NotificacióEsdeveniment Cancel·lació).
+func (q *Queries) CreateCancellationNotifications(ctx context.Context, eventID int32) (int64, error) {
+	result, err := q.db.Exec(ctx, createCancellationNotifications, eventID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const createFriendSignupNotifications = `-- name: CreateFriendSignupNotifications :many
 INSERT INTO notifications (userid, notificationdate, type, event, friend, text)
 SELECT f.user2, now(), (select id from notificationtypes where name='Social'), $1::integer, $2::uuid,
@@ -230,7 +248,8 @@ const restoreNotificationTypes = `-- name: RestoreNotificationTypes :exec
 INSERT INTO notificationtypes (name) values
     ('Social'),
     ('Recomanacio'),
-    ('Recordatori')
+    ('Recordatori'),
+    ('Cancelacio')
 `
 
 func (q *Queries) RestoreNotificationTypes(ctx context.Context) error {

@@ -53,6 +53,10 @@ func (f *fakeEventRepository) EventExists(eventID int) (bool, error) {
 	return f.exists, f.existsErr
 }
 
+func (f *fakeEventRepository) Cancel(context.Context, int) (int64, error) {
+	return 0, nil
+}
+
 func (f *fakeEventRepository) GetUnofficialState(ctx context.Context, id int) (string, error) {
 	return event_model.UnofficialStateActive, nil
 }
