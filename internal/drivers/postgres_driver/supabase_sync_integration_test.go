@@ -112,7 +112,7 @@ func TestMigrateFSWithSupabase_Integration(t *testing.T) {
 	// 4. Genuine dirty failure NOT present in Supabase must still fail loudly.
 	// The last up file is transactional, so recoverDirty forces the previous version and retries it.
 	if _, err := drv.Pool().Exec(ctx,
-		"DELETE FROM supabase_migrations.schema_migrations WHERE right(version, 6) = lpad($1::text, 6, '0')", last,
+		"DELETE FROM supabase_migrations.schema_migrations WHERE right(version, 6) = lpad($1::int::text, 6, '0')", last,
 	); err != nil {
 		t.Fatalf("remove %d from supabase: %v", last, err)
 	}
