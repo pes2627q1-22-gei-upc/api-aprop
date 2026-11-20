@@ -49,6 +49,22 @@ func (r *RatingRepository) CreateUserRating(ctx context.Context, userID pgtype.U
 	return rows > 0, nil
 }
 
+func (r *RatingRepository) UpdateUserRating(ctx context.Context, userID pgtype.UUID, targetID pgtype.UUID, eventID int, score int) (bool, error) {
+	rows, err := r.queries.UpdateUserRating(ctx, sqlc.UpdateUserRatingParams{Rater: userID, Rated: targetID, Event: int32(eventID), Rating: int32(score)})
+	if err != nil {
+		return false, err
+	}
+	return rows > 0, nil
+}
+
+func (r *RatingRepository) DeleteUserRating(ctx context.Context, userID pgtype.UUID, targetID pgtype.UUID, eventID int) (bool, error) {
+	rows, err := r.queries.DeleteUserRating(ctx, sqlc.DeleteUserRatingParams{Rater: userID, Rated: targetID, Event: int32(eventID)})
+	if err != nil {
+		return false, err
+	}
+	return rows > 0, nil
+}
+
 func (r *RatingRepository) Update(ctx context.Context, userID string, eventID, score int) (bool, error) {
 	uid, err := user_model.ParseID(userID)
 	if err != nil {

@@ -78,16 +78,18 @@ func (q *Queries) DeleteEventRating(ctx context.Context, arg DeleteEventRatingPa
 
 const deleteUserRating = `-- name: DeleteUserRating :execrows
 DELETE FROM UserRatings
-WHERE rater=$1::uuid and rated=$2::uuid
+WHERE rater=$1::uuid and rated=$2::uuid and event=$3::integer
+RETURNING rater, rated, event, ratingdate, rating
 `
 
 type DeleteUserRatingParams struct {
 	Rater pgtype.UUID
 	Rated pgtype.UUID
+	Event int32
 }
 
 func (q *Queries) DeleteUserRating(ctx context.Context, arg DeleteUserRatingParams) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteUserRating, arg.Rater, arg.Rated)
+	result, err := q.db.Exec(ctx, deleteUserRating, arg.Rater, arg.Rated, arg.Event)
 	if err != nil {
 		return 0, err
 	}
@@ -135,17 +137,24 @@ func (q *Queries) UpdateEventRating(ctx context.Context, arg UpdateEventRatingPa
 
 const updateUserRating = `-- name: UpdateUserRating :execrows
 UPDATE UserRatings SET Rating=$1::integer
-WHERE rater=$2::uuid and rated=$3::uuid
+WHERE rater=$2::uuid and rated=$3::uuid and event=$4::integer
+RETURNING rater, rated, event, ratingdate, rating
 `
 
 type UpdateUserRatingParams struct {
 	Rating int32
 	Rater  pgtype.UUID
 	Rated  pgtype.UUID
+	Event  int32
 }
 
 func (q *Queries) UpdateUserRating(ctx context.Context, arg UpdateUserRatingParams) (int64, error) {
-	result, err := q.db.Exec(ctx, updateUserRating, arg.Rating, arg.Rater, arg.Rated)
+	result, err := q.db.Exec(ctx, updateUserRating,
+		arg.Rating,
+		arg.Rater,
+		arg.Rated,
+		arg.Event,
+	)
 	if err != nil {
 		return 0, err
 	}

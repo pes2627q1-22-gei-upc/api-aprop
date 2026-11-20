@@ -118,7 +118,7 @@ func (s *RatingService) RateUser(ctx context.Context, userID string, eventID int
 
 	rateruid, err := user_model.ParseID(userID)
 	if err!=nil{
-		return rating_model.UserRating{}, fmt.Errorf("%w: %d", ErrInvalidScore, score)
+		return rating_model.UserRating{}, err
 	}
 	
 	rater, err := s.users.GetByID(ctx, rateruid)
@@ -157,7 +157,90 @@ func (s *RatingService) RateUser(ctx context.Context, userID string, eventID int
 	if !created {
 		return rating_model.UserRating{}, fmt.Errorf("rate organizer of event %d: user already rated", eventID)
 	}
-	return rating_model.UserRating{Rater: userID, Rated: UUIDToString(creator), Score: score}, nil
+	return rating_model.UserRating{Rater: userID, Rated: UUIDToString(creator), Event: eventID, Score: score}, nil
+}
+
+func (s *RatingService) UpdateUserRating(ctx context.Context, userID string, eventID int, score int) (rating_model.UserRating, error){
+	userID, err := user_model.NormalizeID(userID)
+	if err != nil {
+		return rating_model.UserRating{}, err
+	}
+	if eventID <= 0 {
+		return rating_model.UserRating{}, fmt.Errorf("%w: %d", ErrInvalidEventID, eventID)
+	}
+	if score < 1 || score > 5 {
+		return rating_model.UserRating{}, fmt.Errorf("%w: %d", ErrInvalidScore, score)
+	}
+	if err := s.requireEvent(eventID); err != nil {
+		return rating_model.UserRating{}, err
+	}
+
+	rateruid, err := user_model.ParseID(userID)
+	if err!=nil{
+		return rating_model.UserRating{}, err
+	}
+	rater, err := s.users.GetByID(ctx, rateruid)
+	if err!=nil{
+		return rating_model.UserRating{}, err
+	}
+
+	event, err := s.events.Get(eventID)
+	if err!=nil{
+		return rating_model.UserRating{}, err
+	}
+	creator := event.Creator
+	if !creator.Valid{
+		return rating_model.UserRating{}, err
+	}
+
+	updated, err := s.ratings.UpdateUserRating(ctx, rater.ID, creator, eventID, score)
+	if err != nil {
+		return rating_model.UserRating{}, err
+	}
+	if !updated {
+		return rating_model.UserRating{}, fmt.Errorf("update rating of creator of event %d: %w", eventID, ErrRatingNotFound)
+	}
+	return rating_model.UserRating{Rater: userID, Rated: UUIDToString(creator), Event: eventID, Score: score}, nil
+}
+
+func (s *RatingService) DeleteUserRating(ctx context.Context, userID string, eventID int) error{
+	userID, err := user_model.NormalizeID(userID)
+	if err != nil {
+		return err
+	}
+	if eventID <= 0 {
+		return fmt.Errorf("%w: %d", ErrInvalidEventID, eventID)
+	}
+	if err := s.requireEvent(eventID); err != nil {
+		return err
+	}
+
+	rateruid, err := user_model.ParseID(userID)
+	if err!=nil{
+		return err
+	}
+	rater, err := s.users.GetByID(ctx, rateruid)
+	if err!=nil{
+		return err
+	}
+
+	event, err := s.events.Get(eventID)
+	if err!=nil{
+		return err
+	}
+	creator := event.Creator
+	if !creator.Valid{
+		return err
+	}
+
+	updated, err := s.ratings.DeleteUserRating(ctx, rater.ID, creator, eventID)
+	if err != nil {
+		return err
+	}
+	if !updated {
+		return fmt.Errorf("delete rating of creator of event %d: %w", eventID, ErrRatingNotFound)
+	}
+	return nil
 }
 
 // UpdateRating changes the score of the user's own rating (R9: 1..5). The event's Event.Rating is refreshed by the

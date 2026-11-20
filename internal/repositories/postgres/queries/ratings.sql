@@ -26,8 +26,10 @@ ON CONFLICT (rater, rated, event) DO NOTHING;
 
 -- name: UpdateUserRating :execrows
 UPDATE UserRatings SET Rating=sqlc.arg(rating)::integer
-WHERE rater=sqlc.arg(rater)::uuid and rated=sqlc.arg(rated)::uuid;
+WHERE rater=sqlc.arg(rater)::uuid and rated=sqlc.arg(rated)::uuid and event=sqlc.arg(event)::integer
+RETURNING *;
 
 -- name: DeleteUserRating :execrows
 DELETE FROM UserRatings
-WHERE rater=sqlc.arg(rater)::uuid and rated=sqlc.arg(rated)::uuid;
+WHERE rater=sqlc.arg(rater)::uuid and rated=sqlc.arg(rated)::uuid and event=sqlc.arg(event)::integer
+RETURNING *;

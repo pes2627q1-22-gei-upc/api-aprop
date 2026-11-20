@@ -18,6 +18,8 @@ type Repository interface {
 	// Delete removes the user's rating; false when the user had not rated the event.
 	Delete(ctx context.Context, userID string, eventID int) (bool, error)
 	CreateUserRating(ctx context.Context, userID pgtype.UUID, targetID pgtype.UUID, eventID int, score int) (bool, error)
+	UpdateUserRating(ctx context.Context, userID pgtype.UUID, targetID pgtype.UUID, eventID int, score int) (bool, error)
+	DeleteUserRating(ctx context.Context, userID pgtype.UUID, targetID pgtype.UUID, eventID int) (bool, error)
 	// HasAttended reports whether the user's sign up to the event has attendance = true.
 	HasAttended(ctx context.Context, userID string, eventID int) (bool, error)
 }

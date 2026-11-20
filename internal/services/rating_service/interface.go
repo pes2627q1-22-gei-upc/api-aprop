@@ -12,4 +12,6 @@ type Service interface {
 	UpdateRating(ctx context.Context, userID string, eventID, score int) (rating_model.Rating, error)
 	DeleteRating(ctx context.Context, userID string, eventID int) error
 	RateUser(ctx context.Context, userID string, eventID int, score int) (rating_model.UserRating, error)
+	UpdateUserRating(ctx context.Context, userID string, eventID int, score int) (rating_model.UserRating, error)
+	DeleteUserRating(ctx context.Context, userID string, eventID int) error
 }
