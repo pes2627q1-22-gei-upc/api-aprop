@@ -108,5 +108,17 @@ UPDATE friendrequests SET state='Rejected'::friendrequeststate, dateresolved=now
 -- name: RemoveFriendship :exec
 DELETE from friendships where (user1=$1 and user2=$2) or (user1=$2 and user2=$1);
 
--- name: GetSettings :one
-SELECT * from settings where id=$1;
+-- name: GetSettings :many
+SELECT s.*, COALESCE(an.notificationtype, -1) from settings s left join allowednotifications an on an.settings=s.id where id=$1;
+
+-- name: DeleteAllowedNotificationTypes :exec
+DELETE FROM AllowedNotifications
+WHERE Settings = sqlc.arg(settings_id)::integer;
+
+-- name: UpdateAllowedNotificationTypes :exec
+INSERT INTO AllowedNotifications (Settings, NotificationType)
+SELECT
+    sqlc.arg(settings_id)::integer,
+    n.notification_type
+FROM unnest(sqlc.arg(notification_types)::integer[]) AS n(notification_type)
+ON CONFLICT (Settings, NotificationType) DO NOTHING;

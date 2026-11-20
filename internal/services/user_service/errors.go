@@ -18,5 +18,7 @@ var (
 	ErrAlreadyBlocked       = errors.New("requester has already blocked the target user")
 	ErrNotBlocked           = errors.New("requester has not blocked the target user")
 	// ErrAuthProvider means Firebase Auth could not delete the account, so nothing was deleted.
-	ErrAuthProvider = errors.New("could not delete the authentication account")
+	ErrAuthProvider            = errors.New("could not delete the authentication account")
+	ErrInvalidInterval         = errors.New("invalid format for time interval")
+	ErrInvalidNotificationType = errors.New("notification type does not exist")
 )

@@ -102,6 +102,11 @@ type Accountstate struct {
 	Name string
 }
 
+type Allowednotification struct {
+	Settings         int32
+	Notificationtype int32
+}
+
 type Blocked struct {
 	Blockinguser pgtype.UUID
 	Blockeduser  pgtype.UUID
