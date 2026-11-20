@@ -537,6 +537,25 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Qui decideix:** frontend + backend
 - **Resolució:**
 
+### DP-044 · Fotos de perfil en un bucket privat amb URLs signades (#247)
+- **Estat:** oberta
+- **Obert per:** 2026-11-20 · Claude Code (Opus 5.5) · branca `feature/restringir-fotos-perfil` (Taiga #247)
+- **Context:** `s3_client/avatar_storage.go`, `s3_client/resolve.go`, `user_service`, `message_service`, `auth_service`, `user_handler/error_mapper.go`, migració 000023. Abans no hi havia cap bucket ni variables `S3_*`: sense `S3_ENDPOINT`, `POST /users/me/avatar` no pujava res i desava una URL inventada (`https://media.s3.eu-west-1.amazonaws.com/avatars/...`). L'usuari (Arnau) ha creat el bucket privat `avatars` sense policies i una *secret key* nova.
+- **Dubte / supòsits:**
+  1. **Accés:** el bucket és privat i només hi accedeix el backend amb `SUPABASE_SECRET_KEY` (capçalera `apikey`; les claus `service_role` antigues, que són JWT, també van a `Authorization`). S'usa l'API REST de Storage (`/storage/v1/object/...`) en lloc del protocol S3 per no afegir l'SDK d'AWS ni signar amb SigV4.
+  2. **Què es desa:** `Users.ProfilePicture` guarda la ruta `<uuid>/avatar-<unix ms>.<jpg|png|webp>` (extensió segons el `Content-Type`, no el nom del fitxer). Només es signen les rutes que encaixen amb aquest format **i** pertanyen a l'usuari de la fila; la resta de valors que no són URL `http(s)` s'amaguen.
+  3. **Lectura:** cada resposta amb `profile-picture` (perfil, cerca, bloquejats, xat, `POST /auth/sync`) signa les rutes en una sola petició (`POST /object/sign/avatars`). TTL **1 h**; la URL es cacheja en memòria i es reutilitza mentre li queda ≥ 30 min, perquè el frontend pugui fer servir la cau d'imatges. Qualsevol usuari autenticat que vegi un altre usuari rep la URL (com abans); un bloqueig no invalida les URLs ja lliurades fins que caduquen.
+  4. **Errors:** si no es pot signar (Storage caigut o sense configurar) la foto surt buida (al perfil, l'avatar generat de ui-avatars) i es registra; la petició no falla. Pujada: `503` sense configuració, `502` si Storage falla, `400` tipus invàlid.
+  5. **`PATCH /users/me`:** `profile-picture` només accepta buit o una URL `http(s)` externa (màx. 2048). Les rutes del bucket es rebutgen perquè ningú no pugui apuntar a l'avatar d'un altre. Encara s'accepten URL externes arbitràries: cal decidir si es tanquen.
+  6. **Esborrat:** en pujar una foto nova o canviar-la amb `PATCH` s'esborra l'anterior del bucket (best-effort), igual que a la baixa del compte (DP-031), ara amb una petició autenticada (ja no queda l'esborrat sense signar de la DP-031). Si l'`UPDATE` falla després de pujar, s'esborra l'objecte pujat.
+  7. **Migració 000023:** posa a `NULL` les URLs inventades `https://*.s3.*.amazonaws.com/avatars/...`. No crea el bucket: les migracions incrustades també s'executen contra PostgreSQL local, sense l'esquema `storage`.
+  8. **Fora d'abast:** els cartells d'esdeveniments (`UploadEventImage`) segueixen amb el codi antic i tampoc es pugen sense `S3_ENDPOINT`.
+  9. **No provat contra Supabase real:** pujada, signatura i esborrat només estan provats amb tests unitaris (servidor HTTP fals); falta verificar el format de resposta de `/object/sign` i que la *secret key* nova només a `apikey` funciona. Frontend: la URL caduca, cal un `cacheKey` estable (p. ex. l'id de l'usuari) si es fa servir `CachedNetworkImage`.
+- **Opcions:** —
+- **Provisionalment:** els supòsits anteriors.
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
 ## Resoltes
 
 (cap)

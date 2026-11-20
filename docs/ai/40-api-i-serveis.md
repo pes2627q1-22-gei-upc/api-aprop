@@ -62,7 +62,16 @@ Totes les respostes i cossos de petició utilitzen claus JSON en **kebab-case**.
 | `POST /users/{id}/block` | `UserHandler.BlockUser` | Bloqueja l'usuari (`{id}`: UUID, Firebase UID o nom d'usuari). En una transacció elimina l'amistat i passa a `Rejected` les sol·licituds pendents o acceptades entre tots dos (R3). `201` amb `{id, username, name, profile-picture, date-blocked}`; `400` si és un mateix (R2); `404` si no existeix; `409` si ja estava bloquejat. No es notifica el bloquejat | Implementat (Tasca #108, DP-042) |
 | `DELETE /users/{id}/block` | `UserHandler.UnblockUser` | Desbloqueja l'usuari (`204`; `404` si no existeix o no estava bloquejat). L'amistat no es recupera | Implementat (Tasca #108, DP-042) |
 | `GET /users/me/blocked` | `UserHandler.ListBlockedUsers` | Usuaris que he bloquejat, del més recent al més antic (pantalla «Usuaris bloquejats», fig. 19). Llista sense paginació | Implementat (Tasca #108, DP-042) |
-| `DELETE /users/me` | `UserHandler.DeleteMyAccount` | Baixa del compte (RGPD): esborra en una transacció l'usuari, la seva configuració, els esdeveniments no oficials que ha creat (amb les dades que en depenen) i totes les files que el referencien; dins la transacció esborra el compte de Firebase Auth i, després del commit, l'avatar de S3 (best-effort). `204`; `401` sense identitat; `404` usuari inexistent; `502` si Firebase falla (no s'esborra res) | Implementat (DP-031) |
+| `DELETE /users/me` | `UserHandler.DeleteMyAccount` | Baixa del compte (RGPD): esborra en una transacció l'usuari, la seva configuració, els esdeveniments no oficials que ha creat (amb les dades que en depenen) i totes les files que el referencien; dins la transacció esborra el compte de Firebase Auth i, després del commit, l'avatar del bucket privat (best-effort). `204`; `401` sense identitat; `404` usuari inexistent; `502` si Firebase falla (no s'esborra res) | Implementat (DP-031) |
+| `POST /users/me/avatar` | `UserHandler.UploadAvatar` | Puja la foto de perfil (multipart `avatar` o `file`; JPEG, PNG o WebP; màxim 5 MB) al bucket **privat** `avatars` de Supabase Storage i esborra l'anterior. `200` amb el perfil; `400` imatge invàlida; `502` si Storage falla; `503` sense `SUPABASE_URL`/`SUPABASE_SECRET_KEY` | Implementat (Tasca #247, DP-044) |
+
+### Fotos de perfil privades (Tasca #247)
+Les fotos pujades es desen al bucket privat `avatars` (`S3_AVATAR_BUCKET`) i `Users.ProfilePicture` guarda la ruta de l'objecte
+(`<uuid>/avatar-<ms>.<ext>`), no una URL. Totes les respostes que inclouen `profile-picture` (`GET /users/{id}`, `PATCH /users/me`,
+`POST /users/me/avatar`, `GET /users?q=`, `POST /users/{id}/block`, `GET /users/me/blocked`, `GET`/`POST /events/{id}/messages` i
+`POST /auth/sync`) la retornen com una **URL signada** que caduca en 1 hora (la mateixa URL es reutilitza mentre li queden ≥ 30 min). Les
+URL externes (p. ex. la foto de Google) es retornen tal qual. Si no es pot signar, `profile-picture` surt buit (o l'avatar generat al
+perfil). `PATCH /users/me` només accepta `profile-picture` buit o una URL `http(s)` (`400` en cas contrari). Detalls a DP-044.
 
 ### Idioma i traducció d'esdeveniments (US #28)
 Idiomes: `ca` (original, per defecte), `es`, `en`. L'idioma de l'usuari es guarda a `Settings.Language` i es llegeix/modifica
@@ -115,6 +124,7 @@ Fora del router i del middleware de Firebase: s'autentica amb la capçalera `X-A
 | Servei | Ús | Si falla |
 |---|---|---|
 | **Supabase (PostgreSQL 15+)** | Base de dades principal gestionada al cloud amb Row Level Security (RLS) habilitat | L'API retorna error 500 |
+| **Supabase Storage** | Fotos de perfil al bucket privat `avatars` (`s3_client`, API REST amb `SUPABASE_SECRET_KEY`; URLs signades) | Pujada: `502`/`503`; lectura: `profile-picture` buit |
 | **Firebase Auth** | Validació de tokens JWT d'usuaris (`firebase_client`) | Petició no autoritzada (401) |
 | **Dades Obertes de Catalunya** | Ingesta diària automàtica d'esdeveniments oficials (`gencat_client`) | Es manté l'últim catàleg sincronitzat |
 | **Groq AI (Llama 3.3 70B)** | Processament de llenguatge natural i orquestració de consultes per al xatbot | Error 502/504 en el xatbot; la resta de l'app funciona normalment |
