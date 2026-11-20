@@ -89,13 +89,13 @@ jobs:
         run: supabase start -x gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
 
       - name: Build API
-        run: go build -o api ./cmd/app
+        run: go build -o aprop-api ./cmd/app
 
       - name: API migrates on top of Supabase
-        run: ./api migrate
+        run: ./aprop-api migrate
 
       - name: Second boot changes nothing
-        run: ./api migrate
+        run: ./aprop-api migrate
 
       - name: golang-migrate state is clean
         run: |
@@ -106,7 +106,7 @@ jobs:
       - name: A dirty state left by a crash heals on next boot
         run: |
           psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -c "UPDATE public.schema_migrations SET dirty = true"
-          ./api migrate
+          ./aprop-api migrate
           [ "$(psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -Atc 'SELECT dirty FROM public.schema_migrations')" = "f" ]
 
   lint:
