@@ -35,7 +35,7 @@
 | ConversaXatbot | Conversa amb l'assistent | *dataInici* |
 | MissatgeXatbot | Missatge de la conversa | *emissor* (Usuari/Xatbot), *perVeu*, *dataEnviament*, → recomanats* |
 | GuanyExperiència | Punts guanyats | *acció*, *data*, *punts* |
-| (bloqueig) | Usuari bloqueja Usuari | associació reflexiva |
+| (bloqueig) | Usuari bloqueja Usuari | associació reflexiva. Taula `Blocked` (`BlockingUser`, `BlockedUser`, `DateBlocked` des de la migració 000021) |
 
 ## Enumeracions (valors coneguts)
 

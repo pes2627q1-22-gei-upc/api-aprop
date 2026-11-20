@@ -1137,6 +1137,95 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /users/me/blocked:
+    get:
+      tags: [users]
+      operationId: listBlockedUsers
+      summary: Llista els usuaris que he bloquejat
+      description: Usuaris bloquejats per l'usuari autenticat, del bloqueig més recent al més antic. Sense paginació. Veure DP-042.
+      responses:
+        '200':
+          description: Usuaris bloquejats (llista buida si no n'hi ha cap)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BlockedUser'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /users/{id}/block:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: UUID, Firebase UID o nom d'usuari de l'usuari a bloquejar o desbloquejar
+        schema:
+          type: string
+    post:
+      tags: [users]
+      operationId: blockUser
+      summary: Bloqueja un usuari
+      description: >
+        R2: ningú no es pot bloquejar a si mateix (`400`). R3: en la mateixa transacció s'elimina l'amistat entre tots
+        dos, si n'hi ha, i les sol·licituds d'amistat pendents o acceptades passen a `Rejected`. L'usuari bloquejat no
+        rep cap notificació. A partir d'aquí cap dels dos no pot enviar sol·licituds d'amistat a l'altre i no es troben
+        a la cerca d'usuaris. Veure DP-042.
+      responses:
+        '201':
+          description: Usuari bloquejat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlockedUser'
+        '400':
+          description: L'usuari es vol bloquejar a si mateix (R2)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '409':
+          description: L'usuari ja estava bloquejat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [users]
+      operationId: unblockUser
+      summary: Desbloqueja un usuari
+      description: Treu el bloqueig. L'amistat eliminada en bloquejar no es recupera. Veure DP-042.
+      responses:
+        '204':
+          description: Usuari desbloquejat
+        '400':
+          description: L'usuari es vol desbloquejar a si mateix (R2)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: L'usuari no existeix o no estava bloquejat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /users/{userId}/events:
     get:
       tags: [signups]
@@ -2205,6 +2294,22 @@ components:
           minLength: 3
           maxLength: 30
           description: Només cal el primer cop (quan es crea l'usuari)
+
+    BlockedUser:
+      type: object
+      required: [id, username, date-blocked]
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        name:
+          type: string
+        profile-picture:
+          type: string
+        date-blocked:
+          type: string
+          format: date-time
 
     User:
       type: object
