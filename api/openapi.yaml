@@ -1209,6 +1209,52 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /users/me/devices:
+    put:
+      tags: [notifications]
+      operationId: registerDevice
+      summary: Registra un dispositiu per rebre notificacions push
+      description: >
+        Desa el token FCM (o el Firebase Installation ID) d'un dispositiu de l'usuari autenticat. L'app el crida després
+        d'iniciar sessió i cada cop que FCM renova el token. Un token ja registrat passa a l'usuari actual. Totes les
+        notificacions de la bústia s'envien com a push als seus dispositius si `push-enabled` és cert. Veure DP-044.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterDeviceRequest'
+      responses:
+        '204':
+          description: Dispositiu registrat
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /users/me/devices/{token}:
+    parameters:
+      - name: token
+        in: path
+        required: true
+        description: Token FCM o FID registrat (codificat per a URL)
+        schema:
+          type: string
+    delete:
+      tags: [notifications]
+      operationId: unregisterDevice
+      summary: Deixa de rebre notificacions push en un dispositiu
+      description: L'app el crida en tancar la sessió. Idempotent; respon `204` encara que el dispositiu no estigués registrat.
+      responses:
+        '204':
+          description: Dispositiu oblidat
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /users/{id}/block:
     parameters:
       - name: id
@@ -2475,6 +2521,9 @@ components:
           type: string
           enum: [ca, es, en]
           description: Idioma de l'usuari (configuració). Només al perfil propi.
+        push-enabled:
+          type: boolean
+          description: Si rep les notificacions com a push al mòbil (configuració). Només al perfil propi.
         is-friend:
           type: boolean
           description: Només al perfil d'un altre usuari
@@ -2502,6 +2551,22 @@ components:
           type: string
           enum: [ca, es, en]
           description: Idioma de l'usuari. Un altre valor respon `400`.
+        push-enabled:
+          type: boolean
+          description: Activa o desactiva les notificacions push. Desactivades, continuen arribant a la bústia.
+
+    RegisterDeviceRequest:
+      type: object
+      required: [token, platform]
+      properties:
+        token:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          description: Token de registre FCM (`FirebaseMessaging.getToken`) o Firebase Installation ID
+        platform:
+          type: string
+          enum: [android, ios, web]
 
     Notification:
       type: object
