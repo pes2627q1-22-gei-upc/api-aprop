@@ -803,6 +803,19 @@ func (r *EventRepository) EventExists(eventID int) (bool, error) {
 	return exists, nil
 }
 
+func (r *EventRepository) GetReceivedRatings(id int) ([]event_model.ReceivedRating, error){
+	rows, err := r.queries.GetEventRatings(context.Background(), int32(id))
+	if err!=nil{
+		return []event_model.ReceivedRating{}, err
+	}
+	ratings := []event_model.ReceivedRating{}
+	for _, row := range(rows){
+		ratings = append(ratings, event_model.ReceivedRating{Rating: int(row.Rating), RatingDate: row.Ratingdate.Time})
+	}
+
+	return ratings, nil
+}
+
 func mapEventRowToModel(row sqlc.ListMapEventsRow, cats []string) event_model.MapEvent {
 	return event_model.MapEvent{
 		Event: toModelExtended(sqlc.GetEventRow{

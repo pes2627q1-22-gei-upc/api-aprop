@@ -80,3 +80,8 @@ type SearchResult struct {
 	PageSize int     `json:"page-size"`
 	Events   []Event `json:"events"`
 }
+
+type ReceivedRating struct {
+	Rating		int			`json:"rating"`
+	RatingDate 	time.Time	`json:"rating-date"`
+}

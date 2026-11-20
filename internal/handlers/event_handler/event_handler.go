@@ -43,6 +43,7 @@ func (h *EventHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /categories/{id}", h.GetCategory)
 	mux.HandleFunc("GET /events/recommended", h.GetRecommendedEvents)
 	mux.HandleFunc("GET /events/popular", h.GetPopularEvents)
+	mux.HandleFunc("GET /events/{id}/ratings", h.GetReceivedRatings)
 }
 
 // authorizeCreator checks that the requester is the creator of the event. Official events have no creator,
@@ -82,6 +83,22 @@ func intParam(w http.ResponseWriter, r *http.Request, name string, def int) (int
 		return 0, false
 	}
 	return n, true
+}
+
+func (h *EventHandler) GetReceivedRatings(w http.ResponseWriter, r *http.Request){
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err!=nil{
+		response.WriteError(w, http.StatusBadRequest, "invalid event id")
+		return
+	}
+
+	ratings, err := h.eventService.GetReceivedRatings(id)
+	if err!=nil{
+		writeServiceError(w, err)
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, ratings)
 }
 
 // ListEvents handles GET /events

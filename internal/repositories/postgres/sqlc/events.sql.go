@@ -508,6 +508,35 @@ func (q *Queries) GetEvent(ctx context.Context, id int32) ([]GetEventRow, error)
 	return items, nil
 }
 
+const getEventRatings = `-- name: GetEventRatings :many
+SELECT Rating, RatingDate from EventRatings where event=$1
+`
+
+type GetEventRatingsRow struct {
+	Rating     int32
+	Ratingdate pgtype.Timestamp
+}
+
+func (q *Queries) GetEventRatings(ctx context.Context, event int32) ([]GetEventRatingsRow, error) {
+	rows, err := q.db.Query(ctx, getEventRatings, event)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetEventRatingsRow
+	for rows.Next() {
+		var i GetEventRatingsRow
+		if err := rows.Scan(&i.Rating, &i.Ratingdate); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getPopularEvents = `-- name: GetPopularEvents :many
 SELECT evlst.id, evlst.title, evlst.subtitle, evlst.description, evlst.schedule, evlst.tickets, evlst.url, evlst.ticketsurl, evlst.free, evlst.permanent, evlst.modality, evlst.relatedurls, evlst.urlnames, evlst.images, evlst.videos, evlst.email, evlst.phone, evlst.activityurl, evlst.startdate, evlst.enddate, evlst.place, evlst.latitude, evlst.longitude, evlst.postalcode, evlst.municipality, evlst.region, evlst.address, evlst.code, evlst.creator, evlst.datecreated, evlst.rating, evlst.num_signups, c.name as category FROM (
     SELECT e.id, e.title, e.subtitle, e.description, e.schedule, e.tickets, e.url, e.ticketsurl,

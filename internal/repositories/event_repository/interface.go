@@ -29,4 +29,5 @@ type Repository interface {
 	// GetUnofficialState returns the state of an unofficial event (event_model.UnofficialState*).
 	// It returns ErrEventNotFound if the event does not exist or is official.
 	GetUnofficialState(ctx context.Context, id int) (string, error)
+	GetReceivedRatings(id int) ([]event_model.ReceivedRating, error)
 }
