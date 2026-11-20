@@ -42,8 +42,19 @@ type mockUserRepo struct {
 	acceptFriendRequestErr  error
 	denyFriendRequestErr    error
 	unfriendErr             error
-	deleteUserErr           error
-	deleteUserCalls         int
+
+	blockDate       time.Time
+	blockErr        error
+	blockCalls      int
+	unblocked       bool
+	unblockErr      error
+	unblockCalls    int
+	blockedList     []user_model.BlockedUser
+	blockedErr      error
+	gotBlocker      pgtype.UUID
+	gotBlocked      pgtype.UUID
+	deleteUserErr   error
+	deleteUserCalls int
 
 	searchResult    []user_model.UserSummary
 	searchTotal     int64
@@ -212,6 +223,23 @@ func (m *mockUserRepo) DenyFriendRequest(_ context.Context, _, _ pgtype.UUID, _ 
 
 func (m *mockUserRepo) Unfriend(_ context.Context, _, _ pgtype.UUID) error {
 	return m.unfriendErr
+}
+
+func (m *mockUserRepo) BlockUser(_ context.Context, blocker, blocked pgtype.UUID) (time.Time, error) {
+	m.blockCalls++
+	m.gotBlocker, m.gotBlocked = blocker, blocked
+	return m.blockDate, m.blockErr
+}
+
+func (m *mockUserRepo) UnblockUser(_ context.Context, blocker, blocked pgtype.UUID) (bool, error) {
+	m.unblockCalls++
+	m.gotBlocker, m.gotBlocked = blocker, blocked
+	return m.unblocked, m.unblockErr
+}
+
+func (m *mockUserRepo) ListBlockedUsers(_ context.Context, blocker pgtype.UUID) ([]user_model.BlockedUser, error) {
+	m.gotBlocker = blocker
+	return m.blockedList, m.blockedErr
 }
 
 // DeleteUser simulates the transaction: the user is only removed if beforeCommit succeeds.

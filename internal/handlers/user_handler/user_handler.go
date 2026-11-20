@@ -48,6 +48,9 @@ func (h *UserHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /users/{id}/friend-requests/{date}/accept", h.AcceptFriendRequest)
 	mux.HandleFunc("POST /users/{id}/friend-requests/{date}/deny", h.DenyFriendRequest)
 	mux.HandleFunc("POST /users/{id}/unfriend", h.Unfriend)
+	mux.HandleFunc("GET /users/me/blocked", h.ListBlockedUsers)
+	mux.HandleFunc("POST /users/{id}/block", h.BlockUser)
+	mux.HandleFunc("DELETE /users/{id}/block", h.UnblockUser)
 }
 
 func (h *UserHandler) GetMyProfile(w http.ResponseWriter, r *http.Request) {
