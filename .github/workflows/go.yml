@@ -72,6 +72,14 @@ jobs:
       DB_PASSWORD: postgres
       DB_DATABASE: postgres
       PGPASSWORD: postgres
+      # Required by the binary before it reaches the database; unused by `api migrate`
+      PORT: '8080'
+      APP_TOKEN: ci
+      FIREBASE_CREDENTIALS_FILE: ci.json
+      GENCAT_EVENTS_URL: http://localhost
+      GENCAT_PAGE_SIZE: '1'
+      GROQ_API_KEYS: ci
+      GROQ_MODEL: ci
     steps:
       - uses: actions/checkout@v4
 
