@@ -47,7 +47,7 @@ type Event struct {
 	Creator            pgtype.UUID `json:"creator"`
 	CreatorName        *string     `json:"creator-name"`
 	CreatorReliability *float32    `json:"creator-reliability"`
-	Rating			   *float32	   `json:"rating"`
+	Rating             *float32    `json:"rating"`
 	DateCreated        time.Time   `json:"date-created"`
 }
 
@@ -82,6 +82,6 @@ type SearchResult struct {
 }
 
 type ReceivedRating struct {
-	Rating		int			`json:"rating"`
-	RatingDate 	time.Time	`json:"rating-date"`
+	Rating     int       `json:"rating"`
+	RatingDate time.Time `json:"rating-date"`
 }

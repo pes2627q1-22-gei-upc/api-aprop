@@ -138,6 +138,10 @@ func (f *fakeEventRepository) Search(_ context.Context, query string, pageNum, p
 	}, nil
 }
 
+func (f *fakeEventRepository) GetReceivedRatings(id int) ([]event_model.ReceivedRating, error) {
+	return []event_model.ReceivedRating{}, nil
+}
+
 type mockS3Client struct {
 	avatarURL string
 	avatarErr error
@@ -785,10 +789,6 @@ func (f *fakeUserRepository) GetByID(_ context.Context, _ pgtype.UUID) (user_mod
 	return f.user, f.userErr
 }
 
-func (f *fakeUserRepository) GetReliability(_ context.Context, _ pgtype.UUID) (*float32, error) {
-	return f.reliability, f.relErr
-}
-
 func TestGetEvent_CreatorReliability(t *testing.T) {
 	var creatorUUID pgtype.UUID
 	if err := creatorUUID.Scan(validUserID); err != nil {
@@ -829,7 +829,7 @@ func TestGetEvent_CreatorReliability(t *testing.T) {
 				Creator:    creatorUUID,
 			},
 			userRepo: &fakeUserRepository{
-				user:        user_model.User{ID: creatorUUID, Name: name, Username: username},
+				user:        user_model.User{ID: creatorUUID, Name: name, Username: username, Rating: &rel},
 				reliability: &rel,
 			},
 			wantName:        &name,

@@ -54,14 +54,14 @@ func (s *EventService) getEvent(id int) (event_model.Event, error) {
 	return e, nil
 }
 
-func (s *EventService) GetReceivedRatings(id int) ([]event_model.ReceivedRating, error){
+func (s *EventService) GetReceivedRatings(id int) ([]event_model.ReceivedRating, error) {
 	_, err := s.getEvent(id)
-	if err!=nil{
+	if err != nil {
 		return []event_model.ReceivedRating{}, err
 	}
 
 	ratings, err := s.eventRepository.GetReceivedRatings(id)
-	if err!=nil{
+	if err != nil {
 		return []event_model.ReceivedRating{}, err
 	}
 

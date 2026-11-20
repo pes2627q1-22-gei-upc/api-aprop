@@ -1,8 +1,8 @@
 package rating_service
 
 import (
-	"context"
 	"api-aprop/internal/models/rating_model"
+	"context"
 )
 
 // Service contains the business logic for rating events.

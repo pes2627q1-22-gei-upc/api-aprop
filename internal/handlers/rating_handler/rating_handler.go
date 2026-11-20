@@ -107,7 +107,7 @@ func (h *RatingHandler) RateUser(w http.ResponseWriter, r *http.Request) {
 	response.WriteJSON(w, http.StatusCreated, rating)
 }
 
-func (h *RatingHandler) UpdateUserRating(w http.ResponseWriter, r *http.Request){
+func (h *RatingHandler) UpdateUserRating(w http.ResponseWriter, r *http.Request) {
 	eventID, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil {
 		response.WriteError(w, http.StatusBadRequest, "invalid event id")
@@ -134,7 +134,7 @@ func (h *RatingHandler) UpdateUserRating(w http.ResponseWriter, r *http.Request)
 	response.WriteJSON(w, http.StatusOK, rating)
 }
 
-func (h *RatingHandler) DeleteUserRating(w http.ResponseWriter, r *http.Request){
+func (h *RatingHandler) DeleteUserRating(w http.ResponseWriter, r *http.Request) {
 	eventID, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil {
 		response.WriteError(w, http.StatusBadRequest, "invalid event id")
@@ -151,7 +151,9 @@ func (h *RatingHandler) DeleteUserRating(w http.ResponseWriter, r *http.Request)
 		writeServiceError(w, err)
 		return
 	}
-	response.WriteJSON(w, http.StatusOK, struct{Message string `json:"message"`}{Message: "rating deleted successfully"})
+	response.WriteJSON(w, http.StatusOK, struct {
+		Message string `json:"message"`
+	}{Message: "rating deleted successfully"})
 }
 
 // UpdateMine handles PUT /events/{id}/ratings/me with body {"score": 1..5}.
@@ -203,20 +205,24 @@ func (h *RatingHandler) DeleteMine(w http.ResponseWriter, r *http.Request) {
 func writeServiceError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, rating_service.ErrEventNotFound):
-		response.WriteError(w, http.StatusNotFound, "event not found")
+		response.WriteError(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, rating_service.ErrRatingNotFound):
-		response.WriteError(w, http.StatusNotFound, "rating not found")
+		response.WriteError(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, rating_service.ErrNotAttended):
 		// TODO(DP-033): 403 chosen for R10 (alternatives 409/422); no frontend contract yet.
-		response.WriteError(w, http.StatusForbidden, "only users who attended the event can rate it")
+		response.WriteError(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, rating_service.ErrAlreadyRated):
-		response.WriteError(w, http.StatusConflict, "user has already rated the event")
+		response.WriteError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, rating_service.ErrInvalidScore):
-		response.WriteError(w, http.StatusBadRequest, "score must be an integer between 1 and 5")
+		response.WriteError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, rating_service.ErrInvalidUserID):
-		response.WriteError(w, http.StatusBadRequest, "invalid user id")
+		response.WriteError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, rating_service.ErrInvalidEventID):
-		response.WriteError(w, http.StatusBadRequest, "invalid event id")
+		response.WriteError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, rating_service.ErrCreatorNotFound):
+		response.WriteError(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, rating_service.ErrUserAlreadyRated):
+		response.WriteError(w, http.StatusConflict, err.Error())
 	default:
 		log.Printf("internal error: %v", err)
 		response.WriteError(w, http.StatusInternalServerError, "internal server error")

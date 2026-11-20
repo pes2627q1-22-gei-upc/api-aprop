@@ -85,15 +85,15 @@ func intParam(w http.ResponseWriter, r *http.Request, name string, def int) (int
 	return n, true
 }
 
-func (h *EventHandler) GetReceivedRatings(w http.ResponseWriter, r *http.Request){
+func (h *EventHandler) GetReceivedRatings(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.Atoi(r.PathValue("id"))
-	if err!=nil{
+	if err != nil {
 		response.WriteError(w, http.StatusBadRequest, "invalid event id")
 		return
 	}
 
 	ratings, err := h.eventService.GetReceivedRatings(id)
-	if err!=nil{
+	if err != nil {
 		writeServiceError(w, err)
 		return
 	}

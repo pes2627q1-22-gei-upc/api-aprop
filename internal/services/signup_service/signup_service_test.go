@@ -95,6 +95,9 @@ func (f *fakeEventRepository) GetCategory(id int) (event_model.Category, error) 
 func (f *fakeEventRepository) ListMapEvents(ctx context.Context, filter event_model.MapFilter) ([]event_model.MapEvent, error) {
 	return []event_model.MapEvent{}, nil
 }
+func (f *fakeEventRepository) GetReceivedRatings(id int) ([]event_model.ReceivedRating, error) {
+	return []event_model.ReceivedRating{}, nil
+}
 
 type fakeNotificationRepository struct {
 	created_on_signup   int

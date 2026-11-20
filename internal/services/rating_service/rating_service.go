@@ -7,20 +7,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/models/rating_model"
 	"api-aprop/internal/models/user_model"
-	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/repositories/rating_repository"
-)
-
-var (
-	ErrInvalidUserID  = user_model.ErrInvalidID
-	ErrInvalidEventID = errors.New("invalid event id")
-	ErrInvalidScore   = errors.New("score must be between 1 and 5") // R9
-	ErrEventNotFound  = errors.New("event not found")
-	ErrNotAttended    = errors.New("user has not attended the event") // R10
-	ErrAlreadyRated   = errors.New("user has already rated the event")
-	ErrRatingNotFound = errors.New("rating not found")
 )
 
 // EventChecker is the part of event_repository.Repository the service needs.
@@ -34,9 +24,9 @@ type UserChecker interface {
 }
 
 type RatingService struct {
-	ratings 	rating_repository.Repository
-	users		UserChecker
-	events  	EventChecker
+	ratings rating_repository.Repository
+	users   UserChecker
+	events  EventChecker
 }
 
 func NewRatingService(ratings rating_repository.Repository, events EventChecker, users UserChecker) *RatingService {
@@ -109,20 +99,20 @@ func (s *RatingService) Rate(ctx context.Context, userID string, eventID, score 
 func (s *RatingService) RateUser(ctx context.Context, userID string, eventID int, score int) (rating_model.UserRating, error) {
 	userID, err := user_model.NormalizeID(userID)
 	if err != nil {
-		return rating_model.UserRating{}, err
+		return rating_model.UserRating{}, ErrInvalidUserID
 	}
-	
+
 	if score < 1 || score > 5 {
 		return rating_model.UserRating{}, fmt.Errorf("%w: %d", ErrInvalidScore, score)
 	}
 
 	rateruid, err := user_model.ParseID(userID)
-	if err!=nil{
+	if err != nil {
 		return rating_model.UserRating{}, err
 	}
-	
+
 	rater, err := s.users.GetByID(ctx, rateruid)
-	if err!=nil{
+	if err != nil {
 		return rating_model.UserRating{}, err
 	}
 
@@ -142,12 +132,12 @@ func (s *RatingService) RateUser(ctx context.Context, userID string, eventID int
 	}
 
 	event, err := s.events.Get(eventID)
-	if err!=nil{
+	if err != nil {
 		return rating_model.UserRating{}, err
 	}
 	creator := event.Creator
-	if !creator.Valid{
-		return rating_model.UserRating{}, err
+	if !creator.Valid {
+		return rating_model.UserRating{}, ErrCreatorNotFound
 	}
 
 	created, err := s.ratings.CreateUserRating(ctx, rater.ID, creator, eventID, score)
@@ -155,12 +145,12 @@ func (s *RatingService) RateUser(ctx context.Context, userID string, eventID int
 		return rating_model.UserRating{}, err
 	}
 	if !created {
-		return rating_model.UserRating{}, fmt.Errorf("rate organizer of event %d: user already rated", eventID)
+		return rating_model.UserRating{}, ErrUserAlreadyRated
 	}
 	return rating_model.UserRating{Rater: userID, Rated: UUIDToString(creator), Event: eventID, Score: score}, nil
 }
 
-func (s *RatingService) UpdateUserRating(ctx context.Context, userID string, eventID int, score int) (rating_model.UserRating, error){
+func (s *RatingService) UpdateUserRating(ctx context.Context, userID string, eventID int, score int) (rating_model.UserRating, error) {
 	userID, err := user_model.NormalizeID(userID)
 	if err != nil {
 		return rating_model.UserRating{}, err
@@ -176,21 +166,21 @@ func (s *RatingService) UpdateUserRating(ctx context.Context, userID string, eve
 	}
 
 	rateruid, err := user_model.ParseID(userID)
-	if err!=nil{
+	if err != nil {
 		return rating_model.UserRating{}, err
 	}
 	rater, err := s.users.GetByID(ctx, rateruid)
-	if err!=nil{
+	if err != nil {
 		return rating_model.UserRating{}, err
 	}
 
 	event, err := s.events.Get(eventID)
-	if err!=nil{
-		return rating_model.UserRating{}, err
+	if err != nil {
+		return rating_model.UserRating{}, ErrEventNotFound
 	}
 	creator := event.Creator
-	if !creator.Valid{
-		return rating_model.UserRating{}, err
+	if !creator.Valid {
+		return rating_model.UserRating{}, ErrCreatorNotFound
 	}
 
 	updated, err := s.ratings.UpdateUserRating(ctx, rater.ID, creator, eventID, score)
@@ -203,7 +193,7 @@ func (s *RatingService) UpdateUserRating(ctx context.Context, userID string, eve
 	return rating_model.UserRating{Rater: userID, Rated: UUIDToString(creator), Event: eventID, Score: score}, nil
 }
 
-func (s *RatingService) DeleteUserRating(ctx context.Context, userID string, eventID int) error{
+func (s *RatingService) DeleteUserRating(ctx context.Context, userID string, eventID int) error {
 	userID, err := user_model.NormalizeID(userID)
 	if err != nil {
 		return err
@@ -216,21 +206,21 @@ func (s *RatingService) DeleteUserRating(ctx context.Context, userID string, eve
 	}
 
 	rateruid, err := user_model.ParseID(userID)
-	if err!=nil{
+	if err != nil {
 		return err
 	}
 	rater, err := s.users.GetByID(ctx, rateruid)
-	if err!=nil{
+	if err != nil {
 		return err
 	}
 
 	event, err := s.events.Get(eventID)
-	if err!=nil{
-		return err
+	if err != nil {
+		return ErrEventNotFound
 	}
 	creator := event.Creator
-	if !creator.Valid{
-		return err
+	if !creator.Valid {
+		return ErrCreatorNotFound
 	}
 
 	updated, err := s.ratings.DeleteUserRating(ctx, rater.ID, creator, eventID)
@@ -304,13 +294,13 @@ func (s *RatingService) requireEvent(eventID int) error {
 }
 
 func UUIDToString(id pgtype.UUID) string {
-    if !id.Valid {
-        return ""
-    }
+	if !id.Valid {
+		return ""
+	}
 
-    b := id.Bytes
-    return fmt.Sprintf(
-        "%08x-%04x-%04x-%04x-%012x",
-        b[0:4], b[4:6], b[6:8], b[8:10], b[10:16],
-    )
+	b := id.Bytes
+	return fmt.Sprintf(
+		"%08x-%04x-%04x-%04x-%012x",
+		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16],
+	)
 }
