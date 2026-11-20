@@ -136,7 +136,7 @@ DELETE FROM eventratings WHERE event = $1;
 DELETE FROM userratings WHERE event = $1;
 
 -- name: DeleteEventMessages :exec
-DELETE FROM messages WHERE event = $1;
+DELETE FROM EventMessages WHERE Event = $1;
 
 -- name: DeleteEventNotifications :exec
 DELETE FROM notifications WHERE event = @event::int;
@@ -152,6 +152,10 @@ DELETE FROM unofficialevents WHERE id = $1;
 
 -- name: DeleteEvent :execrows
 DELETE FROM events WHERE id = $1;
+
+-- name: CancelUnofficialEvent :execrows
+-- Marks the unofficial event as Cancelled; no rows if it does not exist or is no longer Active.
+UPDATE UnofficialEvents SET State = 'Cancelled' WHERE ID = $1 AND State = 'Active';
 
 -- name: GetUnofficialEventState :one
 -- State of an unofficial event; no rows if the event is official or does not exist.

@@ -442,7 +442,7 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
   2. `PUT /events/{id}` respon `409 Conflict` si l'estat no és `Active`. L'ordre de comprovacions és: autoria i tipus (`403`) → estat (`409`) → camps i R5 (`400`).
   3. De moment cap endpoint no canvia l'estat (la retirada arribarà amb les denúncies, R7). L'estat no surt a les respostes JSON dels esdeveniments.
   4. No s'ha bloquejat `POST /events/{id}/image` ni `DELETE /events/{id}` per als esdeveniments retirats, ni s'amaguen dels llistats: fora de l'abast de #188.
-  5. Pendent de confirmar si cal un estat `Cancelled` (cancel·lat pel creador), diferent de `Withdrawn`.
+  5. Pendent de confirmar si cal un estat `Cancelled` (cancel·lat pel creador), diferent de `Withdrawn`. → La Tasca #180 l'afegeix (DP-041).
   6. La migració i la consulta `GetUnofficialEventState` no s'han provat contra PostgreSQL/Supabase; `events.sql.go` s'ha escrit a mà en el format de sqlc (sense regenerar, pels ajustos manuals del fitxer).
 - **Opcions:** —
 - **Provisionalment:** els supòsits anteriors.
@@ -462,6 +462,43 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
   6. No provat contra Firebase real (sense la clau a l'entorn de desenvolupament): només tests unitaris amb `httptest`.
 - **Opcions:** A) aquest endpoint · B) només el SDK de Firebase al client (sense nom d'usuari ni límit propi).
 - **Provisionalment:** A.
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
+### DP-040 · Xat d'esdeveniment: taula `EventMessages` i `GET`/`POST /events/{id}/messages`
+- **Estat:** oberta
+- **Obert per:** 2026-11-19 · Claude Code (Opus 5.5) · branca `feature/xat-esdeveniment` (Taiga #147)
+- **Context:** `message_handler`, `message_service`, `queries/event_messages.sql`, migració 000019. La tasca demanava una migració de la taula `event_messages`, però la taula ja existia com a `Messages` (migració 000001) amb la PK `(UserID, Event, DateSent)`, que és la clau R1 (autor + esdeveniment + dataEnviament). L'equip (Arnau) ha triat reanomenar-la.
+- **Dubte / supòsits:**
+  1. Migració 000019: `Messages` → `EventMessages` (com `EventRatings`), `DateSent DEFAULT now()` i índex `(Event, DateSent DESC)`. Es mantenen la PK i les FK. S'han actualitzat `DeleteUserMessages` i `DeleteEventMessages`.
+  1b. **Compressió del text** (demanada per l'equip per estalviar espai a la BD): Postgres només comprimeix files de més d'~2 kB, que un missatge no arriba a fer, així que la comprimeix l'API (`message_codec.go`). `Message` passa a `bytea`: 1 byte de format (`0` = text UTF-8 tal qual, `1` = DEFLATE de `compress/flate`, sense dependències noves) + el text. Només es comprimeix si ocupa menys; els missatges curts (menys d'~100 bytes, la majoria) queden igual (+1 byte). Els llargs ocupen aproximadament la meitat. Conseqüències: el text ja no es pot llegir ni cercar des de SQL o el panell de Supabase (afecta, p. ex., futures denúncies de missatges); la BD només limita la mida (2..4001 bytes) i el límit de 1–1000 caràcters el comprova l'API; les files existents es converteixen al format `0`; el `down` no pot descomprimir els missatges en format `1` i els substitueix per `[missatge comprimit]`. L'alternativa que estalviaria més espai és esborrar els xats dels esdeveniments acabats fa N dies (tasca diària a `runDaily`), pendent de decidir.
+  2. R11 també s'aplica a la lectura: només els inscrits poden veure el xat (`403` en tots dos casos, com R10 a les valoracions). «Inscripció activa» = existeix una fila a `SignUp` (desapuntar-se l'esborra).
+  3. El creador d'un esdeveniment no oficial no hi té accés si no s'hi ha inscrit.
+  4. No es comprova l'estat de l'esdeveniment (`Withdrawn`), ni si ja ha acabat, ni els bloqueigs entre usuaris: tots els inscrits veuen tots els missatges.
+  5. Paginació: del més nou al més antic, `pageNum` des de 0, `pageSize` 50 per defecte i màxim 100. Sense temps real (el client fa polling).
+  6. Dos missatges del mateix usuari al mateix esdeveniment en el mateix microsegon violen la clau R1 → `409`.
+  7. Cada missatge porta `user-id`, `username`, `name`, `profile-picture`, `event-id`, `text` i `date-sent`.
+  8. La migració i les consultes no s'han provat contra PostgreSQL/Supabase; `event_messages.sql.go` s'ha escrit a mà en el format de sqlc.
+- **Opcions:** —
+- **Provisionalment:** els supòsits anteriors.
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
+### DP-041 · Cancel·lar un esdeveniment no oficial (`POST /events/{id}/cancel`)
+- **Estat:** oberta
+- **Obert per:** 2026-11-19 · Claude Code (Opus 5.5) · branca `feature/cancellar-esdeveniment` (Taiga #180)
+- **Context:** `EventHandler.CancelEvent`, `EventService.CancelUnofficialEvent`, `EventRepository.Cancel`, consultes `CancelUnofficialEvent` i `CreateCancellationNotifications`, migració 000020. (La DP-040 és a la PR #69 del xat.)
+- **Dubte / supòsits:**
+  1. Migració 000020: nou valor `Cancelled` a `UnofficialEventState` (diferent de `Withdrawn`, que és per denúncies, R7) i nou tipus de notificació `Cancelacio` a `NotificationTypes` (`NumNotificationTypes` passa a 4). El tipus s'insereix amb la migració perquè `NotificationRepository` esborra i recrea els tipus quan no n'hi ha `NumNotificationTypes`, i aquest esborrat fallaria si ja hi ha notificacions. El `down` no pot treure el valor de l'enum (Postgres no ho permet) i torna els cancel·lats a `Active`.
+  2. Autoria com a `PUT`/`DELETE`: només el creador (`403` per a la resta i per als oficials). Ordre: autoria (`403`) → acabat (`409`) → estat (`409`).
+  3. Només es pot cancel·lar un esdeveniment `Active` que no hagi acabat (darrer dia = `EndDate`, o `StartDate` si no en té, abans d'avui → `409`). Un esdeveniment en curs sí que es pot cancel·lar. Tornar-lo a cancel·lar dona `409`.
+  4. El canvi d'estat i les notificacions van en una sola transacció; l'`UPDATE` només actua si l'estat encara és `Active`, així dues peticions alhora no generen notificacions duplicades.
+  5. Es notifica un cop cada usuari inscrit, excepte el creador, amb el text «<títol> s'ha cancel·lat.» (en català, com els recordatoris). No es tenen en compte les preferències de notificació de `Settings`. Com que ja tenen una notificació de l'esdeveniment, `CreateReminders` ja no els enviarà el recordatori.
+  6. Les inscripcions no s'esborren, l'esdeveniment segueix als llistats i el JSON de l'esdeveniment no mostra l'estat. Tampoc no es bloquegen les noves inscripcions, el xat ni la imatge d'un esdeveniment cancel·lat. Cal decidir-ho amb el frontend.
+  7. Resposta `200 {event-id, state, notified-users}`. No hi ha manera de desfer la cancel·lació.
+  8. La migració i les consultes no s'han provat contra PostgreSQL/Supabase; el codi de `sqlc` s'ha escrit a mà en el seu format.
+- **Opcions:** —
+- **Provisionalment:** els supòsits anteriors.
 - **Qui decideix:** frontend + backend
 - **Resolució:**
 

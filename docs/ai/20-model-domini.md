@@ -28,7 +28,7 @@
 | Categoria | Tipus d'activitat (teatre, dansa…) | nom (únic). Cada Esdeveniment en té ≥ 1 |
 | Inscripció | Usuari apuntat a un Esdeveniment | exportadaGoogle, *assistència*? (bool) |
 | Valoració | Puntuació 1–5 d'un esdeveniment assistit | *puntuació* |
-| Missatge | Xat d'un Esdeveniment | text, *dataEnviament*, → autor, → Esdeveniment |
+| Missatge | Xat d'un Esdeveniment | text, *dataEnviament*, → autor, → Esdeveniment. Taula `EventMessages` (migració 000019) |
 | Interès | Grau d'interès Usuari–Categoria | /pes |
 | TestInteressos | Test inicial de 25 Esdeveniments (1 per Usuari) | |
 | RespostaTest | M'agrada / no m'agrada per Esdeveniment del test | valor |
@@ -43,9 +43,9 @@
 |---|---|---|
 | Sol·licitudAmistat.estat | Pendent, Acceptada, *Rebutjada* | confirmar el nom de l'estat rebutjat |
 | Usuari.estatCompte | Desactivat, … | `TODO(confirmar)` valor actiu |
-| NoOficial.estat | `Active` (actiu), `Withdrawn` (Retirat) | Columna `UnofficialEvents.State` (migració 000018). `TODO(DP-038)`: confirmar si cal `Cancelled` |
+| NoOficial.estat | `Active` (actiu), `Withdrawn` (Retirat), `Cancelled` (cancel·lat pel creador) | Columna `UnofficialEvents.State` (migracions 000018 i 000020). `Cancelled` el posa `POST /events/{id}/cancel` (DP-041) |
 | Denúncia.estat | Pendent, Acceptada, … | `TODO(confirmar)` (rebutjada?) |
-| NotificacióEsdeveniment.tipus | Recordatori, Cancel·lació, RecordatoriValorar, Recomanació, InscripcióAmic | noms exactes al diagrama |
+| NotificacióEsdeveniment.tipus | Recordatori, Cancel·lació, RecordatoriValorar, Recomanació, InscripcióAmic | noms exactes al diagrama. A `NotificationTypes` hi ha `Social`, `Recomanacio`, `Recordatori` i `Cancelacio` (migració 000020) |
 | MissatgeXatbot.emissor | Usuari, Xatbot | |
 | Nivell | Curiós/a → Explorador/a → Aventurer/a cultural → Descobridor/a cultural → Ambaixador/a cultural | llindars d'XP `TODO(confirmar)` (mockup: 340/500) |
 | Configuració.idioma | ca, es (+ en?) | mockup diu ca/es; NFR diu ca/es/en |

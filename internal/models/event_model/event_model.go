@@ -5,12 +5,20 @@ import (
 	"time"
 )
 
-// States of an unofficial event (NoOficial.estat).
-// TODO(DP-038): only Active and Withdrawn (Retirat) exist until the team confirms the rest.
+// States of an unofficial event (NoOficial.estat). Only Active events can be modified or cancelled.
+// TODO(DP-038): Withdrawn (Retirat) is not set by any endpoint yet. Cancelled is set by its creator (DP-041).
 const (
 	UnofficialStateActive    = "Active"
 	UnofficialStateWithdrawn = "Withdrawn"
+	UnofficialStateCancelled = "Cancelled"
 )
+
+// Cancellation is the result of POST /events/{id}/cancel.
+type Cancellation struct {
+	EventID       int    `json:"event-id"`
+	State         string `json:"state"`
+	NotifiedUsers int64  `json:"notified-users"`
+}
 
 // Event is the resource. Struct tags control the JSON field names.
 type Event struct {

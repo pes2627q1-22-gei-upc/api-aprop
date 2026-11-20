@@ -38,6 +38,7 @@ func (h *EventHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /events", h.CreateEvent)
 	mux.HandleFunc("PUT /events/{id}", h.UpdateEvent)
 	mux.HandleFunc("DELETE /events/{id}", h.DeleteEvent)
+	mux.HandleFunc("POST /events/{id}/cancel", h.CancelEvent)
 	mux.HandleFunc("POST /events/{id}/image", h.UploadEventImage)
 	mux.HandleFunc("GET /categories", h.GetCategories)
 	mux.HandleFunc("GET /categories/{id}", h.GetCategory)
@@ -231,6 +232,27 @@ func (h *EventHandler) DeleteEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// CancelEvent handles POST /events/{id}/cancel. Only the creator of an unofficial event can cancel it; the users signed
+// up to it are notified.
+func (h *EventHandler) CancelEvent(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil {
+		response.WriteError(w, http.StatusBadRequest, "invalid event id")
+		return
+	}
+
+	if !h.authorizeCreator(w, r, id) {
+		return
+	}
+
+	cancellation, err := h.eventService.CancelUnofficialEvent(r.Context(), id)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	response.WriteJSON(w, http.StatusOK, cancellation)
 }
 
 // UploadEventImage handles POST /events/{id}/image. Only the creator of an unofficial event can change its image.

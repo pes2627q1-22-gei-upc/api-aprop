@@ -35,6 +35,8 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		response.WriteError(w, http.StatusBadGateway, "image storage unavailable")
 	case errors.Is(err, event_service.ErrEventNotActive):
 		response.WriteError(w, http.StatusConflict, "event is not active")
+	case errors.Is(err, event_service.ErrEventFinished):
+		response.WriteError(w, http.StatusConflict, "event has already finished")
 	case errors.Is(err, event_service.ErrInvalidEvent):
 		response.WriteError(w, http.StatusUnprocessableEntity, "event is invalid")
 	case errors.Is(err, event_service.ErrInvalidBoundingBox):

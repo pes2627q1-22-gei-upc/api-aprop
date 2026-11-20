@@ -196,7 +196,7 @@ func (q *Queries) DeleteEventChatbotRecommendations(ctx context.Context, event i
 }
 
 const deleteEventMessages = `-- name: DeleteEventMessages :exec
-DELETE FROM messages WHERE event = $1
+DELETE FROM EventMessages WHERE Event = $1
 `
 
 func (q *Queries) DeleteEventMessages(ctx context.Context, event int32) error {
@@ -609,6 +609,19 @@ func (q *Queries) GetPopularEvents(ctx context.Context, arg GetPopularEventsPara
 		return nil, err
 	}
 	return items, nil
+}
+
+const cancelUnofficialEvent = `-- name: CancelUnofficialEvent :execrows
+UPDATE UnofficialEvents SET State = 'Cancelled' WHERE ID = $1 AND State = 'Active'
+`
+
+// Marks the unofficial event as Cancelled; no rows if it does not exist or is no longer Active.
+func (q *Queries) CancelUnofficialEvent(ctx context.Context, id int32) (int64, error) {
+	result, err := q.db.Exec(ctx, cancelUnofficialEvent, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const getUnofficialEventState = `-- name: GetUnofficialEventState :one

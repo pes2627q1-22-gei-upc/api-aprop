@@ -18,6 +18,7 @@ Totes les respostes i cossos de petició utilitzen claus JSON en **kebab-case**.
 | `POST /events` | `EventHandler.CreateEvent` | Creació d'esdeveniments no oficials | Implementat |
 | `PUT /events/{id}` | `EventHandler.UpdateEvent` | Modificació d'un esdeveniment no oficial: només el creador (`403` si no ho és o si és oficial), només si l'estat és `Active` (`409` si no, p. ex. `Withdrawn`) i complint R5 contra la data de creació (`400`) | Implementat (DP-038) |
 | `DELETE /events/{id}` | `EventHandler.DeleteEvent` | Esborrat d'un esdeveniment no oficial i de les dades que en depenen (només el creador; 204) | Implementat |
+| `POST /events/{id}/cancel` | `EventHandler.CancelEvent` | Cancel·lació d'un esdeveniment no oficial: només el creador (`403`). En una transacció, l'estat passa d'`Active` a `Cancelled` i cada inscrit (excepte el creador) rep una notificació `Cancelacio` («<títol> s'ha cancel·lat.»). `200` amb `{event-id, state, notified-users}`; `409` si ja no és actiu o ja ha acabat; `404` si no existeix. Després, `PUT /events/{id}` respon `409` | Implementat (Tasca #180, DP-041) |
 | `GET /events/map` | `EventHandler.ListMapEvents` | Esdeveniments amb coordenades i metadades bàsiques per al mapa | Implementat |
 | `GET /categories` | `EventHandler.GetCategories` | Llistat de totes les categories del catàleg | Implementat |
 | `GET /categories/{id}` | `EventHandler.GetCategory` | Detall d'una categoria específica | Implementat |
@@ -35,6 +36,12 @@ Totes les respostes i cossos de petició utilitzen claus JSON en **kebab-case**.
 | `PUT /events/{id}/ratings/me` | `RatingHandler.UpdateMine` | Modifica la meva valoració (cos `{"score":1..5}`; `200` amb la valoració; `400`/`401`; `404` si no existeix l'esdeveniment o la valoració) | Implementat (Tasca #205, DP-036) |
 | `DELETE /events/{id}/ratings/me` | `RatingHandler.DeleteMine` | Elimina la meva valoració (`204`; `401`; `404` si no existeix l'esdeveniment o la valoració). `Users.Rating` (fiabilitat) es recalcula amb el trigger d'`EventRatings` | Implementat (Tasca #205, DP-036) |
 | `GET /events/{id}/enrollment/attendance` | `RatingHandler.HasAttended` | Consulta si l'usuari autenticat ha confirmat l'assistència (`has-attended`, R10) | Implementat (`feature/event-rating`, DP-033) |
+
+### Xat d'esdeveniment (`message_handler`)
+| Mètode i ruta | Handler | Descripció | Estat |
+|---|---|---|---|
+| `GET /events/{id}/messages?pageNum=<n>&pageSize=<n>` | `MessageHandler.ListMessages` | Missatges del xat de l'esdeveniment, del més nou al més antic, amb l'autor (`user-id`, `username`, `name`, `profile-picture`). Només per als inscrits (R11, `403`). Resposta `{event-id, total, page-num, page-size, messages: [...]}`; `pageNum` des de 0, `pageSize` 50 per defecte i màxim 100 (`400` si no); `404` si l'esdeveniment no existeix | Implementat (Tasca #147, DP-040) |
+| `POST /events/{id}/messages` | `MessageHandler.SendMessage` | Envia un missatge (cos `{"text": "..."}`, retallat, 1–1000 caràcters). R11: l'autor ha d'estar inscrit (`403`). `201` amb el missatge; `400`/`401`/`404`; `409` si el mateix usuari n'envia dos en el mateix instant (clau R1). Taula `EventMessages` (migració 000019); el text es desa comprimit amb DEFLATE quan ocupa menys (`bytea` amb byte de format) | Implementat (Tasca #147, DP-040) |
 
 ### Assistent Virtual i Xatbot (`assistant_handler`)
 | Mètode i ruta | Handler | Descripció | Estat |
