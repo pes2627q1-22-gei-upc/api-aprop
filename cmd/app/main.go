@@ -52,6 +52,7 @@ import (
 	"api-aprop/internal/services/translation_service"
 	"api-aprop/internal/services/user_service"
 	"api-aprop/migrations"
+	"api-aprop/supabase"
 )
 
 const (
@@ -187,11 +188,17 @@ func main() {
 	defer postgresDriver.Close()
 
 	// Migrate database
-	if err := postgresDriver.MigrateFS(migrations.EmbedFS, dbConfig.GetConnectionString()); err != nil {
+	if err := postgresDriver.MigrateFSWithSupabase(migrations.EmbedFS, supabase.MigrationsFS); err != nil {
 		slog.Error("Error migrating database", "error", err)
 		os.Exit(1)
 	}
 	slog.Info("Database schema is up to date.")
+
+	// `api migrate` only migrates and exits: used by CI and, once Render's plan allows it,
+	// as preDeployCommand so a failed migration never replaces the running version.
+	if len(os.Args) > 1 && os.Args[1] == "migrate" {
+		return
+	}
 
 	// Clients
 	httpClient := &http.Client{Timeout: 15 * time.Second}
