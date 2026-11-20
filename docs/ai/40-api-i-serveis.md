@@ -64,6 +64,21 @@ Totes les respostes i cossos de petició utilitzen claus JSON en **kebab-case**.
 | `GET /users/me/blocked` | `UserHandler.ListBlockedUsers` | Usuaris que he bloquejat, del més recent al més antic (pantalla «Usuaris bloquejats», fig. 19). Llista sense paginació | Implementat (Tasca #108, DP-042) |
 | `DELETE /users/me` | `UserHandler.DeleteMyAccount` | Baixa del compte (RGPD): esborra en una transacció l'usuari, la seva configuració, els esdeveniments no oficials que ha creat (amb les dades que en depenen) i totes les files que el referencien; dins la transacció esborra el compte de Firebase Auth i, després del commit, l'avatar de S3 (best-effort). `204`; `401` sense identitat; `404` usuari inexistent; `502` si Firebase falla (no s'esborra res) | Implementat (DP-031) |
 
+### Idioma i traducció d'esdeveniments (US #28)
+Idiomes: `ca` (original, per defecte), `es`, `en`. L'idioma de l'usuari es guarda a `Settings.Language` i es llegeix/modifica
+amb el camp `language` de `GET /users/me` (només al perfil propi) i `PATCH /users/me` (`400` si no és `ca`/`es`/`en`).
+
+Els endpoints que retornen esdeveniments (`GET /events`, `/events/{id}`, `/events/search`, `/events/map`, `/event/map`, `/events/recommended`,
+`/events/popular`, `/users/{id}/created-events`, `/users/{userId}/events`) accepten `?lang=ca|es|en`. Resolució: `?lang` → idioma de
+l'usuari autenticat → original. `lang` invàlid → `400`. Es tradueixen `title`, `subtitle`, `description`, `schedule`, `tickets` i
+`url-names` (cada nom d'enllaç separat per comes); `place`, `municipality`, `address`, etc. queden sense traduir.
+El xatbot (`assistant_handler`) **no** tradueix (DP-043).
+
+Traducció: `translate_client` (`POST {TRANSLATOR_URL}/translate`, `TRANSLATOR_API_KEY` opcional; desplegat sobre Cloudflare Workers AI) →
+`translation_service`, que cacheja a `EventTranslations` (clau `(Event, Lang)`, `SourceHash` = SHA-256 dels sis camps
+originals: si l'esdeveniment canvia, es torna a traduir). Sense `TRANSLATOR_URL`, o si el servei falla, es retorna el text original
+(i es registra el motiu); mai no falla la petició. Detalls i supòsits a DP-043.
+
 ### Integració amb Mobilicat (`congestion_handler`)
 Fora del router i del middleware de Firebase: s'autentica amb la capçalera `X-API-Key` (`MOBILICAT_API_KEY`).
 **Excepció:** claus JSON en **snake_case**, segons el contracte acordat amb Mobilicat (DP-032).

@@ -8,8 +8,10 @@ import (
 	"path/filepath"
 	"time"
 
+	"api-aprop/internal/handlers/language"
 	"api-aprop/internal/handlers/requester"
 	"api-aprop/internal/handlers/response"
+	"api-aprop/internal/services/translation_service"
 	"api-aprop/internal/services/user_service"
 )
 
@@ -18,10 +20,17 @@ const maxUploadSize = 5 << 20 // 5 MB
 type UserHandler struct {
 	userService user_service.Service
 	resolver    requester.Resolver
+	translator  translation_service.Service // optional: without it the events are always in the original language
 }
 
 func NewUserHandler(userService user_service.Service, resolver requester.Resolver) *UserHandler {
 	return &UserHandler{userService: userService, resolver: resolver}
+}
+
+// WithTranslator sets the service that translates the events of GET /users/{id}/created-events (US #28).
+func (h *UserHandler) WithTranslator(t translation_service.Service) *UserHandler {
+	h.translator = t
+	return h
 }
 
 func (h *UserHandler) RegisterRoutes(mux *http.ServeMux) {
@@ -99,6 +108,7 @@ func (h *UserHandler) UpdateMyProfile(w http.ResponseWriter, r *http.Request) {
 		Biography      *string `json:"biography"`
 		ProfilePicture *string `json:"profile-picture"`
 		ShowPlans      *bool   `json:"show-plans"`
+		Language       *string `json:"language"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -112,6 +122,7 @@ func (h *UserHandler) UpdateMyProfile(w http.ResponseWriter, r *http.Request) {
 		Biography:      body.Biography,
 		ProfilePicture: body.ProfilePicture,
 		ShowPlans:      body.ShowPlans,
+		Language:       body.Language,
 	})
 	if err != nil {
 		writeServiceError(w, err)
@@ -173,6 +184,10 @@ func (h *UserHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *UserHandler) ListCreatedEvents(w http.ResponseWriter, r *http.Request) {
+	lang, ok := language.Resolve(w, r, h.translator, h.resolver)
+	if !ok {
+		return
+	}
 	id := r.PathValue("id")
 	if id == "" {
 		response.WriteError(w, http.StatusBadRequest, "missing user id")
@@ -192,6 +207,9 @@ func (h *UserHandler) ListCreatedEvents(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	if h.translator != nil {
+		events = h.translator.TranslateEvents(r.Context(), lang, events)
+	}
 	response.WriteJSON(w, http.StatusOK, events)
 }
 

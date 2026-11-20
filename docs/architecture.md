@@ -24,7 +24,7 @@ flowchart TD
     HANDLERS[internal/handlers<br/>event, assistant, auth, signup]
     SERVICES[internal/services<br/>event, assistant, auth, signup]
     REPOS[internal/repositories/postgres<br/>sqlc + pgxpool]
-    CLIENTS[internal/clients<br/>gencat, groq, firebase, mcp]
+    CLIENTS[internal/clients<br/>gencat, groq, firebase, mcp, translate]
   end
 
   subgraph Persistència i Externs
@@ -32,6 +32,7 @@ flowchart TD
     FIREBASE[Firebase Auth Service]
     GENCAT[Dades Obertes Gencat]
     GROQ[Groq AI API]
+    TRANSLATOR[Servei de traducció]
     MCP[mcp-aprop<br/>cmd/mcp]
   end
 
@@ -48,6 +49,7 @@ flowchart TD
   CLIENTS -->|HTTPS| FIREBASE
   CLIENTS -->|HTTPS| GENCAT
   CLIENTS -->|HTTPS| GROQ
+  CLIENTS -->|HTTPS| TRANSLATOR
   CLIENTS -->|Streamable HTTP /mcp| MCP
   MCP -->|pgxpool| SUPABASE
 ```
@@ -65,7 +67,7 @@ flowchart TD
 | `internal/services/<x>_service/` | Lògica de negoci de l'aplicació. Defineixen la seva interfície (`interface.go`) i orquestren repositoris i clients externs. |
 | `internal/repositories/<x>_repository/` | Interfícies que defineixen les operacions de persistència de dades requerides pels serveis. |
 | `internal/repositories/postgres/` | Implementació de la persistència en PostgreSQL (Supabase) utilitzant consultes tipades generades per `sqlc`. |
-| `internal/clients/<x>_client/` | Clients HTTP per consumir serveis externs (`gencat_client`, `groq_client`, `firebase_client`, `mcp_client`), cadascun darrere d'una interfície (`interface.go`). |
+| `internal/clients/<x>_client/` | Clients HTTP per consumir serveis externs (`gencat_client`, `groq_client`, `firebase_client`, `mcp_client`, `translate_client`), cadascun darrere d'una interfície (`interface.go`). |
 | `internal/models/<x>_model/` | Structs del domini amb tags de serialització JSON en kebab-case (`start-date`, `place-id`, etc.). `user_model.NormalizeID` / `ParseID` són l'única validació i conversió d'IDs d'usuari (UUID canònic). |
 | `internal/drivers/postgres_driver/` | Configuració del pool de connexions amb PostgreSQL mitjançant `pgxpool`. |
 | `supabase/migrations/` | Migracions oficials versionades de l'esquema de Supabase (amb suport per a Row Level Security). |
