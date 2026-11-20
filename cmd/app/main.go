@@ -188,6 +188,12 @@ func main() {
 	}
 	slog.Info("Database schema is up to date.")
 
+	// `api migrate` only migrates and exits: used by CI and, once Render's plan allows it,
+	// as preDeployCommand so a failed migration never replaces the running version.
+	if len(os.Args) > 1 && os.Args[1] == "migrate" {
+		return
+	}
+
 	// Clients
 	httpClient := &http.Client{Timeout: 15 * time.Second}
 	gencatClient := gencat_client.NewGencatClient(httpClient, gencatEventsURL, appToken)

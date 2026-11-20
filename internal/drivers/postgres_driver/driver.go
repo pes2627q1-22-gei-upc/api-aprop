@@ -90,6 +90,7 @@ func (d *Driver) MigrateFSWithSupabase(fsys fs.FS, supabaseFS fs.FS) error {
 	defer m.Close()
 
 	supaState := syncFromSupabase(d.pool, m, embeddedVersions)
+	recoverDirty(m, fsys, embeddedVersions)
 
 	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		return fmt.Errorf("apply migrations: %w", err)

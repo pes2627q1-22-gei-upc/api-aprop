@@ -123,3 +123,46 @@ func normalizeSQL(s string) string {
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	return strings.TrimSpace(s)
 }
+
+// firstIdempotentMigration is the first migration that must be safe to re-run:
+// older ones were written before this rule and are already applied everywhere.
+const firstIdempotentMigration = 20
+
+// notIdempotentSQL matches DDL that fails when run twice. A migration can be
+// applied but not recorded (crash, manual apply), so re-running must be harmless.
+var notIdempotentSQL = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)\bcreate\s+table\s+(?:(?:unlogged|temporary|temp)\s+)?(?:public\.)?"?\w+`),
+	regexp.MustCompile(`(?i)\bcreate\s+(?:unique\s+)?index\s+(?:concurrently\s+)?"?\w+`),
+	regexp.MustCompile(`(?i)\badd\s+column\s+"?\w+`),
+	regexp.MustCompile(`(?i)\bdrop\s+(?:table|column|index|type|constraint)\s+"?\w+`),
+}
+
+// TestNewMigrationsAreIdempotent rejects DDL without IF [NOT] EXISTS in
+// migrations from firstIdempotentMigration on.
+func TestNewMigrationsAreIdempotent(t *testing.T) {
+	entries, err := fs.ReadDir(migrations.EmbedFS, ".")
+	if err != nil {
+		t.Fatalf("read migrations.EmbedFS: %v", err)
+	}
+	guard := regexp.MustCompile(`(?i)\bif\s+(?:not\s+)?exists\b`)
+	for _, entry := range entries {
+		m := upFileRe.FindStringSubmatch(entry.Name())
+		if m == nil {
+			continue
+		}
+		if seq, _ := strconv.Atoi(m[1]); seq < firstIdempotentMigration {
+			continue
+		}
+		b, err := fs.ReadFile(migrations.EmbedFS, entry.Name())
+		if err != nil {
+			t.Fatalf("read %s: %v", entry.Name(), err)
+		}
+		for i, line := range strings.Split(string(b), "\n") {
+			for _, re := range notIdempotentSQL {
+				if re.MatchString(line) && !guard.MatchString(line) {
+					t.Errorf("%s:%d is not idempotent (use IF [NOT] EXISTS): %s", entry.Name(), i+1, strings.TrimSpace(line))
+				}
+			}
+		}
+	}
+}
