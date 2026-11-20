@@ -1,4 +1,4 @@
-ALTER TABLE events add column rating real;
+ALTER TABLE events add column if not exists rating real;
 
 DROP TRIGGER IF EXISTS eventratings_refresh_organizer_rating ON EventRatings;
 
