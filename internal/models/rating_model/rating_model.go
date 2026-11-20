@@ -6,9 +6,10 @@ import (
 
 // Rating is a user's score for an event.
 type Rating struct {
-	UserID  string `json:"user-id"`
-	EventID int    `json:"event-id"`
-	Score   int    `json:"score"` // 1..5 (R9)
+	UserID  	string 		`json:"user-id"`
+	EventID 	int    		`json:"event-id"`
+	RatingDate	time.Time	`json:"rating-date"`
+	Score   	int    		`json:"score"` // 1..5 (R9)
 }
 
 type UserRating struct {

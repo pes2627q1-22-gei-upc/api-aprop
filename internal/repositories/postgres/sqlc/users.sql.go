@@ -461,15 +461,16 @@ func (q *Queries) ListUserCreatedEvents(ctx context.Context, creator pgtype.UUID
 }
 
 const listUserReceivedRatings = `-- name: ListUserReceivedRatings :many
-SELECT er.Event AS event_id, e.Title AS event_title, er.Rating, er.RatingDate
-FROM EventRatings er
-JOIN UnofficialEvents ue ON ue.ID = er.Event
-JOIN Events e ON e.ID = er.Event
-WHERE ue.Creator = $1::uuid
-ORDER BY er.RatingDate DESC, er.Event DESC
+SELECT ur.rater, ur.rated, e.ID as event_id, e.title as event_title, ur.Rating, ur.RatingDate
+FROM UserRatings ur
+JOIN Events e ON e.ID = ur.Event
+WHERE ur.rated = $1::uuid
+ORDER BY ur.RatingDate DESC, ur.Event DESC
 `
 
 type ListUserReceivedRatingsRow struct {
+	Rater      pgtype.UUID
+	Rated      pgtype.UUID
 	EventID    int32
 	EventTitle string
 	Rating     int32
@@ -486,6 +487,8 @@ func (q *Queries) ListUserReceivedRatings(ctx context.Context, creator pgtype.UU
 	for rows.Next() {
 		var i ListUserReceivedRatingsRow
 		if err := rows.Scan(
+			&i.Rater,
+			&i.Rated,
 			&i.EventID,
 			&i.EventTitle,
 			&i.Rating,
