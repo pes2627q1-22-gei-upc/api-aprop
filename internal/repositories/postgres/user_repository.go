@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -218,6 +219,16 @@ func isInvalidInterval(err error) bool {
 }
 
 func (r *UserRepository) UpdateSettings(ctx context.Context, settings user_model.Settings) error {
+	nottypes, err := r.queries.GetNotificationTypes(ctx)
+	if err != nil {
+		return err
+	}
+	for _, v := range settings.AllowedNotifTypes {
+		if !slices.ContainsFunc(nottypes, func(i1 sqlc.Notificationtype) bool { return i1.ID == int32(v) }) {
+			return user_repository.ErrInvalidNotificationType
+		}
+	}
+
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return err

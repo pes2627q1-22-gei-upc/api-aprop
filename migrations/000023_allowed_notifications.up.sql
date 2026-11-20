@@ -3,3 +3,5 @@ create table allowednotifications (
     NotificationType integer references Notificationtypes(ID) ON DELETE CASCADE,
     primary key (Settings, NotificationType)
 );
+
+insert into allowednotifications (settings, notificationtype) select s.id, nt.id from settings, notificationtypes where not exists (select * from allowednotifications an where an.settings=s.id);

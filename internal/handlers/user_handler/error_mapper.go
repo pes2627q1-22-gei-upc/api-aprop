@@ -35,6 +35,8 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		response.WriteError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, user_service.ErrInvalidInterval):
 		response.WriteError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, user_service.ErrInvalidNotificationType):
+		response.WriteError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, user_service.ErrAuthProvider):
 		log.Printf("delete account: %v", err)
 		response.WriteError(w, http.StatusBadGateway, "could not delete the authentication account")

@@ -328,6 +328,8 @@ func (s *userService) UpdateProfile(ctx context.Context, requesterIdentifier str
 		err := s.userRepo.UpdateSettings(ctx, settings)
 		if errors.Is(err, user_repository.ErrInvalidInterval) {
 			return user_model.UserProfile{}, ErrInvalidInterval
+		} else if errors.Is(err, user_repository.ErrInvalidNotificationType) {
+			return user_model.UserProfile{}, ErrInvalidNotificationType
 		} else if err != nil {
 			return user_model.UserProfile{}, err
 		}
