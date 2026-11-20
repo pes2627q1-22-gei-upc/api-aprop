@@ -15,6 +15,8 @@ var (
 	ErrRequestNotFound      = errors.New("request not found")
 	ErrNotFriends           = errors.New("requester and target are not friends")
 	ErrSameUser             = errors.New("requester and target cannot be the same")
+	ErrAlreadyBlocked       = errors.New("requester has already blocked the target user")
+	ErrNotBlocked           = errors.New("requester has not blocked the target user")
 	// ErrAuthProvider means Firebase Auth could not delete the account, so nothing was deleted.
 	ErrAuthProvider = errors.New("could not delete the authentication account")
 )

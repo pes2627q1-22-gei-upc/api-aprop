@@ -40,6 +40,7 @@ type UserProfile struct {
 	PlansCount          int         `json:"plans-count"`
 	CompletedPlansCount int         `json:"completed-plans-count"`
 	ShowPlans           bool        `json:"show-plans"`
+	Language            string      `json:"language,omitempty"` // only in the own profile
 	IsFriend            *bool       `json:"is-friend,omitempty"`
 	PlansVisible        bool        `json:"plans-visible"`
 }
@@ -70,6 +71,7 @@ type Settings struct {
 	ID                 int    `json:"id"`
 	ShowPlans          bool   `json:"show-plans"`
 	NotificationBefore string `json:"notification-before"`
+	Language           string `json:"language"` // ca, es or en
 }
 
 // UserSummary is a user in a list, like the results of GET /users?q=.
@@ -78,6 +80,12 @@ type UserSummary struct {
 	Username       string      `json:"username"`
 	Name           string      `json:"name"`
 	ProfilePicture string      `json:"profile-picture"`
+}
+
+// BlockedUser is a user in the list of GET /users/me/blocked, with the date it was blocked.
+type BlockedUser struct {
+	UserSummary
+	DateBlocked time.Time `json:"date-blocked"`
 }
 
 // UserSearchResult is a page of GET /users?q=. Total counts every match, not only the ones in the page.

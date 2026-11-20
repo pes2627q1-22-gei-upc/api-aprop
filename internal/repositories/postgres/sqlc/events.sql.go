@@ -645,6 +645,19 @@ func (q *Queries) GetPopularEvents(ctx context.Context, arg GetPopularEventsPara
 	return items, nil
 }
 
+const cancelUnofficialEvent = `-- name: CancelUnofficialEvent :execrows
+UPDATE UnofficialEvents SET State = 'Cancelled' WHERE ID = $1 AND State = 'Active'
+`
+
+// Marks the unofficial event as Cancelled; no rows if it does not exist or is no longer Active.
+func (q *Queries) CancelUnofficialEvent(ctx context.Context, id int32) (int64, error) {
+	result, err := q.db.Exec(ctx, cancelUnofficialEvent, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getUnofficialEventState = `-- name: GetUnofficialEventState :one
 SELECT State::text AS state FROM UnofficialEvents WHERE ID = $1
 `

@@ -6,10 +6,12 @@ import (
 	"strconv"
 	"time"
 
+	"api-aprop/internal/handlers/language"
 	"api-aprop/internal/handlers/requester"
 	"api-aprop/internal/handlers/response"
 	"api-aprop/internal/models/signup_model"
 	"api-aprop/internal/services/signup_service"
+	"api-aprop/internal/services/translation_service"
 )
 
 const dateLayout = "2006-01-02"
@@ -17,10 +19,17 @@ const dateLayout = "2006-01-02"
 type SignUpHandler struct {
 	signUpService signup_service.Service
 	resolver      requester.Resolver
+	translator    translation_service.Service // optional: without it the events are always in the original language
 }
 
 func NewSignUpHandler(signUpService signup_service.Service, resolver requester.Resolver) *SignUpHandler {
 	return &SignUpHandler{signUpService: signUpService, resolver: resolver}
+}
+
+// WithTranslator sets the service that translates the events of GET /users/{userId}/events (US #28).
+func (h *SignUpHandler) WithTranslator(t translation_service.Service) *SignUpHandler {
+	h.translator = t
+	return h
 }
 
 // RegisterRoutes registers the sign up endpoints.
@@ -141,6 +150,10 @@ func (h *SignUpHandler) GetEnrollmentStatus(w http.ResponseWriter, r *http.Reque
 // ListUserEvents handles GET /users/{userId}/events?from=YYYY-MM-DD&to=YYYY-MM-DD
 // TODO(DP-011): there is no authorization check that the caller is the requested user.
 func (h *SignUpHandler) ListUserEvents(w http.ResponseWriter, r *http.Request) {
+	lang, ok := language.Resolve(w, r, h.translator, h.resolver)
+	if !ok {
+		return
+	}
 	from, ok := parseDateParam(w, r, "from")
 	if !ok {
 		return
@@ -154,6 +167,9 @@ func (h *SignUpHandler) ListUserEvents(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeServiceError(w, err)
 		return
+	}
+	if h.translator != nil {
+		events = h.translator.TranslateEvents(r.Context(), lang, events)
 	}
 	response.WriteJSON(w, http.StatusOK, events)
 }

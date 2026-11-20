@@ -16,6 +16,7 @@ var (
 	ErrUsernameTaken    = errors.New("username already taken")
 	ErrInvalidUserID    = errors.New("invalid user id")
 	ErrCannotFriendSelf = errors.New("cannot check friendship with self")
+	ErrAlreadyBlocked   = errors.New("user already blocked")
 )
 
 type Repository interface {
@@ -47,4 +48,11 @@ type Repository interface {
 	// SearchUsers returns the active users whose username or name contains query, except the requester and the
 	// users that block or are blocked by the requester, and the total number of matches.
 	SearchUsers(ctx context.Context, requester pgtype.UUID, query string, limit, offset int) ([]user_model.UserSummary, int64, error)
+	// BlockUser blocks the user and, in the same transaction, removes their friendship and rejects the Pending or
+	// Accepted friend requests between them (R3). It returns the date of the block, or ErrAlreadyBlocked.
+	BlockUser(ctx context.Context, blocker, blocked pgtype.UUID) (time.Time, error)
+	// UnblockUser removes the block; false if the user was not blocked. The friendship is not restored.
+	UnblockUser(ctx context.Context, blocker, blocked pgtype.UUID) (bool, error)
+	// ListBlockedUsers returns the users blocked by the blocker, the most recent first.
+	ListBlockedUsers(ctx context.Context, blocker pgtype.UUID) ([]user_model.BlockedUser, error)
 }

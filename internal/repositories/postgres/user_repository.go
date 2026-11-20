@@ -197,6 +197,19 @@ func (r *UserRepository) UpdateProfile(ctx context.Context, id pgtype.UUID, name
 }
 
 func (r *UserRepository) UpdateSettings(ctx context.Context, settings user_model.Settings) error {
+	// TODO(DP-043): with a language, a hand-written query updates everything in one statement (the generated Setting model does not have Language).
+	if settings.Language != "" {
+		err := r.queries.UpdateSettings(ctx, sqlc.UpdateSettingsParams{
+			ID:                 int32(settings.ID),
+			ShowPlans:          settings.ShowPlans,
+			NotificationBefore: settings.NotificationBefore,
+			Language:           settings.Language,
+		})
+		if err != nil {
+			return fmt.Errorf("update settings %d: %w", settings.ID, err)
+		}
+		return nil
+	}
 	_, err := r.queries.UpdateUserSettings(ctx, sqlc.UpdateUserSettingsParams{
 		ID:                 int32(settings.ID),
 		ShowPlans:          settings.ShowPlans,
@@ -376,7 +389,12 @@ func (r *UserRepository) GetSettings(ctx context.Context, id int) (user_model.Se
 		return user_model.Settings{}, err
 	}
 
-	return user_model.Settings{ID: int(row.ID), NotificationBefore: intervalToString(row.Notificationbefore), ShowPlans: row.Showplans}, nil
+	language, err := r.queries.GetSettingsLanguage(ctx, int32(id))
+	if err != nil {
+		return user_model.Settings{}, err
+	}
+
+	return user_model.Settings{ID: int(row.ID), NotificationBefore: intervalToString(row.Notificationbefore), ShowPlans: row.Showplans, Language: language}, nil
 }
 
 func toTimestamp(t time.Time) pgtype.Timestamp {
