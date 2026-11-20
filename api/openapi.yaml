@@ -1075,7 +1075,9 @@ paths:
       tags: [users]
       operationId: uploadAvatar
       summary: Puja la foto de perfil
-      description: Es desa a S3 i actualitza `profile-picture`. Màxim 5 MB.
+      description: |
+        Es desa al bucket privat `avatars` de Supabase Storage (JPEG, PNG o WebP, màxim 5 MB), actualitza
+        `profile-picture` i esborra la foto anterior. La resposta conté la foto com a URL signada que caduca (#247).
       requestBody:
         required: true
         content:
@@ -1113,6 +1115,22 @@ paths:
           $ref: '#/components/responses/UserNotFound'
         '500':
           $ref: '#/components/responses/InternalError'
+        '502':
+          description: Supabase Storage ha respost amb un error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: could not store the profile picture
+        '503':
+          description: L'emmagatzematge de fotos no està configurat (`SUPABASE_URL`, `SUPABASE_SECRET_KEY`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: avatar storage is not available
 
   /users/{id}:
     get:
@@ -2441,7 +2459,9 @@ components:
           description: Només al perfil propi
         profile-picture:
           type: string
-          description: URL de la foto (una generada si no n'hi ha)
+          description: |
+            URL de la foto (una generada si no n'hi ha). Les fotos pujades són una URL signada que caduca en 1 hora;
+            les URL externes es retornen tal qual (#247).
         biography:
           type: string
         date-registered:
@@ -2496,6 +2516,9 @@ components:
           maxLength: 500
         profile-picture:
           type: string
+          maxLength: 2048
+          description: |
+            Buit (sense foto) o una URL `http(s)` externa. Per pujar una foto, `POST /users/me/avatar` (#247).
         show-plans:
           type: boolean
         language:

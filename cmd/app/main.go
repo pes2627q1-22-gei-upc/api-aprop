@@ -210,7 +210,14 @@ func main() {
 		Region:    os.Getenv("S3_REGION"),
 		Endpoint:  os.Getenv("S3_ENDPOINT"),
 		PublicURL: os.Getenv("S3_PUBLIC_URL"),
+		// #247: profile pictures in a private bucket, served with signed URLs
+		SupabaseURL:  os.Getenv("SUPABASE_URL"),
+		SecretKey:    os.Getenv("SUPABASE_SECRET_KEY"),
+		AvatarBucket: os.Getenv("S3_AVATAR_BUCKET"),
 	})
+	if os.Getenv("SUPABASE_URL") == "" || os.Getenv("SUPABASE_SECRET_KEY") == "" {
+		slog.Warn("SUPABASE_URL or SUPABASE_SECRET_KEY not set; avatar uploads answer 503 and stored avatars are hidden")
+	}
 
 	// CORS: it wraps the auth middleware (see router.NewRouter) because browsers send the preflight without the token.
 	// Requests without an Origin header (mobile app, curl) are not affected.
@@ -266,8 +273,8 @@ func main() {
 	).WithPreferences(preferenceRepository)
 	signUpService := signup_service.NewSignUpService(signUpRepository, eventRepository, notificationRepository)
 	ratingService := rating_service.NewRatingService(ratingRepository, eventRepository)
-	messageService := message_service.NewMessageService(messageRepository, eventRepository)
-	authService := auth_service.NewAuthService(authRepository)
+	messageService := message_service.NewMessageService(messageRepository, eventRepository).WithAvatarSigner(s3Client)
+	authService := auth_service.NewAuthService(authRepository).WithAvatarSigner(s3Client)
 	userService := user_service.NewUserService(userRepository, notificationRepository, s3Client, accountDeleter)
 	notificationService := notification_service.NewNotificationService(notificationRepository)
 	preferenceService := preference_service.NewPreferenceService(preferenceRepository)

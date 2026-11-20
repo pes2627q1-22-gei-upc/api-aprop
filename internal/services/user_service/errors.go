@@ -19,4 +19,8 @@ var (
 	ErrNotBlocked           = errors.New("requester has not blocked the target user")
 	// ErrAuthProvider means Firebase Auth could not delete the account, so nothing was deleted.
 	ErrAuthProvider = errors.New("could not delete the authentication account")
+	// ErrStorageUnavailable means the avatar storage is not configured.
+	ErrStorageUnavailable = errors.New("avatar storage is not available")
+	// ErrStorageFailed means the avatar storage answered with an error.
+	ErrStorageFailed = errors.New("could not store the profile picture")
 )

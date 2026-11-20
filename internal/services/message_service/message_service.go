@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"strings"
 	"unicode/utf8"
 
+	"api-aprop/internal/clients/s3_client"
 	"api-aprop/internal/models/message_model"
 	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/repositories/message_repository"
@@ -43,10 +45,28 @@ type EventChecker interface {
 type MessageService struct {
 	messages message_repository.Repository
 	events   EventChecker
+	avatars  s3_client.AvatarSigner
 }
 
 func NewMessageService(messages message_repository.Repository, events EventChecker) *MessageService {
 	return &MessageService{messages: messages, events: events}
+}
+
+// WithAvatarSigner signs the avatars of the authors (#247). Without it, only external profile pictures are returned.
+func (s *MessageService) WithAvatarSigner(avatars s3_client.AvatarSigner) *MessageService {
+	s.avatars = avatars
+	return s
+}
+
+// resolveAvatars replaces the stored profile pictures of the authors with URLs that clients can load.
+func (s *MessageService) resolveAvatars(ctx context.Context, messages []message_model.Message) {
+	fields := make([]s3_client.AvatarField, len(messages))
+	for i := range messages {
+		fields[i] = s3_client.AvatarField{UserID: messages[i].UserID, Picture: &messages[i].ProfilePicture}
+	}
+	if err := s3_client.ResolveAvatars(ctx, s.avatars, fields); err != nil {
+		slog.Warn("could not sign the profile pictures of a chat", "error", err)
+	}
 }
 
 // ListMessages returns a page of the event chat, newest first. Only users signed up to the event can read it.
@@ -84,6 +104,7 @@ func (s *MessageService) ListMessages(ctx context.Context, userID string, eventI
 	if messages != nil {
 		page.Messages = messages
 	}
+	s.resolveAvatars(ctx, page.Messages)
 	return page, nil
 }
 
@@ -114,7 +135,9 @@ func (s *MessageService) SendMessage(ctx context.Context, userID string, eventID
 	case err != nil:
 		return message_model.Message{}, err
 	}
-	return message, nil
+	sent := []message_model.Message{message}
+	s.resolveAvatars(ctx, sent)
+	return sent[0], nil
 }
 
 // checkSignUp returns ErrEventNotFound if the event does not exist and ErrNotSignedUp if the user has no sign up (R11).
