@@ -16,6 +16,7 @@ type UpdateProfileInput struct {
 	ProfilePicture *string `json:"profile-picture"`
 	ShowPlans      *bool   `json:"show-plans"`
 	Language       *string `json:"language"` // ca, es or en
+	PushEnabled    *bool   `json:"push-enabled"`
 }
 
 type Service interface {

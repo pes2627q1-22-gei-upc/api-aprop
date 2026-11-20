@@ -209,6 +209,8 @@ func (s *userService) GetUserProfile(ctx context.Context, targetIdentifier strin
 	if isSelf {
 		profile.Email = target.Email
 		profile.Language = settings.Language
+		pushEnabled := settings.PushEnabled
+		profile.PushEnabled = &pushEnabled
 	}
 
 	return profile, nil
@@ -282,12 +284,15 @@ func (s *userService) UpdateProfile(ctx context.Context, requesterIdentifier str
 		input.Biography = &trimmedBio
 	}
 
-	if input.ShowPlans != nil || input.Language != nil {
+	if input.ShowPlans != nil || input.Language != nil || input.PushEnabled != nil {
 		if input.ShowPlans != nil {
 			settings.ShowPlans = *(input.ShowPlans)
 		}
 		if input.Language != nil {
 			settings.Language = *(input.Language)
+		}
+		if input.PushEnabled != nil {
+			settings.PushEnabled = *(input.PushEnabled)
 		}
 		if err := s.userRepo.UpdateSettings(ctx, settings); err != nil {
 			return user_model.UserProfile{}, err
