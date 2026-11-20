@@ -1,4 +1,4 @@
-// Package translation_service translates the title and description of events into the language of the user.
+// Package translation_service translates the free-text fields of events into the language of the user.
 package translation_service
 
 import (

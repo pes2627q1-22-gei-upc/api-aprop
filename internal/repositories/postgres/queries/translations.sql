@@ -1,14 +1,32 @@
 -- name: ListEventTranslations :many
--- Cached translations of the events into lang. SourceHash identifies the Catalan text that was translated.
-SELECT Event, Title, Description, SourceHash
+-- Cached translations of the events into lang. SourceHash identifies the Catalan texts that were translated.
+SELECT Event, Title, Subtitle, Description, Schedule, Tickets, URLNames, SourceHash
 FROM EventTranslations
 WHERE Lang = sqlc.arg(lang)::varchar AND Event = ANY(sqlc.arg(event_ids)::integer[]);
 
 -- name: UpsertEventTranslation :exec
-INSERT INTO EventTranslations (Event, Lang, Title, Description, SourceHash, UpdatedAt)
-VALUES (sqlc.arg(event_id)::integer, sqlc.arg(lang)::varchar, sqlc.arg(title)::varchar, sqlc.arg(description)::varchar, sqlc.arg(source_hash)::varchar, now())
+INSERT INTO EventTranslations (Event, Lang, Title, Subtitle, Description, Schedule, Tickets, URLNames, SourceHash, UpdatedAt)
+VALUES (
+    sqlc.arg(event_id)::integer,
+    sqlc.arg(lang)::varchar,
+    sqlc.arg(title)::varchar,
+    sqlc.arg(subtitle)::varchar,
+    sqlc.arg(description)::varchar,
+    sqlc.arg(schedule)::varchar,
+    sqlc.arg(tickets)::varchar,
+    sqlc.arg(url_names)::varchar,
+    sqlc.arg(source_hash)::varchar,
+    now()
+)
 ON CONFLICT (Event, Lang) DO UPDATE
-SET Title = EXCLUDED.Title, Description = EXCLUDED.Description, SourceHash = EXCLUDED.SourceHash, UpdatedAt = EXCLUDED.UpdatedAt;
+SET Title = EXCLUDED.Title,
+    Subtitle = EXCLUDED.Subtitle,
+    Description = EXCLUDED.Description,
+    Schedule = EXCLUDED.Schedule,
+    Tickets = EXCLUDED.Tickets,
+    URLNames = EXCLUDED.URLNames,
+    SourceHash = EXCLUDED.SourceHash,
+    UpdatedAt = EXCLUDED.UpdatedAt;
 
 -- name: GetUserLanguage :one
 -- Language chosen by the user in its settings.

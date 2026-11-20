@@ -1597,7 +1597,7 @@ components:
       in: query
       required: false
       description: |
-        Idioma dels textos de l'esdeveniment (`title` i `description`): `ca`, `es` o `en`. Si no s'envia, s'usa
+        Idioma dels textos de l'esdeveniment (`title`, `subtitle`, `description`, `schedule`, `tickets` i `url-names`): `ca`, `es` o `en`. Si no s'envia, s'usa
         l'idioma de la configuració de l'usuari (`language`) i, sense usuari, l'original (`ca`). Un valor invàlid
         respon `400`. Les traduccions són automàtiques i es guarden a la BD; si el servei de
         traducció no està disponible, es retorna el text original sense error.

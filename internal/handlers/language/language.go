@@ -46,6 +46,9 @@ func Resolve(w http.ResponseWriter, r *http.Request, translator translation_serv
 // quietUserID is requester.ID without writing error responses: it returns "" when the requester is unknown.
 func quietUserID(r *http.Request, resolver requester.Resolver) string {
 	if u, ok := auth_middleware.UserFromContext(r.Context()); ok && u.UID != "" {
+		if resolver == nil {
+			return ""
+		}
 		id, err := resolver.ResolveUserID(r.Context(), u.UID)
 		if err != nil {
 			return ""

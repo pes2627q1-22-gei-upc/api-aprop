@@ -53,7 +53,9 @@ func (f *fakeTranslator) TranslateMapEvents(_ context.Context, lang string, even
 	out := make([]event_model.MapEvent, len(events))
 	for i, e := range events {
 		out[i] = e
-		out[i].Title = "[" + lang + "] " + e.Title
+		if lang != "ca" {
+			out[i].Title = "[" + lang + "] " + e.Title
+		}
 	}
 	return out
 }

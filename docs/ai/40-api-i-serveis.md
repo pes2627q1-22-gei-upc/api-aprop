@@ -66,11 +66,12 @@ amb el camp `language` de `GET /users/me` (només al perfil propi) i `PATCH /use
 
 Els endpoints que retornen esdeveniments (`GET /events`, `/events/{id}`, `/events/search`, `/events/map`, `/event/map`, `/events/recommended`,
 `/events/popular`, `/users/{id}/created-events`, `/users/{userId}/events`) accepten `?lang=ca|es|en`. Resolució: `?lang` → idioma de
-l'usuari autenticat → original. `lang` invàlid → `400`. Es tradueixen `title` i `description` (no `subtitle`, `schedule`, etc.).
+l'usuari autenticat → original. `lang` invàlid → `400`. Es tradueixen `title`, `subtitle`, `description`, `schedule`, `tickets` i
+`url-names` (cada nom d'enllaç separat per comes); `place`, `municipality`, `address`, etc. queden sense traduir.
 El xatbot (`assistant_handler`) **no** tradueix (DP-043).
 
 Traducció: `translate_client` (`POST {TRANSLATOR_URL}/translate`, `TRANSLATOR_API_KEY` opcional; desplegat sobre Cloudflare Workers AI) →
-`translation_service`, que cacheja a `EventTranslations` (clau `(Event, Lang)`, `SourceHash` = SHA-256 del títol i la descripció
+`translation_service`, que cacheja a `EventTranslations` (clau `(Event, Lang)`, `SourceHash` = SHA-256 dels sis camps
 originals: si l'esdeveniment canvia, es torna a traduir). Sense `TRANSLATOR_URL`, o si el servei falla, es retorna el text original
 (i es registra el motiu); mai no falla la petició. Detalls i supòsits a DP-043.
 

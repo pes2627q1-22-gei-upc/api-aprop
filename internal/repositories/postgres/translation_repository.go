@@ -33,14 +33,30 @@ func (r *TranslationRepository) GetTranslations(ctx context.Context, lang string
 	}
 	out := make(map[int]translation_repository.Translation, len(rows))
 	for _, row := range rows {
-		out[int(row.Event)] = translation_repository.Translation{Title: row.Title, Description: row.Description, SourceHash: row.Sourcehash}
+		out[int(row.Event)] = translation_repository.Translation{
+			Title:       row.Title,
+			Subtitle:    row.Subtitle,
+			Description: row.Description,
+			Schedule:    row.Schedule,
+			Tickets:     row.Tickets,
+			URLNames:    row.Urlnames,
+			SourceHash:  row.Sourcehash,
+		}
 	}
 	return out, nil
 }
 
 func (r *TranslationRepository) SaveTranslation(ctx context.Context, lang string, eventID int, t translation_repository.Translation) error {
 	err := r.queries.UpsertEventTranslation(ctx, sqlc.UpsertEventTranslationParams{
-		EventID: int32(eventID), Lang: lang, Title: t.Title, Description: t.Description, SourceHash: t.SourceHash,
+		EventID:     int32(eventID),
+		Lang:        lang,
+		Title:       t.Title,
+		Subtitle:    t.Subtitle,
+		Description: t.Description,
+		Schedule:    t.Schedule,
+		Tickets:     t.Tickets,
+		UrlNames:    t.URLNames,
+		SourceHash:  t.SourceHash,
 	})
 	if err != nil {
 		return fmt.Errorf("save translation of event %d into %s: %w", eventID, lang, err)

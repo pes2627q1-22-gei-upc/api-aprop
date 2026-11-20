@@ -3,11 +3,15 @@ package translation_repository
 
 import "context"
 
-// Translation is the cached translation of the title and description of an event.
-// SourceHash identifies the original (Catalan) text that was translated.
+// Translation is the cached translation of the free-text fields of an event.
+// SourceHash identifies the original (Catalan) texts that were translated.
 type Translation struct {
 	Title       string
+	Subtitle    string
 	Description string
+	Schedule    string
+	Tickets     string
+	URLNames    string
 	SourceHash  string
 }
 

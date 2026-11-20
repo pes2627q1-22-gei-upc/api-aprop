@@ -38,7 +38,7 @@ func (q *Queries) GetUserLanguage(ctx context.Context, id pgtype.UUID) (string, 
 }
 
 const listEventTranslations = `-- name: ListEventTranslations :many
-SELECT Event, Title, Description, SourceHash
+SELECT Event, Title, Subtitle, Description, Schedule, Tickets, URLNames, SourceHash
 FROM EventTranslations
 WHERE Lang = $1::varchar AND Event = ANY($2::integer[])
 `
@@ -51,11 +51,15 @@ type ListEventTranslationsParams struct {
 type ListEventTranslationsRow struct {
 	Event       int32
 	Title       string
+	Subtitle    string
 	Description string
+	Schedule    string
+	Tickets     string
+	Urlnames    string
 	Sourcehash  string
 }
 
-// Cached translations of the events into lang. SourceHash identifies the Catalan text that was translated.
+// Cached translations of the events into lang. SourceHash identifies the Catalan texts that were translated.
 func (q *Queries) ListEventTranslations(ctx context.Context, arg ListEventTranslationsParams) ([]ListEventTranslationsRow, error) {
 	rows, err := q.db.Query(ctx, listEventTranslations, arg.Lang, arg.EventIds)
 	if err != nil {
@@ -68,7 +72,11 @@ func (q *Queries) ListEventTranslations(ctx context.Context, arg ListEventTransl
 		if err := rows.Scan(
 			&i.Event,
 			&i.Title,
+			&i.Subtitle,
 			&i.Description,
+			&i.Schedule,
+			&i.Tickets,
+			&i.Urlnames,
 			&i.Sourcehash,
 		); err != nil {
 			return nil, err
@@ -82,17 +90,28 @@ func (q *Queries) ListEventTranslations(ctx context.Context, arg ListEventTransl
 }
 
 const upsertEventTranslation = `-- name: UpsertEventTranslation :exec
-INSERT INTO EventTranslations (Event, Lang, Title, Description, SourceHash, UpdatedAt)
-VALUES ($1::integer, $2::varchar, $3::varchar, $4::varchar, $5::varchar, now())
+INSERT INTO EventTranslations (Event, Lang, Title, Subtitle, Description, Schedule, Tickets, URLNames, SourceHash, UpdatedAt)
+VALUES ($1::integer, $2::varchar, $3::varchar, $4::varchar, $5::varchar, $6::varchar, $7::varchar, $8::varchar, $9::varchar, now())
 ON CONFLICT (Event, Lang) DO UPDATE
-SET Title = EXCLUDED.Title, Description = EXCLUDED.Description, SourceHash = EXCLUDED.SourceHash, UpdatedAt = EXCLUDED.UpdatedAt
+SET Title = EXCLUDED.Title,
+    Subtitle = EXCLUDED.Subtitle,
+    Description = EXCLUDED.Description,
+    Schedule = EXCLUDED.Schedule,
+    Tickets = EXCLUDED.Tickets,
+    URLNames = EXCLUDED.URLNames,
+    SourceHash = EXCLUDED.SourceHash,
+    UpdatedAt = EXCLUDED.UpdatedAt
 `
 
 type UpsertEventTranslationParams struct {
 	EventID     int32
 	Lang        string
 	Title       string
+	Subtitle    string
 	Description string
+	Schedule    string
+	Tickets     string
+	UrlNames    string
 	SourceHash  string
 }
 
@@ -101,7 +120,11 @@ func (q *Queries) UpsertEventTranslation(ctx context.Context, arg UpsertEventTra
 		arg.EventID,
 		arg.Lang,
 		arg.Title,
+		arg.Subtitle,
 		arg.Description,
+		arg.Schedule,
+		arg.Tickets,
+		arg.UrlNames,
 		arg.SourceHash,
 	)
 	return err
