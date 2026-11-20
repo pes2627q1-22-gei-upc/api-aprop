@@ -40,20 +40,12 @@ JOIN Events e ON e.ID = s.Event
 WHERE s.UserID = sqlc.arg(user_id)::uuid
   AND (e.EndDate < NOW() OR (e.EndDate IS NULL AND e.StartDate < NOW()));
 
--- name: GetUserReliability :one
--- Mean of the ratings of every NoOficial event created by the user; count = 0 means "no ratings".
-SELECT COALESCE(AVG(er.Rating), 0)::real AS reliability, COUNT(er.Rating)::bigint AS ratings_count
-FROM EventRatings er
-JOIN UnofficialEvents ue ON ue.ID = er.Event
-WHERE ue.Creator = sqlc.arg(creator)::uuid;
-
 -- name: ListUserReceivedRatings :many
-SELECT er.Event AS event_id, e.Title AS event_title, er.Rating, er.RatingDate
-FROM EventRatings er
-JOIN UnofficialEvents ue ON ue.ID = er.Event
-JOIN Events e ON e.ID = er.Event
-WHERE ue.Creator = sqlc.arg(creator)::uuid
-ORDER BY er.RatingDate DESC, er.Event DESC;
+SELECT ur.rater, ur.rated, e.ID as event_id, e.title as event_title, ur.Rating, ur.RatingDate
+FROM UserRatings ur
+JOIN Events e ON e.ID = ur.Event
+WHERE ur.rated = sqlc.arg(creator)::uuid
+ORDER BY ur.RatingDate DESC, ur.Event DESC;
 
 -- name: ListUserCreatedEvents :many
 SELECT e.id, e.title, e.subtitle, e.description, e.schedule, e.tickets, e.url, e.ticketsurl,

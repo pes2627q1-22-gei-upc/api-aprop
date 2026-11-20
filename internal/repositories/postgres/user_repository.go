@@ -110,17 +110,6 @@ func (r *UserRepository) CountCompletedPlans(ctx context.Context, uid pgtype.UUI
 	return int(count), nil
 }
 
-func (r *UserRepository) GetReliability(ctx context.Context, uid pgtype.UUID) (*float32, error) {
-	rating, err := r.queries.GetUserReliability(ctx, uid)
-	if errors.Is(err, pgx.ErrNoRows) || err == nil {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("get reliability for %s: %w", uid, err)
-	}
-	return &rating.Reliability, nil
-}
-
 func (r *UserRepository) ListReceivedRatings(ctx context.Context, uid pgtype.UUID) ([]user_model.ReceivedRating, error) {
 	rows, err := r.queries.ListUserReceivedRatings(ctx, uid)
 	if err != nil {
