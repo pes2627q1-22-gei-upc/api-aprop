@@ -203,26 +203,28 @@ func (h *RatingHandler) DeleteMine(w http.ResponseWriter, r *http.Request) {
 func writeServiceError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, rating_service.ErrEventNotFound):
-		response.WriteError(w, http.StatusNotFound, err.Error())
+		response.WriteError(w, http.StatusNotFound, "event not found")
 	case errors.Is(err, rating_service.ErrRatingNotFound):
-		response.WriteError(w, http.StatusNotFound, err.Error())
+		response.WriteError(w, http.StatusNotFound, "rating not found")
 	case errors.Is(err, rating_service.ErrNotAttended):
 		// TODO(DP-033): 403 chosen for R10 (alternatives 409/422); no frontend contract yet.
-		response.WriteError(w, http.StatusForbidden, err.Error())
+		response.WriteError(w, http.StatusForbidden, "user has not attended the event")
 	case errors.Is(err, rating_service.ErrAlreadyRated):
-		response.WriteError(w, http.StatusConflict, err.Error())
+		response.WriteError(w, http.StatusConflict, "user has already rated the event")
 	case errors.Is(err, rating_service.ErrInvalidScore):
-		response.WriteError(w, http.StatusBadRequest, err.Error())
+		response.WriteError(w, http.StatusBadRequest, "score must be between 1 and 5")
 	case errors.Is(err, rating_service.ErrInvalidUserID):
 		response.WriteError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, rating_service.ErrInvalidEventID):
-		response.WriteError(w, http.StatusBadRequest, err.Error())
+		response.WriteError(w, http.StatusBadRequest, "invalid event id")
 	case errors.Is(err, rating_service.ErrCreatorNotFound):
-		response.WriteError(w, http.StatusNotFound, err.Error())
+		response.WriteError(w, http.StatusNotFound, "creator not found")
 	case errors.Is(err, rating_service.ErrUserAlreadyRated):
-		response.WriteError(w, http.StatusConflict, err.Error())
+		response.WriteError(w, http.StatusConflict, "user has already rated the event's creator")
 	case errors.Is(err, rating_service.ErrRateOwnEvent):
-		response.WriteError(w, http.StatusBadRequest, err.Error())
+		response.WriteError(w, http.StatusBadRequest, "cannot rate own event")
+	case errors.Is(err, rating_service.ErrRateSelf):
+		response.WriteError(w, http.StatusBadRequest, "cannot rate yourself")
 	default:
 		log.Printf("internal error: %v", err)
 		response.WriteError(w, http.StatusInternalServerError, "internal server error")

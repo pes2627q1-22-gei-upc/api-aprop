@@ -85,7 +85,7 @@ func (s *RatingService) Rate(ctx context.Context, userID string, eventID, score 
 	}
 	e, err := s.events.Get(eventID)
 	if err != nil {
-		return rating_model.Rating{}, nil
+		return rating_model.Rating{}, err
 	}
 	if UUIDToString(e.Creator) == userID {
 		return rating_model.Rating{}, ErrRateOwnEvent
@@ -146,6 +146,9 @@ func (s *RatingService) RateUser(ctx context.Context, userID string, eventID int
 	creator := event.Creator
 	if !creator.Valid {
 		return rating_model.UserRating{}, ErrCreatorNotFound
+	}
+	if creator == rater.ID {
+		return rating_model.UserRating{}, ErrRateSelf
 	}
 
 	created, err := s.ratings.CreateUserRating(ctx, rater.ID, creator, eventID, score)
