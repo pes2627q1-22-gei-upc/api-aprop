@@ -151,9 +151,7 @@ func (h *RatingHandler) DeleteUserRating(w http.ResponseWriter, r *http.Request)
 		writeServiceError(w, err)
 		return
 	}
-	response.WriteJSON(w, http.StatusOK, struct {
-		Message string `json:"message"`
-	}{Message: "rating deleted successfully"})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // UpdateMine handles PUT /events/{id}/ratings/me with body {"score": 1..5}.
@@ -223,6 +221,8 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		response.WriteError(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, rating_service.ErrUserAlreadyRated):
 		response.WriteError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, rating_service.ErrRateOwnEvent):
+		response.WriteError(w, http.StatusBadRequest, err.Error())
 	default:
 		log.Printf("internal error: %v", err)
 		response.WriteError(w, http.StatusInternalServerError, "internal server error")

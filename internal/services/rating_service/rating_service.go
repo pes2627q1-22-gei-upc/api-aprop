@@ -83,6 +83,14 @@ func (s *RatingService) Rate(ctx context.Context, userID string, eventID, score 
 	if !attended {
 		return rating_model.Rating{}, fmt.Errorf("rate event %d: %w", eventID, ErrNotAttended)
 	}
+	e, err := s.events.Get(eventID)
+	if err != nil {
+		return rating_model.Rating{}, nil
+	}
+	if UUIDToString(e.Creator) == userID {
+		return rating_model.Rating{}, ErrRateOwnEvent
+	}
+
 	created, err := s.ratings.Create(ctx, userID, eventID, score)
 	if errors.Is(err, rating_repository.ErrEventNotFound) {
 		return rating_model.Rating{}, fmt.Errorf("%w: %w", ErrEventNotFound, err)

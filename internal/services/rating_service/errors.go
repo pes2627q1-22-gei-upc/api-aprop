@@ -15,4 +15,5 @@ var (
 	ErrUserAlreadyRated = errors.New("user has already rated the event's creator")
 	ErrRatingNotFound   = errors.New("rating not found")
 	ErrCreatorNotFound  = errors.New("creator not found")
+	ErrRateOwnEvent     = errors.New("cannot rate own event")
 )
