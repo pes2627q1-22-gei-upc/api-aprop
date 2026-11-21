@@ -12,12 +12,16 @@ import (
 )
 
 const createCancellationNotifications = `-- name: CreateCancellationNotifications :execrows
+WITH nottype as (SELECT id FROM notificationtypes WHERE name = 'Cancelacio')
 INSERT INTO notifications (userid, notificationdate, type, event, text)
-SELECT su.userid, now(), (SELECT id FROM notificationtypes WHERE name = 'Cancelacio'), e.id, CONCAT(e.title, ' s''ha cancel·lat.')
+SELECT su.userid, now(), nt.id, e.id, CONCAT(e.title, ' s''ha cancel·lat.')
 FROM (SELECT DISTINCT userid FROM signup WHERE event = $1::integer) su
 JOIN events e ON e.id = $1::integer
 JOIN unofficialevents ue ON ue.id = e.id
-WHERE su.userid <> ue.creator
+JOIN users u on su.userid = u.id
+JOIN settings s on s.id = u.settings
+CROSS JOIN nottype nt
+WHERE su.userid <> ue.creator and exists(select settings, notificationtype from allowednotifications where settings=s.id and notificationtype=nt.id)
 `
 
 // Notifies once every user signed up to the cancelled event, except its creator (NotificacióEsdeveniment Cancel·lació).
@@ -240,7 +244,7 @@ func (q *Queries) ReadUserNotifications(ctx context.Context, userid pgtype.UUID)
 }
 
 const removeNotificationTypes = `-- name: RemoveNotificationTypes :exec
-DELETE FROM notificationtypes
+DELETE FROM notificationtypes where name!='Social' and name!='Recomanacio' and name!='Recordatori' and name!='Cancelacio'
 `
 
 func (q *Queries) RemoveNotificationTypes(ctx context.Context) error {
@@ -253,7 +257,7 @@ INSERT INTO notificationtypes (name) values
     ('Social'),
     ('Recomanacio'),
     ('Recordatori'),
-    ('Cancelacio')
+    ('Cancelacio') on conflict do nothing
 `
 
 func (q *Queries) RestoreNotificationTypes(ctx context.Context) error {

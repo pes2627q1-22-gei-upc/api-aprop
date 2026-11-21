@@ -157,6 +157,7 @@ func (s *SignUpService) GetEnrollmentStatus(ctx context.Context, userID string, 
 		return signup_model.EnrollmentStatus{}, err
 	}
 
+	var hasAttended *bool
 	var isEnrolled bool
 	if userID != "" {
 		normalizedUID, normErr := user_model.NormalizeID(userID)
@@ -165,12 +166,14 @@ func (s *SignUpService) GetEnrollmentStatus(ctx context.Context, userID string, 
 			if err != nil {
 				return signup_model.EnrollmentStatus{}, err
 			}
+			hasAttended, err = s.signUpRepository.GetAttendance(ctx, normalizedUID, eventID)
 		}
 	}
 
 	return signup_model.EnrollmentStatus{
 		EventID:       eventID,
 		IsEnrolled:    isEnrolled,
+		HasAttended:   hasAttended,
 		EnrolledCount: count,
 	}, nil
 }

@@ -444,12 +444,12 @@ func (r *UserRepository) GetSettings(ctx context.Context, id int) (user_model.Se
 			allowed = append(allowed, int(val.Notificationtype))
 		}
 	}
-  
-  language, err := r.queries.GetSettingsLanguage(ctx, int32(id))
+
+	language, err := r.queries.GetSettingsLanguage(ctx, int32(id))
 	if err != nil {
 		return user_model.Settings{}, err
 	}
-  
+
 	return user_model.Settings{ID: int(rows[0].ID), NotificationBefore: intervalToString(rows[0].Notificationbefore), ShowPlans: rows[0].Showplans, AllowedNotifTypes: allowed, Language: language}, nil
 }
 

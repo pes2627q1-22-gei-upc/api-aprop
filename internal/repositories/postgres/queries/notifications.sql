@@ -22,14 +22,14 @@ SELECT * FROM notificationtypes;
 SELECT id FROM notificationtypes where name = $1;
 
 -- name: RemoveNotificationTypes :exec
-DELETE FROM notificationtypes;
+DELETE FROM notificationtypes where name!='Social' and name!='Recomanacio' and name!='Recordatori' and name!='Cancelacio';
 
 -- name: RestoreNotificationTypes :exec
 INSERT INTO notificationtypes (name) values
     ('Social'),
     ('Recomanacio'),
     ('Recordatori'),
-    ('Cancelacio');
+    ('Cancelacio') on conflict do nothing;
 
 -- name: CreateReminders :many
 WITH nottype AS (SELECT id from notificationtypes where name='Recordatori')

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strconv"
 
 	"github.com/jackc/pgx/v5"
@@ -26,15 +27,18 @@ const NumNotificationTypes int = 4
 func (r *NotificationRepository) loadNotificationTypes() error {
 	rows, err := r.queries.GetNotificationTypes(context.Background())
 	if err != nil {
+		log.Printf("Err1")
 		return err
 	}
 	if len(rows) != NumNotificationTypes {
 		err := r.queries.RemoveNotificationTypes(context.Background())
 		if err != nil {
+			log.Printf("Err2")
 			return err
 		}
 		err = r.queries.RestoreNotificationTypes(context.Background())
 		if err != nil {
+			log.Printf("Err3")
 			return err
 		}
 	}

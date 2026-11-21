@@ -95,6 +95,23 @@ func (r *SignUpRepository) IsSignedUp(ctx context.Context, userID string, eventI
 	return signedUp, nil
 }
 
+func (r *SignUpRepository) GetAttendance(ctx context.Context, userID string, eventID int) (*bool, error) {
+	uid, err := user_model.ParseID(userID)
+	if err != nil {
+		return nil, err
+	}
+	attendance, err := r.queries.GetAttendance(ctx, sqlc.GetAttendanceParams{Userid: uid, Event: int32(eventID)})
+	if err != nil {
+		return nil, fmt.Errorf("check attendance for user %s and event %d: %w", userID, eventID, err)
+	}
+	var ret *bool
+	if attendance.Valid {
+		b := attendance.Bool
+		ret = &b
+	}
+	return ret, nil
+}
+
 func (r *SignUpRepository) ListUserEvents(ctx context.Context, userID string, dateRange signup_model.DateRange) ([]event_model.Event, error) {
 	uid, err := user_model.ParseID(userID)
 	if err != nil {
