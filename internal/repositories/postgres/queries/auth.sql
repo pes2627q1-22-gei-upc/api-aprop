@@ -8,6 +8,8 @@ WHERE FirebaseUID = sqlc.arg(firebase_uid)::varchar;
 WITH new_settings AS (
     INSERT INTO Settings DEFAULT VALUES
     RETURNING ID
+), allowed_notifs AS (
+    INSERT INTO AllowedNotifications (select ns.ID, nt.ID from notificationtypes nt, new_settings ns) returning *
 )
 INSERT INTO Users (FirebaseUID, Username, Email, AccountState, Settings)
 SELECT

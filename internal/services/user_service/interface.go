@@ -10,16 +10,19 @@ import (
 )
 
 type UpdateProfileInput struct {
-	Name           *string `json:"name"`
-	Username       *string `json:"username"`
-	Biography      *string `json:"biography"`
-	ProfilePicture *string `json:"profile-picture"`
-	ShowPlans      *bool   `json:"show-plans"`
-	Language       *string `json:"language"` // ca, es or en
+	Name               *string `json:"name"`
+	Username           *string `json:"username"`
+	Biography          *string `json:"biography"`
+	ProfilePicture     *string `json:"profile-picture"`
+	ShowPlans          *bool   `json:"show-plans"`
+	NotificationBefore *string `json:"notification-before"`
+	AllowedNotifTypes  *[]int  `json:"allowed-notif-types"`
+  Language           *string `json:"language"` // ca, es or en
 }
 
 type Service interface {
 	GetUserProfile(ctx context.Context, targetIdentifier string, requesterIdentifier string) (user_model.UserProfile, error)
+	GetSettings(ctx context.Context, userId string) (user_model.Settings, error)
 	ListCreatedEvents(ctx context.Context, targetIdentifier string) ([]event_model.Event, error)
 	ListReceivedRatings(ctx context.Context, targetIdentifier string) ([]user_model.ReceivedRating, error)
 	UpdateProfile(ctx context.Context, requesterIdentifier string, input UpdateProfileInput) (user_model.UserProfile, error)
