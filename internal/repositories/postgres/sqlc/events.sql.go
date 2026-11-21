@@ -559,7 +559,7 @@ SELECT evlst.id, evlst.title, evlst.subtitle, evlst.description, evlst.schedule,
     e.activityurl, e.startdate, e.enddate, e.place, e.latitude, e.longitude, e.postalcode, e.municipality,
     e.region, e.address, oe.code, ue.creator, ue.state, ue.datecreated, e.rating, count(s.userid) as num_signups FROM events e left join officialevents oe on e.id=oe.id
     left join unofficialevents ue on e.id=ue.id left join signup s on s.event=e.id
-    WHERE (ue.id is null or ue.state = 'Active'::unofficialeventstate) and e.enddate is null or e.enddate > now()
+    WHERE (ue.id is null or ue.state = 'Active'::unofficialeventstate) and (e.enddate is null or e.enddate > now())
     GROUP BY e.id, oe.id, ue.id ORDER BY num_signups DESC, e.enddate ASC NULLS LAST
     LIMIT $1 OFFSET $2
 ) evlst left join eventcategories ec on evlst.id = ec.event left join categories c on ec.category = c.id ORDER BY evlst.num_signups DESC, evlst.enddate ASC NULLS LAST, evlst.id ASC
