@@ -92,6 +92,10 @@ func (s *stubEventService) UploadEventImage(_ context.Context, _ int, _ string, 
 	return "https://s3/events/1/poster.jpg", nil
 }
 
+func (s *stubEventService) GetReceivedRatings(id int) ([]event_model.ReceivedRating, error) {
+	return []event_model.ReceivedRating{}, nil
+}
+
 var noopAuth = func(next http.Handler) http.Handler { return next }
 
 var noopCORS = func(next http.Handler) http.Handler { return next }

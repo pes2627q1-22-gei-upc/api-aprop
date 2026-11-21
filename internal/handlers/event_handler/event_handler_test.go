@@ -172,6 +172,10 @@ func (f *fakeEventService) UploadEventImage(_ context.Context, _ int, _ string, 
 	return f.uploadedImageURL, f.uploadImageErr
 }
 
+func (f *fakeEventService) GetReceivedRatings(id int) ([]event_model.ReceivedRating, error) {
+	return []event_model.ReceivedRating{}, nil
+}
+
 func newMux(s event_service.Service) *http.ServeMux {
 	h := NewEventHandler(s, fakeResolver{})
 	mux := http.NewServeMux()

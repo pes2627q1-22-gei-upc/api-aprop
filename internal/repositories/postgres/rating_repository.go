@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"api-aprop/internal/models/user_model"
@@ -36,6 +37,30 @@ func (r *RatingRepository) Create(ctx context.Context, userID string, eventID, s
 	}
 	if err != nil {
 		return false, fmt.Errorf("rate event %d: %w", eventID, err)
+	}
+	return rows > 0, nil
+}
+
+func (r *RatingRepository) CreateUserRating(ctx context.Context, userID pgtype.UUID, targetID pgtype.UUID, eventID int, score int) (bool, error) {
+	rows, err := r.queries.CreateUserRating(ctx, sqlc.CreateUserRatingParams{Rater: userID, Rated: targetID, Event: int32(eventID), Rating: int32(score)})
+	if err != nil {
+		return false, err
+	}
+	return rows > 0, nil
+}
+
+func (r *RatingRepository) UpdateUserRating(ctx context.Context, userID pgtype.UUID, targetID pgtype.UUID, eventID int, score int) (bool, error) {
+	rows, err := r.queries.UpdateUserRating(ctx, sqlc.UpdateUserRatingParams{Rater: userID, Rated: targetID, Event: int32(eventID), Rating: int32(score)})
+	if err != nil {
+		return false, err
+	}
+	return rows > 0, nil
+}
+
+func (r *RatingRepository) DeleteUserRating(ctx context.Context, userID pgtype.UUID, targetID pgtype.UUID, eventID int) (bool, error) {
+	rows, err := r.queries.DeleteUserRating(ctx, sqlc.DeleteUserRatingParams{Rater: userID, Rated: targetID, Event: int32(eventID)})
+	if err != nil {
+		return false, err
 	}
 	return rows > 0, nil
 }

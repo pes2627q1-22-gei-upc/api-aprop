@@ -131,6 +131,16 @@ func (q *Queries) CreateFriendRequest(ctx context.Context, arg CreateFriendReque
 	return i, err
 }
 
+const deleteAllowedNotificationTypes = `-- name: DeleteAllowedNotificationTypes :exec
+DELETE FROM AllowedNotifications
+WHERE Settings = $1::integer
+`
+
+func (q *Queries) DeleteAllowedNotificationTypes(ctx context.Context, settingsID int32) error {
+	_, err := q.db.Exec(ctx, deleteAllowedNotificationTypes, settingsID)
+	return err
+}
+
 const denyFriendRequest = `-- name: DenyFriendRequest :one
 UPDATE friendrequests SET state='Rejected'::friendrequeststate, dateresolved=now() where sender=$1 and receiver=$2 and datesent=$3 and state='Pending'::friendrequeststate RETURNING sender, receiver, datesent, state, dateresolved
 `
@@ -184,15 +194,40 @@ func (q *Queries) GetFriendRequests(ctx context.Context, receiver pgtype.UUID) (
 	return items, nil
 }
 
-const getSettings = `-- name: GetSettings :one
-SELECT id, showplans, notificationbefore from settings where id=$1
+const getSettings = `-- name: GetSettings :many
+SELECT s.id, s.showplans, s.notificationbefore, COALESCE(an.notificationtype, -1) from settings s left join allowednotifications an on an.settings=s.id where id=$1
 `
 
-func (q *Queries) GetSettings(ctx context.Context, id int32) (Setting, error) {
-	row := q.db.QueryRow(ctx, getSettings, id)
-	var i Setting
-	err := row.Scan(&i.ID, &i.Showplans, &i.Notificationbefore)
-	return i, err
+type GetSettingsRow struct {
+	ID                 int32
+	Showplans          bool
+	Notificationbefore pgtype.Interval
+	Notificationtype   int32
+}
+
+func (q *Queries) GetSettings(ctx context.Context, id int32) ([]GetSettingsRow, error) {
+	rows, err := q.db.Query(ctx, getSettings, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetSettingsRow
+	for rows.Next() {
+		var i GetSettingsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Showplans,
+			&i.Notificationbefore,
+			&i.Notificationtype,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getUserByFirebaseUIDWithSettings = `-- name: GetUserByFirebaseUIDWithSettings :one
@@ -351,26 +386,6 @@ func (q *Queries) GetUserFriends(ctx context.Context, user1 pgtype.UUID) ([]pgty
 	return items, nil
 }
 
-const getUserReliability = `-- name: GetUserReliability :one
-SELECT COALESCE(AVG(er.Rating), 0)::real AS reliability, COUNT(er.Rating)::bigint AS ratings_count
-FROM EventRatings er
-JOIN UnofficialEvents ue ON ue.ID = er.Event
-WHERE ue.Creator = $1::uuid
-`
-
-type GetUserReliabilityRow struct {
-	Reliability  float32
-	RatingsCount int64
-}
-
-// Mean of the ratings of every NoOficial event created by the user; count = 0 means "no ratings".
-func (q *Queries) GetUserReliability(ctx context.Context, creator pgtype.UUID) (GetUserReliabilityRow, error) {
-	row := q.db.QueryRow(ctx, getUserReliability, creator)
-	var i GetUserReliabilityRow
-	err := row.Scan(&i.Reliability, &i.RatingsCount)
-	return i, err
-}
-
 const isBlocked = `-- name: IsBlocked :one
 SELECT EXISTS (SELECT 1 from blocked where (blockeduser = $1 and blockinguser = $2) or (blockeduser = $2 and blockinguser = $1) limit 1)
 `
@@ -481,15 +496,16 @@ func (q *Queries) ListUserCreatedEvents(ctx context.Context, creator pgtype.UUID
 }
 
 const listUserReceivedRatings = `-- name: ListUserReceivedRatings :many
-SELECT er.Event AS event_id, e.Title AS event_title, er.Rating, er.RatingDate
-FROM EventRatings er
-JOIN UnofficialEvents ue ON ue.ID = er.Event
-JOIN Events e ON e.ID = er.Event
-WHERE ue.Creator = $1::uuid
-ORDER BY er.RatingDate DESC, er.Event DESC
+SELECT ur.rater, ur.rated, e.ID as event_id, e.title as event_title, ur.Rating, ur.RatingDate
+FROM UserRatings ur
+JOIN Events e ON e.ID = ur.Event
+WHERE ur.rated = $1::uuid
+ORDER BY ur.RatingDate DESC, ur.Event DESC
 `
 
 type ListUserReceivedRatingsRow struct {
+	Rater      pgtype.UUID
+	Rated      pgtype.UUID
 	EventID    int32
 	EventTitle string
 	Rating     int32
@@ -506,6 +522,8 @@ func (q *Queries) ListUserReceivedRatings(ctx context.Context, creator pgtype.UU
 	for rows.Next() {
 		var i ListUserReceivedRatingsRow
 		if err := rows.Scan(
+			&i.Rater,
+			&i.Rated,
 			&i.EventID,
 			&i.EventTitle,
 			&i.Rating,
@@ -548,6 +566,25 @@ type RemoveFriendshipParams struct {
 
 func (q *Queries) RemoveFriendship(ctx context.Context, arg RemoveFriendshipParams) error {
 	_, err := q.db.Exec(ctx, removeFriendship, arg.User1, arg.User2)
+	return err
+}
+
+const updateAllowedNotificationTypes = `-- name: UpdateAllowedNotificationTypes :exec
+INSERT INTO AllowedNotifications (Settings, NotificationType)
+SELECT
+    $1::integer,
+    n.notification_type
+FROM unnest($2::integer[]) AS n(notification_type)
+ON CONFLICT (Settings, NotificationType) DO NOTHING
+`
+
+type UpdateAllowedNotificationTypesParams struct {
+	SettingsID        int32
+	NotificationTypes []int32
+}
+
+func (q *Queries) UpdateAllowedNotificationTypes(ctx context.Context, arg UpdateAllowedNotificationTypesParams) error {
+	_, err := q.db.Exec(ctx, updateAllowedNotificationTypes, arg.SettingsID, arg.NotificationTypes)
 	return err
 }
 

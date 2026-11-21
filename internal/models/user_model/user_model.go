@@ -35,7 +35,6 @@ type UserProfile struct {
 	AccountState        int         `json:"account-state"`
 	Experience          int         `json:"experience"`
 	Level               *int        `json:"level"`
-	Rating              *float32    `json:"rating"`
 	Reliability         *float32    `json:"reliability"`
 	FriendsCount        int         `json:"friends-count"`
 	PlansCount          int         `json:"plans-count"`
@@ -72,6 +71,7 @@ type Settings struct {
 	ID                 int    `json:"id"`
 	ShowPlans          bool   `json:"show-plans"`
 	NotificationBefore string `json:"notification-before"`
+	AllowedNotifTypes  []int  `json:"allowed-notif-types"`
 	Language           string `json:"language"` // ca, es or en
 }
 

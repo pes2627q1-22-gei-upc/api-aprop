@@ -55,14 +55,14 @@ WHERE s.Name = 'Active'
 ORDER BY u.Username ILIKE $2::text ESCAPE '\' DESC,
          u.Username ILIKE $2::text || '%' ESCAPE '\' DESC,
          lower(u.Username) ASC
-LIMIT $3::int OFFSET $4::int
+LIMIT $4::int OFFSET $3::int
 `
 
 type SearchUsersParams struct {
 	Requester  pgtype.UUID
 	Pattern    string
-	PageSize   int32
 	PageOffset int32
+	PageSize   int32
 }
 
 type SearchUsersRow struct {
@@ -78,8 +78,8 @@ func (q *Queries) SearchUsers(ctx context.Context, arg SearchUsersParams) ([]Sea
 	rows, err := q.db.Query(ctx, searchUsers,
 		arg.Requester,
 		arg.Pattern,
-		arg.PageSize,
 		arg.PageOffset,
+		arg.PageSize,
 	)
 	if err != nil {
 		return nil, err

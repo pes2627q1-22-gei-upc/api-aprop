@@ -29,6 +29,7 @@ type Repository interface {
 	// GetUnofficialState returns the state of an unofficial event (event_model.UnofficialState*).
 	// It returns ErrEventNotFound if the event does not exist or is official.
 	GetUnofficialState(ctx context.Context, id int) (string, error)
+	GetReceivedRatings(id int) ([]event_model.ReceivedRating, error)
 	// Cancel marks an Active unofficial event as Cancelled and notifies the users signed up to it, except its creator,
 	// in a single transaction. It returns the number of notified users, ErrEventNotFound if the event does not exist
 	// or is official, and ErrEventNotActive if it is no longer Active.
