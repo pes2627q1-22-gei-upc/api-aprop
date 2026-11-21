@@ -44,8 +44,11 @@ go test ./...
 go test -v -race ./...
 go test ./internal/handlers/event_handler/...
 
-# Generació de consultes tipades amb sqlc
-# (Compte: 'models.go' i 'events.sql.go' tenen ajustos manuals, no regenerar a cegues)
+# Generació de consultes tipades amb sqlc (v1.31.1)
+# Instal·lació local: go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
+# OBLIGATORI: executa sempre `sqlc generate` en modificar `queries/*.sql` o `migrations/`.
+# No escriguis mai SQL directe/inline als repositoris ni editis manualment `internal/repositories/postgres/sqlc/*.go`,
+# per no trencar la sincronització amb la resta de desenvolupadors.
 sqlc generate
 
 # Docker
@@ -66,5 +69,6 @@ docker run --env-file .env -p 8080:8080 api-aprop
   - `internal/models/<x>_model/`: Structs de domini purs amb tags JSON en **kebab-case**.
 - **JSON sempre en kebab-case:** (`start-date`, `place-id`, `free`, `tickets-url`, etc.).
 - **Gestió d'errors i respostes:** Centralitzada amb `internal/handlers/response`. Retornar codis HTTP adequats (`200 OK`, `201 Created`, `400 Bad Request`, `401 Unauthorized`, `404 Not Found`, `502 Bad Gateway`, etc.).
+- **Consultes SQL només amb `sqlc`:** totes les consultes s'han de definir a `internal/repositories/postgres/queries/*.sql` i generar executant `sqlc generate` (`sqlc v1.31.1`). Està prohibit escriure SQL directe/inline als repositoris (`internal/repositories/postgres/*.go`) o editar manualment `internal/repositories/postgres/sqlc/*.go`, per no trencar la compilació ni la sincronització a la resta de l'equip. Si una migració crea un `TYPE` dins d'un bloc PL/pgSQL `DO $$` (que `sqlc` ignora), declara'l també a `internal/repositories/postgres/sqlc_schema_compat.sql`.
 - **Transaccions:** Utilitza transaccions (`pgx.Tx`) sempre que una operació modifiqui múltiples taules o files correlacionades.
 - Codi i identificadors en anglès; termes de domini segons `docs/ai/70-glossari.md`.

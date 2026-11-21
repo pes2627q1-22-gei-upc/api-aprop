@@ -18,67 +18,6 @@ import (
 	"api-aprop/internal/repositories/preference_repository"
 )
 
-// TODO(DP-044): inline SQL per seleccionar preguntes amb títol i imatges no buits i diversitat
-// per categoria (round-robin per primera categoria + ordre aleatori), pendent de validar contra Supabase.
-const preferenceQuestionsQuery = `
-WITH candidates AS (
-	SELECT
-		e.id,
-		e.title,
-		e.description,
-		e.images,
-		COALESCE(MIN(ec.category), 0) AS primary_category
-	FROM Events e
-	LEFT JOIN EventCategories ec ON ec.event = e.id
-	WHERE btrim(e.title) != ''
-	  AND e.images IS NOT NULL
-	  AND btrim(e.images) != ''
-	GROUP BY e.id, e.title, e.description, e.images
-),
-ranked AS (
-	SELECT
-		id,
-		title,
-		description,
-		images,
-		primary_category,
-		ROW_NUMBER() OVER (
-			PARTITION BY primary_category
-			ORDER BY random()
-		) AS rn
-	FROM candidates
-),
-selected AS (
-	SELECT id, title, description, images
-	FROM ranked
-	ORDER BY (primary_category = 0) ASC, rn ASC, random()
-	LIMIT $1
-)
-SELECT
-	s.id,
-	s.title,
-	s.description,
-	s.images,
-	COALESCE(
-		(SELECT string_agg(c.name, ',' ORDER BY c.id)
-		 FROM EventCategories ec
-		 JOIN Categories c ON c.id = ec.category
-		 WHERE ec.event = s.id),
-		''
-	)::text AS categories
-FROM selected s
-ORDER BY random()
-`
-
-// TODO(DP-044): inline SQL per consultar l'estat i la data del test actiu sense regenerar sqlc.
-const preferenceTestStatusQuery = `
-SELECT DateTaken
-FROM PreferenceTests
-WHERE UserID = $1::uuid
-ORDER BY DateTaken DESC
-LIMIT 1
-`
-
 type PreferenceRepository struct {
 	pool    *pgxpool.Pool
 	queries *sqlc.Queries
@@ -112,34 +51,20 @@ func (r *PreferenceRepository) GetQuestions(ctx context.Context, limit int) ([]p
 		return []preference_model.TestQuestion{}, nil
 	}
 
-	rows, err := r.pool.Query(ctx, preferenceQuestionsQuery, limit)
+	rows, err := r.queries.GetPreferenceTestQuestions(ctx, int32(limit))
 	if err != nil {
 		return nil, fmt.Errorf("get preference questions: %w", err)
 	}
-	defer rows.Close()
 
-	questions := make([]preference_model.TestQuestion, 0, limit)
-	for rows.Next() {
-		var (
-			id          int32
-			title       string
-			description pgtype.Text
-			images      pgtype.Text
-			categories  string
-		)
-		if err := rows.Scan(&id, &title, &description, &images, &categories); err != nil {
-			return nil, fmt.Errorf("scan preference question: %w", err)
-		}
+	questions := make([]preference_model.TestQuestion, 0, len(rows))
+	for _, row := range rows {
 		questions = append(questions, preference_model.TestQuestion{
-			EventID:     int(id),
-			Title:       title,
-			Description: description.String,
-			Images:      images.String,
-			Categories:  parseCategories(categories),
+			EventID:     int(row.ID),
+			Title:       row.Title,
+			Description: row.Description.String,
+			Images:      row.Images.String,
+			Categories:  parseCategories(row.Categories),
 		})
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate preference questions: %w", err)
 	}
 	return questions, nil
 }
@@ -158,8 +83,7 @@ func (r *PreferenceRepository) GetTestStatus(ctx context.Context, userID string)
 		return preference_model.TestStatus{}, err
 	}
 
-	var ts pgtype.Timestamp
-	err = r.pool.QueryRow(ctx, preferenceTestStatusQuery, uid).Scan(&ts)
+	ts, err := r.queries.GetPreferenceTestStatus(ctx, uid)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return preference_model.TestStatus{Completed: false, DateTaken: nil}, nil
@@ -196,21 +120,21 @@ func (r *PreferenceRepository) SaveTestAndPreferences(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	qtx := r.queries.WithTx(tx)
+
 	// Serialise concurrent submits of the same user so R1 holds (a first test has no row to lock).
-	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext($1::text))", uid.String()); err != nil {
+	if err := qtx.LockUserPreferenceTest(ctx, uid.String()); err != nil {
 		return fmt.Errorf("lock preference test: %w", err)
 	}
 
 	// 0. Replace previous test and choices so each user keeps a single active TestInteressos (R1).
 	// TODO(DP-044): R1 s'aplica per esborrat + inserció dins la transacció (sense UNIQUE(UserID) a la BD).
-	if _, err := tx.Exec(ctx, "DELETE FROM PreferenceTestChoices WHERE TestUser = $1::uuid", uid); err != nil {
+	if err := qtx.DeletePreferenceTestChoicesByUser(ctx, uid); err != nil {
 		return fmt.Errorf("delete previous preference choices: %w", err)
 	}
-	if _, err := tx.Exec(ctx, "DELETE FROM PreferenceTests WHERE UserID = $1::uuid", uid); err != nil {
+	if err := qtx.DeletePreferenceTestsByUser(ctx, uid); err != nil {
 		return fmt.Errorf("delete previous preference tests: %w", err)
 	}
-
-	qtx := r.queries.WithTx(tx)
 
 	// 1. Record test
 	ts := pgtype.Timestamp{Time: dateTaken.UTC(), Valid: true}
@@ -269,22 +193,19 @@ func (r *PreferenceRepository) GetEventCategories(ctx context.Context, eventIDs 
 }
 
 func (r *PreferenceRepository) ListAllCategories(ctx context.Context) ([]event_model.Category, error) {
-	// Reusing GetCategories from EventRepository or querying directly
-	rows, err := r.pool.Query(ctx, "SELECT id, name FROM Categories ORDER BY id ASC")
+	rows, err := r.queries.ListAllCategories(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list all categories: %w", err)
 	}
-	defer rows.Close()
 
-	var categories []event_model.Category
-	for rows.Next() {
-		var c event_model.Category
-		if err := rows.Scan(&c.ID, &c.Name); err != nil {
-			return nil, err
-		}
-		categories = append(categories, c)
+	categories := make([]event_model.Category, 0, len(rows))
+	for _, row := range rows {
+		categories = append(categories, event_model.Category{
+			ID:   int(row.ID),
+			Name: row.Name,
+		})
 	}
-	return categories, rows.Err()
+	return categories, nil
 }
 
 func (r *PreferenceRepository) GetUserPreferences(ctx context.Context, userID string) ([]preference_model.UserPreference, error) {
