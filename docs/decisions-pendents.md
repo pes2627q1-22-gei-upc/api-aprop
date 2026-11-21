@@ -537,6 +537,20 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Qui decideix:** frontend + backend
 - **Resolució:**
 
+### DP-044 · Repetir el test d'interessos (#30/#154): substitució R1, estat i selecció de preguntes
+- **Estat:** oberta
+- **Obert per:** 2026-11-21 · Antigravity (Gemini 4 Neon) · branca `feature/interest-test-retake-30` (Taiga #30 / #154)
+- **Context:** `internal/repositories/postgres/preference_repository.go` (`GetQuestions`, `GetTestStatus`, `SaveTestAndPreferences`), `internal/services/preference_service/`, `internal/handlers/preference_handler/`, `api/openapi.yaml`.
+- **Dubte / supòsits:**
+  1. **Unicitat R1 sense migració:** `PreferenceTests` té PK `(UserID, DateTaken)` i no té restricció `UNIQUE (UserID)` a la BD. R1 (un sol `TestInteressos` actiu per usuari) s'aplica dins la transacció de `SaveTestAndPreferences` esborrant primer `PreferenceTestChoices` i `PreferenceTests` de l'usuari abans d'inserir el nou test (`TODO(DP-044)`). Dues peticions `POST /preferences/test` concurrents del mateix usuari podrien inserir-ne dos; `GetTestStatus` llegeix `ORDER BY DateTaken DESC LIMIT 1`.
+  2. **Selecció de preguntes (`GET /preferences/test`):** SQL inline (`TODO(DP-044)`) que filtra `btrim(e.title) != ''` i `e.images IS NOT NULL AND btrim(e.images) != ''`, agrupa per `COALESCE(MIN(ec.category), 0)`, fa round-robin aleatori (`ROW_NUMBER() OVER (PARTITION BY primary_category ORDER BY random())`) prioritzant esdeveniments amb categoria (`primary_category > 0`) i barrejant el resultat final. No s'exclouen esdeveniments acabats (`enddate`) ni no oficials cancel·lats/retirats (`UnofficialEvents.State`).
+  3. **Recàlcul de pesos:** en repetir el test, els pesos de totes les categories es recalculen des de zero (`1.0` per defecte, ± `0.2` per resposta, rang `[0.1, 3.0]`); les categories absents al nou test tornen a `1.0`.
+  4. **Consultes SQL inline no provades contra BD:** no s'ha tocat `internal/repositories/postgres/sqlc/*` i no hi ha BD PostgreSQL/Supabase local; les consultes inline (`GetQuestions`, `GetTestStatus`, `DELETE` a `SaveTestAndPreferences`) només estan verificades per revisió i tests unitaris amb fakes.
+- **Opcions:** A) mantenir la substitució transaccional i la consulta inline actuals · B) afegir una migració amb `UNIQUE (UserID)` a `PreferenceTests` i filtrar per estat `Active` / dates futures.
+- **Provisionalment:** A (`TODO(DP-044)` a `internal/repositories/postgres/preference_repository.go`).
+- **Qui decideix:** backend + frontend
+- **Resolució:**
+
 ## Resoltes
 
 (cap)

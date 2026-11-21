@@ -35,3 +35,9 @@ type SubmitTestResponse struct {
 	DateTaken   time.Time        `json:"date-taken"`
 	Preferences []UserPreference `json:"preferences"`
 }
+
+// TestStatus reports whether the user has completed the interest test and when.
+type TestStatus struct {
+	Completed bool       `json:"completed"`
+	DateTaken *time.Time `json:"date-taken"`
+}

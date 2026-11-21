@@ -47,6 +47,14 @@ func (s *PreferenceService) GetQuestions(ctx context.Context, userID string) ([]
 	return questions, nil
 }
 
+func (s *PreferenceService) GetTestStatus(ctx context.Context, userID string) (preference_model.TestStatus, error) {
+	normalizedUID, err := user_model.NormalizeID(userID)
+	if err != nil {
+		return preference_model.TestStatus{}, err
+	}
+	return s.repo.GetTestStatus(ctx, normalizedUID)
+}
+
 func (s *PreferenceService) SubmitTest(ctx context.Context, userID string, answers []preference_model.TestAnswer) (preference_model.SubmitTestResponse, error) {
 	normalizedUID, err := user_model.NormalizeID(userID)
 	if err != nil {
