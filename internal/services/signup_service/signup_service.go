@@ -171,6 +171,9 @@ func (s *SignUpService) GetEnrollmentStatus(ctx context.Context, userID string, 
 				return signup_model.EnrollmentStatus{}, err
 			}
 			hasAttended, err = s.signUpRepository.GetAttendance(ctx, normalizedUID, eventID)
+			if err != nil {
+				return signup_model.EnrollmentStatus{}, err
+			}
 		}
 	}
 

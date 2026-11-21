@@ -91,7 +91,7 @@ func (s *RatingService) Rate(ctx context.Context, userID string, eventID, score 
 		return rating_model.Rating{}, ErrRateOwnEvent
 	}
 
-	if e.State!=nil && *(e.State)!="Active"{
+	if e.State != nil && *(e.State) != "Active" {
 		return rating_model.Rating{}, ErrEventCanceled
 	}
 
@@ -155,7 +155,7 @@ func (s *RatingService) RateUser(ctx context.Context, userID string, eventID int
 		return rating_model.UserRating{}, ErrRateSelf
 	}
 
-	if event.State!=nil && *(event.State)!="Active"{
+	if event.State != nil && *(event.State) != "Active" {
 		return rating_model.UserRating{}, ErrEventCanceled
 	}
 
