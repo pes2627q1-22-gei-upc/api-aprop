@@ -105,3 +105,87 @@ WHERE ec.event = ANY(sqlc.arg(event_ids)::int[]);
 SELECT id, name
 FROM Categories
 ORDER BY id ASC;
+
+-- name: GetPreferenceTestQuestionsExcluding :many
+-- Selects diversified events with non-empty title and images excluding already-answered event IDs.
+-- TODO(DP-047): pending sqlc generate by the team (internal/repositories/postgres/sqlc/* not touched).
+WITH candidates AS (
+    SELECT
+        e.id,
+        e.title,
+        e.description,
+        e.images,
+        COALESCE(MIN(ec.category), 0) AS primary_category
+    FROM Events e
+    LEFT JOIN EventCategories ec ON ec.event = e.id
+    WHERE btrim(e.title) != ''
+      AND e.images IS NOT NULL
+      AND btrim(e.images) != ''
+      AND NOT (e.id = ANY(sqlc.arg(exclude_event_ids)::int[]))
+    GROUP BY e.id, e.title, e.description, e.images
+),
+ranked AS (
+    SELECT
+        id,
+        title,
+        description,
+        images,
+        primary_category,
+        ROW_NUMBER() OVER (
+            PARTITION BY primary_category
+            ORDER BY random()
+        ) AS rn
+    FROM candidates
+),
+selected AS (
+    SELECT id, title, description, images
+    FROM ranked
+    ORDER BY (primary_category = 0) ASC, rn ASC, random()
+    LIMIT sqlc.arg(question_limit)::integer
+)
+SELECT
+    s.id,
+    s.title,
+    s.description,
+    s.images,
+    COALESCE(
+        (SELECT string_agg(c.name, ',' ORDER BY c.id)
+         FROM EventCategories ec
+         JOIN Categories c ON c.id = ec.category
+         WHERE ec.event = s.id),
+        ''
+    )::text AS categories
+FROM selected s
+ORDER BY random();
+
+-- name: GetPreferenceTestFullStatus :one
+-- TODO(DP-047): pending sqlc generate by the team.
+SELECT
+    COALESCE((SELECT u.InterestTestPrompted FROM Users u WHERE u.ID = sqlc.arg(user_id)::uuid), false)::boolean AS prompted,
+    (SELECT pt.DateTaken FROM PreferenceTests pt WHERE pt.UserID = sqlc.arg(user_id)::uuid ORDER BY pt.DateTaken DESC LIMIT 1) AS date_taken,
+    (SELECT COUNT(*)::integer FROM PreferenceTestProgress p WHERE p.UserID = sqlc.arg(user_id)::uuid) AS answered_count;
+
+-- name: MarkUserInterestTestPrompted :exec
+-- TODO(DP-047): pending sqlc generate by the team.
+UPDATE Users
+SET InterestTestPrompted = true
+WHERE ID = sqlc.arg(user_id)::uuid;
+
+-- name: ListPreferenceTestProgress :many
+-- TODO(DP-047): pending sqlc generate by the team.
+SELECT Event, Likes
+FROM PreferenceTestProgress
+WHERE UserID = sqlc.arg(user_id)::uuid
+ORDER BY UpdatedAt ASC, Event ASC;
+
+-- name: UpsertPreferenceTestProgress :exec
+-- TODO(DP-047): pending sqlc generate by the team.
+INSERT INTO PreferenceTestProgress (UserID, Event, Likes, UpdatedAt)
+VALUES (sqlc.arg(user_id)::uuid, sqlc.arg(event_id)::integer, sqlc.arg(likes)::boolean, sqlc.arg(updated_at)::timestamp)
+ON CONFLICT (UserID, Event)
+DO UPDATE SET Likes = EXCLUDED.Likes, UpdatedAt = EXCLUDED.UpdatedAt;
+
+-- name: DeletePreferenceTestProgressByUser :exec
+-- TODO(DP-047): pending sqlc generate by the team.
+DELETE FROM PreferenceTestProgress
+WHERE UserID = sqlc.arg(user_id)::uuid;

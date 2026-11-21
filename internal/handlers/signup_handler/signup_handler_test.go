@@ -15,6 +15,7 @@ import (
 	"api-aprop/internal/handlers/requester"
 	"api-aprop/internal/middleware/auth_middleware"
 	"api-aprop/internal/models/event_model"
+	"api-aprop/internal/models/preference_model"
 	"api-aprop/internal/models/signup_model"
 	"api-aprop/internal/services/auth_service"
 	"api-aprop/internal/services/signup_service"
@@ -605,6 +606,9 @@ func (langTranslator) TranslateEvents(_ context.Context, lang string, events []e
 }
 func (langTranslator) TranslateMapEvents(_ context.Context, _ string, events []event_model.MapEvent) []event_model.MapEvent {
 	return events
+}
+func (langTranslator) TranslateTestQuestions(_ context.Context, _ string, questions []preference_model.TestQuestion) []preference_model.TestQuestion {
+	return questions
 }
 
 func TestListUserEvents_Lang(t *testing.T) {

@@ -1909,11 +1909,17 @@ paths:
       summary: Esdeveniments representatius per al test d'interessos
       description: |
         Retorna fins a 25 esdeveniments amb títol i imatges no buits, diversificats per categoria
-        (round-robin per primera categoria) i en ordre aleatori. Les categories mantenen les
-        etiquetes brutes (p. ex. `agenda:categories/dansa`).
+        (round-robin per primera categoria) i en ordre aleatori. Si l'usuari té progrés parcial
+        desat (`PreferenceTestProgress`), s'exclouen els esdeveniments ja contestats i es retornen
+        només les preguntes pendents fins completar les 25. Les categories mantenen les
+        etiquetes brutes (p. ex. `agenda:categories/dansa`). Els camps `title` i `description` es
+        tradueixen segons el paràmetre `lang` (o l'idioma configurat de l'usuari, amb retorn al
+        català si falla la traducció).
+      parameters:
+        - $ref: '#/components/parameters/Lang'
       responses:
         '200':
-          description: Preguntes del test (com a màxim 25)
+          description: Preguntes pendents del test (com a màxim 25)
           content:
             application/json:
               schema:
@@ -1930,12 +1936,16 @@ paths:
     post:
       tags: [preferences]
       operationId: submitPreferenceTest
-      summary: Envia les respostes del test i calcula els pesos per categoria
+      summary: Envia les respostes del test (complet o progrés parcial) i calcula els pesos
       description: |
-        Operació idempotent de substitució (regla R1: un sol `TestInteressos` actiu per usuari).
-        Dins una mateixa transacció elimina el test i les respostes anteriors de l'usuari, desa el
-        nou test i recalcula des de zero els pesos de totes les categories a `UserPreferences`.
-        Es pot repetir tantes vegades com calgui.
+        - Amb `partial: false` (o omès): operació idempotent de substitució (regla R1: un sol
+          `TestInteressos` actiu per usuari). Combina les respostes parcials desades prèviament
+          (si n'hi ha) amb les del cos, elimina el test anterior i l'esborrany dins una mateixa
+          transacció, desa el nou test complet, recalcula des de zero tots els pesos de
+          `UserPreferences` i marca l'onboarding com a mostrat (`prompted = true`).
+        - Amb `partial: true`: desa/fusiona les respostes a `PreferenceTestProgress` i marca
+          `prompted = true` sense modificar cap `PreferenceTests` ni `UserPreferences` anteriors,
+          per poder reprendre el test més tard.
       requestBody:
         required: true
         content:
@@ -1944,7 +1954,7 @@ paths:
               $ref: '#/components/schemas/SubmitTestRequest'
       responses:
         '200':
-          description: Preferències calculades
+          description: Preferències calculades (o resum del progrés parcial desat)
           content:
             application/json:
               schema:
@@ -1962,8 +1972,9 @@ paths:
       operationId: getPreferenceTestStatus
       summary: Estat del test d'interessos de l'usuari autenticat
       description: |
-        Indica si l'usuari autenticat ja ha completat el test d'interessos i la data (RFC3339 UTC)
-        de l'última vegada que el va fer, o `null` si encara no l'ha completat.
+        Indica si l'usuari autenticat ha completat el test, si ja se li ha mostrat a l'onboarding
+        (`prompted`), si té progrés parcial desat (`in-progress`, `answered-count`) i la data
+        (RFC3339 UTC) de l'últim test completat, o `null` si encara no l'ha completat.
       responses:
         '200':
           description: Estat del test d'interessos
@@ -1971,6 +1982,25 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TestStatus'
+        '400':
+          $ref: '#/components/responses/InvalidPreference'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /preferences/test/prompted:
+    post:
+      tags: [preferences]
+      operationId: markPreferenceTestPrompted
+      summary: Marca l'onboarding del test d'interessos com a mostrat
+      description: |
+        Operació idempotent que marca `Users.InterestTestPrompted = true` per a l'usuari autenticat
+        de manera que, si omet o tanca el test després del primer registre, no es torni a obrir
+        automàticament en inicis de sessió posteriors.
+      responses:
+        '204':
+          description: Onboarding marcat com a mostrat
         '400':
           $ref: '#/components/responses/InvalidPreference'
         '401':
@@ -2006,7 +2036,9 @@ paths:
       summary: Envia un missatge al xatbot
       description: |
         El missatge s'afegeix a la conversa més recent de l'usuari (o en crea una). El xatbot
-        només recomana esdeveniments reals del catàleg. Temps màxim de resposta: 8 s.
+        només recomana esdeveniments reals del catàleg (com a màxim 3 per lot, alineats amb el
+        text i sense repetir els ja mostrats a la conversa). Si la petició és vaga, fa 1-2
+        preguntes aclaridores abans de recomanar. Temps màxim de resposta: 8 s.
         Si el xatbot falla no es desa res, així que es pot reintentar el mateix missatge.
         Cos de com a màxim 16 KiB.
       requestBody:
@@ -2469,6 +2501,9 @@ components:
             eventId:
               value:
                 error: 'invalid event id: 0'
+            invalidLang:
+              value:
+                error: invalid lang, expected ca, es or en
     EventRatingResponse:
       content:
         application/json:
@@ -3095,6 +3130,10 @@ components:
           maxItems: 25
           items:
             $ref: '#/components/schemas/TestAnswer'
+        partial:
+          type: boolean
+          default: false
+          description: Si és true, desa el progrés parcial per reprendre més tard sense sobreescriure el test completat ni UserPreferences.
 
     UserPreference:
       type: object
@@ -3122,13 +3161,27 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/UserPreference'
+        partial:
+          type: boolean
+          description: Present i `true` quan s'ha desat progrés parcial.
+        answered-count:
+          type: integer
+          minimum: 0
+          description: Total de respostes parcials acumulades després d'un desat parcial.
 
     TestStatus:
       type: object
-      required: [completed, date-taken]
+      required: [completed, prompted, in-progress, answered-count, date-taken]
       properties:
         completed:
           type: boolean
+        prompted:
+          type: boolean
+        in-progress:
+          type: boolean
+        answered-count:
+          type: integer
+          minimum: 0
         date-taken:
           type: string
           format: date-time
@@ -3190,7 +3243,7 @@ components:
           $ref: '#/components/schemas/Interpretation'
         recommended-events:
           type: array
-          description: Només als missatges del xatbot (R12)
+          description: Només als missatges del xatbot (R12). En respostes noves, com a màxim 3 esdeveniments per lot, en el mateix ordre que el text i sense repetir els ja mostrats a la conversa.
           items:
             $ref: '#/components/schemas/Event'
         action:

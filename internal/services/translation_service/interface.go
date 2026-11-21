@@ -5,6 +5,7 @@ import (
 	"context"
 
 	"api-aprop/internal/models/event_model"
+	"api-aprop/internal/models/preference_model"
 )
 
 // Service translates events. It never fails: when a text cannot be translated (the translation server is disabled
@@ -15,4 +16,5 @@ type Service interface {
 	TranslateEvent(ctx context.Context, lang string, e event_model.Event) event_model.Event
 	TranslateEvents(ctx context.Context, lang string, events []event_model.Event) []event_model.Event
 	TranslateMapEvents(ctx context.Context, lang string, events []event_model.MapEvent) []event_model.MapEvent
+	TranslateTestQuestions(ctx context.Context, lang string, questions []preference_model.TestQuestion) []preference_model.TestQuestion
 }
