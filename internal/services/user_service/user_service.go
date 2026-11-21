@@ -311,10 +311,10 @@ func (s *userService) UpdateProfile(ctx context.Context, requesterIdentifier str
 		settings.NotificationBefore = *(input.NotificationBefore)
 		settingsChanged = true
 	}
-  
-  if input.Language != nil {
+
+	if input.Language != nil {
 		settings.Language = *(input.Language)
-    settingsChanged = true
+		settingsChanged = true
 	}
 
 	if input.AllowedNotifTypes != nil {

@@ -225,6 +225,8 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		response.WriteError(w, http.StatusBadRequest, "cannot rate own event")
 	case errors.Is(err, rating_service.ErrRateSelf):
 		response.WriteError(w, http.StatusBadRequest, "cannot rate yourself")
+	case errors.Is(err, rating_service.ErrEventCanceled):
+		response.WriteError(w, http.StatusBadRequest, "event has been canceled")
 	default:
 		log.Printf("internal error: %v", err)
 		response.WriteError(w, http.StatusInternalServerError, "internal server error")

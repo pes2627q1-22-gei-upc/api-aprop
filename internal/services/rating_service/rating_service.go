@@ -91,6 +91,10 @@ func (s *RatingService) Rate(ctx context.Context, userID string, eventID, score 
 		return rating_model.Rating{}, ErrRateOwnEvent
 	}
 
+	if e.State != nil && *(e.State) != "Active" {
+		return rating_model.Rating{}, ErrEventCanceled
+	}
+
 	created, err := s.ratings.Create(ctx, userID, eventID, score)
 	if errors.Is(err, rating_repository.ErrEventNotFound) {
 		return rating_model.Rating{}, fmt.Errorf("%w: %w", ErrEventNotFound, err)
@@ -149,6 +153,10 @@ func (s *RatingService) RateUser(ctx context.Context, userID string, eventID int
 	}
 	if creator == rater.ID {
 		return rating_model.UserRating{}, ErrRateSelf
+	}
+
+	if event.State != nil && *(event.State) != "Active" {
+		return rating_model.UserRating{}, ErrEventCanceled
 	}
 
 	created, err := s.ratings.CreateUserRating(ctx, rater.ID, creator, eventID, score)

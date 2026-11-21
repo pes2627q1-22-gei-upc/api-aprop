@@ -16,4 +16,5 @@ type Repository interface {
 	// SetAttendance stores the attendance (nil = unknown); false when the user is not signed up.
 	SetAttendance(ctx context.Context, userID string, eventID int, attendance *bool) (bool, error)
 	IsSignedUp(ctx context.Context, userID string, eventID int) (bool, error)
+	GetAttendance(ctx context.Context, userID string, eventID int) (*bool, error)
 }

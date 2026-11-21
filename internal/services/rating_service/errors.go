@@ -17,4 +17,5 @@ var (
 	ErrCreatorNotFound  = errors.New("creator not found")
 	ErrRateOwnEvent     = errors.New("cannot rate own event")
 	ErrRateSelf         = errors.New("cannot rate yourself")
+	ErrEventCanceled    = errors.New("event has been canceled")
 )

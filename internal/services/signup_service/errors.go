@@ -14,4 +14,5 @@ var (
 	ErrEventExpired     = errors.New("event has alredy ended")
 	ErrNotEnrolled      = errors.New("user is not enrolled in the event")
 	ErrEventNotStarted  = errors.New("event has not started yet")
+	ErrEventCanceled    = errors.New("event has been canceled")
 )

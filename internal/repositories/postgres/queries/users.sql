@@ -51,10 +51,11 @@ ORDER BY ur.RatingDate DESC, ur.Event DESC;
 SELECT e.id, e.title, e.subtitle, e.description, e.schedule, e.tickets, e.url, e.ticketsurl,
 e.free, e.permanent, e.modality, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone,
 e.activityurl, e.startdate, e.enddate, e.place, e.latitude, e.longitude, e.postalcode, e.municipality,
-e.region, e.address, ue.creator, ue.datecreated
+e.region, e.address, ue.creator, ue.datecreated, ue.state
 FROM events e
 JOIN unofficialevents ue ON e.id = ue.id
 WHERE ue.creator = sqlc.arg(creator)::uuid
+and ue.state = 'Active'::unofficialeventstate
 ORDER BY e.startdate DESC NULLS LAST, e.id DESC;
 
 -- name: UpdateUserProfile :one

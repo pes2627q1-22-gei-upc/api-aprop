@@ -161,6 +161,10 @@ func (f *fakeRepository) IsSignedUp(_ context.Context, userID string, eventID in
 	return f.isSignedUp, f.isSignedErr
 }
 
+func (f *fakeRepository) GetAttendance(_ context.Context, userID string, eventID int) (*bool, error) {
+	return nil, nil
+}
+
 func (f *fakeRepository) ListUserEvents(_ context.Context, userID string, dateRange signup_model.DateRange) ([]event_model.Event, error) {
 	f.listCalls++
 	f.gotUserID = userID

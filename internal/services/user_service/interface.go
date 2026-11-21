@@ -17,7 +17,7 @@ type UpdateProfileInput struct {
 	ShowPlans          *bool   `json:"show-plans"`
 	NotificationBefore *string `json:"notification-before"`
 	AllowedNotifTypes  *[]int  `json:"allowed-notif-types"`
-  Language           *string `json:"language"` // ca, es or en
+	Language           *string `json:"language"` // ca, es or en
 }
 
 type Service interface {

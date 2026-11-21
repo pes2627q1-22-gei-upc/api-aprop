@@ -45,3 +45,6 @@ ORDER BY e.StartDate ASC, e.id ASC;
 UPDATE SignUp
 SET Attendance = sqlc.narg(attendance)::boolean
 WHERE UserID = sqlc.arg(user_id)::uuid AND Event = sqlc.arg(event_id)::integer;
+
+-- name: GetAttendance :one
+SELECT attendance from signup where userid = $1 and event = $2;

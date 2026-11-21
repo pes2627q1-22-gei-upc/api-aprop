@@ -428,7 +428,7 @@ const getEvent = `-- name: GetEvent :many
 SELECT e.id, e.title, e.subtitle, e.description, e.schedule, e.tickets, e.url, e.ticketsurl,
 e.free, e.permanent, e.modality, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone,
 e.activityurl, e.startdate, e.enddate, e.place, e.latitude, e.longitude, e.postalcode, e.municipality,
-e.region, e.address, oe.code, ue.creator, ue.datecreated, e.rating, c.name as category FROM events e left join officialevents oe on e.id=oe.id left join unofficialevents ue on e.id=ue.id
+e.region, e.address, oe.code, ue.creator, ue.state, ue.datecreated, e.rating, c.name as category FROM events e left join officialevents oe on e.id=oe.id left join unofficialevents ue on e.id=ue.id
 left join eventcategories ec on e.id = ec.event left join categories c on ec.category = c.id
 WHERE e.id = $1
 `
@@ -463,6 +463,7 @@ type GetEventRow struct {
 	Address      pgtype.Text
 	Code         pgtype.Int8
 	Creator      pgtype.UUID
+	State        NullUnofficialeventstate
 	Datecreated  pgtype.Timestamp
 	Rating       pgtype.Float4
 	Category     pgtype.Text
@@ -507,6 +508,7 @@ func (q *Queries) GetEvent(ctx context.Context, id int32) ([]GetEventRow, error)
 			&i.Address,
 			&i.Code,
 			&i.Creator,
+			&i.State,
 			&i.Datecreated,
 			&i.Rating,
 			&i.Category,
@@ -551,13 +553,13 @@ func (q *Queries) GetEventRatings(ctx context.Context, event int32) ([]GetEventR
 }
 
 const getPopularEvents = `-- name: GetPopularEvents :many
-SELECT evlst.id, evlst.title, evlst.subtitle, evlst.description, evlst.schedule, evlst.tickets, evlst.url, evlst.ticketsurl, evlst.free, evlst.permanent, evlst.modality, evlst.relatedurls, evlst.urlnames, evlst.images, evlst.videos, evlst.email, evlst.phone, evlst.activityurl, evlst.startdate, evlst.enddate, evlst.place, evlst.latitude, evlst.longitude, evlst.postalcode, evlst.municipality, evlst.region, evlst.address, evlst.code, evlst.creator, evlst.datecreated, evlst.rating, evlst.num_signups, c.name as category FROM (
+SELECT evlst.id, evlst.title, evlst.subtitle, evlst.description, evlst.schedule, evlst.tickets, evlst.url, evlst.ticketsurl, evlst.free, evlst.permanent, evlst.modality, evlst.relatedurls, evlst.urlnames, evlst.images, evlst.videos, evlst.email, evlst.phone, evlst.activityurl, evlst.startdate, evlst.enddate, evlst.place, evlst.latitude, evlst.longitude, evlst.postalcode, evlst.municipality, evlst.region, evlst.address, evlst.code, evlst.creator, evlst.state, evlst.datecreated, evlst.rating, evlst.num_signups, c.name as category FROM (
     SELECT e.id, e.title, e.subtitle, e.description, e.schedule, e.tickets, e.url, e.ticketsurl,
     e.free, e.permanent, e.modality, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone,
     e.activityurl, e.startdate, e.enddate, e.place, e.latitude, e.longitude, e.postalcode, e.municipality,
-    e.region, e.address, oe.code, ue.creator, ue.datecreated, e.rating, count(s.userid) as num_signups FROM events e left join officialevents oe on e.id=oe.id
+    e.region, e.address, oe.code, ue.creator, ue.state, ue.datecreated, e.rating, count(s.userid) as num_signups FROM events e left join officialevents oe on e.id=oe.id
     left join unofficialevents ue on e.id=ue.id left join signup s on s.event=e.id
-    WHERE e.enddate is null or e.enddate > now()
+    WHERE (ue.id is null or ue.state = 'Active'::unofficialeventstate) and (e.enddate is null or e.enddate > now())
     GROUP BY e.id, oe.id, ue.id ORDER BY num_signups DESC, e.enddate ASC NULLS LAST
     LIMIT $1 OFFSET $2
 ) evlst left join eventcategories ec on evlst.id = ec.event left join categories c on ec.category = c.id ORDER BY evlst.num_signups DESC, evlst.enddate ASC NULLS LAST, evlst.id ASC
@@ -598,6 +600,7 @@ type GetPopularEventsRow struct {
 	Address      pgtype.Text
 	Code         pgtype.Int8
 	Creator      pgtype.UUID
+	State        NullUnofficialeventstate
 	Datecreated  pgtype.Timestamp
 	Rating       pgtype.Float4
 	NumSignups   int64
@@ -643,6 +646,7 @@ func (q *Queries) GetPopularEvents(ctx context.Context, arg GetPopularEventsPara
 			&i.Address,
 			&i.Code,
 			&i.Creator,
+			&i.State,
 			&i.Datecreated,
 			&i.Rating,
 			&i.NumSignups,
@@ -671,12 +675,13 @@ func (q *Queries) GetUnofficialEventState(ctx context.Context, id int32) (string
 }
 
 const listEvents = `-- name: ListEvents :many
-SELECT evlst.id, evlst.title, evlst.subtitle, evlst.description, evlst.schedule, evlst.tickets, evlst.url, evlst.ticketsurl, evlst.free, evlst.permanent, evlst.modality, evlst.relatedurls, evlst.urlnames, evlst.images, evlst.videos, evlst.email, evlst.phone, evlst.activityurl, evlst.startdate, evlst.enddate, evlst.place, evlst.latitude, evlst.longitude, evlst.postalcode, evlst.municipality, evlst.region, evlst.address, evlst.code, evlst.creator, evlst.datecreated, evlst.rating, c.name as category FROM (
+SELECT evlst.id, evlst.title, evlst.subtitle, evlst.description, evlst.schedule, evlst.tickets, evlst.url, evlst.ticketsurl, evlst.free, evlst.permanent, evlst.modality, evlst.relatedurls, evlst.urlnames, evlst.images, evlst.videos, evlst.email, evlst.phone, evlst.activityurl, evlst.startdate, evlst.enddate, evlst.place, evlst.latitude, evlst.longitude, evlst.postalcode, evlst.municipality, evlst.region, evlst.address, evlst.code, evlst.creator, evlst.state, evlst.datecreated, evlst.rating, c.name as category FROM (
     SELECT e.id, e.title, e.subtitle, e.description, e.schedule, e.tickets, e.url, e.ticketsurl,
     e.free, e.permanent, e.modality, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone,
     e.activityurl, e.startdate, e.enddate, e.place, e.latitude, e.longitude, e.postalcode, e.municipality,
-    e.region, e.address, oe.code, ue.creator, ue.datecreated, e.rating FROM events e left join officialevents oe on e.id=oe.id left join unofficialevents ue on e.id=ue.id
-    WHERE ($3::int = 0 or exists (select 1 from eventcategories ec where ec.event=e.id and ec.category = $3::int))   -- category filter
+    e.region, e.address, oe.code, ue.creator, ue.state, ue.datecreated, e.rating FROM events e left join officialevents oe on e.id=oe.id left join unofficialevents ue on e.id=ue.id
+    WHERE (ue.id is null or ue.state = 'Active'::unofficialeventstate)
+    and ($3::int = 0 or exists (select 1 from eventcategories ec where ec.event=e.id and ec.category = $3::int))   -- category filter
     and ($4::text = '' or e.region = $4::text)    -- region filter
     and ($5::date is null or e.startdate <= $5::date)   -- start-before filter
     and ($6::date is null or e.startdate >= $6::date)   -- start-after filter
@@ -737,6 +742,7 @@ type ListEventsRow struct {
 	Address      pgtype.Text
 	Code         pgtype.Int8
 	Creator      pgtype.UUID
+	State        NullUnofficialeventstate
 	Datecreated  pgtype.Timestamp
 	Rating       pgtype.Float4
 	Category     pgtype.Text
@@ -794,6 +800,7 @@ func (q *Queries) ListEvents(ctx context.Context, arg ListEventsParams) ([]ListE
 			&i.Address,
 			&i.Code,
 			&i.Creator,
+			&i.State,
 			&i.Datecreated,
 			&i.Rating,
 			&i.Category,

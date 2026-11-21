@@ -244,7 +244,7 @@ func (q *Queries) ReadUserNotifications(ctx context.Context, userid pgtype.UUID)
 }
 
 const removeNotificationTypes = `-- name: RemoveNotificationTypes :exec
-DELETE FROM notificationtypes
+DELETE FROM notificationtypes where name!='Social' and name!='Recomanacio' and name!='Recordatori' and name!='Cancelacio'
 `
 
 func (q *Queries) RemoveNotificationTypes(ctx context.Context) error {
@@ -257,7 +257,7 @@ INSERT INTO notificationtypes (name) values
     ('Social'),
     ('Recomanacio'),
     ('Recordatori'),
-    ('Cancelacio')
+    ('Cancelacio') on conflict do nothing
 `
 
 func (q *Queries) RestoreNotificationTypes(ctx context.Context) error {
