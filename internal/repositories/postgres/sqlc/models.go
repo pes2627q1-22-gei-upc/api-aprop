@@ -181,11 +181,19 @@ type Event struct {
 	Municipality pgtype.Text
 	Region       pgtype.Text
 	Address      pgtype.Text
+	Rating       pgtype.Float4
 }
 
 type Eventcategory struct {
 	Event    int32
 	Category int32
+}
+
+type Eventmessage struct {
+	Userid   pgtype.UUID
+	Event    int32
+	Datesent pgtype.Timestamp
+	Message  []byte
 }
 
 type Eventrating struct {
@@ -212,13 +220,6 @@ type Level struct {
 	ID                 int32
 	Name               string
 	Experiencerequired int32
-}
-
-type Message struct {
-	Userid   pgtype.UUID
-	Event    int32
-	Datesent pgtype.Timestamp
-	Message  string
 }
 
 type Notification struct {
@@ -272,6 +273,7 @@ type Unofficialevent struct {
 	ID          int32
 	Creator     pgtype.UUID
 	Datecreated pgtype.Timestamp
+	State       interface{}
 }
 
 type User struct {

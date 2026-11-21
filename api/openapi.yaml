@@ -682,13 +682,39 @@ paths:
   /events/{id}/ratings:
     parameters:
       - $ref: '#/components/parameters/EventId'
+    get:
+      tags: [events]
+      operationId: getEventRatings
+      summary: Obté valoracions d'esdeveniment
+      description: Obté les valoracions fetes per usuaris que han assistit a l'esdeveniment.
+      responses:
+        '200':
+          description: Valoracions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/responses/EventRatingResponse'
+        '400':
+          description: Id invàlid, cos invàlid o `score` fora de 1..5
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/EventNotFound'
+    
     post:
       tags: [events]
       operationId: rateEvent
       summary: Valora un esdeveniment
       description: >
-        Desa la valoració (`score` 1..5, R9) de l'usuari. Regla R10: l'usuari ha d'haver assistit
+        Desa la valoració (`score` 1..5, R9) de l'esdeveniment. Regla R10: l'usuari ha d'haver assistit
         (inscripció amb `attendance = true`; R8 només permet fixar-la un cop l'esdeveniment ha començat), si no `403`.
+        Un usuari no pot valorar el seu propi esdeveniment.
         Una sola valoració per usuari i esdeveniment: la repetida dona `409`. Veure DP-033.
       requestBody:
         required: true
@@ -710,7 +736,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Rating'
         '400':
-          description: Id invàlid, cos invàlid o `score` fora de 1..5
+          description: Id invàlid, esdeveniment propi, cos invàlid o `score` fora de 1..5
           content:
             application/json:
               schema:
@@ -743,7 +769,7 @@ paths:
       summary: Modifica la meva valoració d'un esdeveniment
       description: >
         Canvia el `score` (1..5, R9) de la valoració de l'usuari autenticat (cos igual que el de `POST`).
-        La fiabilitat de l'organitzador (`Users.Rating`) es recalcula amb un trigger, així que el canvi s'hi reflecteix de seguida.
+        La valoració de l'esdeveniment (`Events.Rating`) es recalcula amb un trigger, així que el canvi s'hi reflecteix de seguida.
         No es torna a comprovar R10. Veure DP-036.
       requestBody:
         required: true
@@ -784,6 +810,129 @@ paths:
       tags: [events]
       operationId: deleteMyEventRating
       summary: Elimina la meva valoració d'un esdeveniment
+      description: Veure DP-036.
+      responses:
+        '204':
+          description: Valoració eliminada
+        '400':
+          $ref: '#/components/responses/InvalidEventId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: L'esdeveniment no existeix o l'usuari no l'havia valorat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  
+  /events/{id}/creator/ratings:
+    parameters:
+      - $ref: '#/components/parameters/EventId'
+    post:
+      tags: [events]
+      operationId: rateEventCreator
+      summary: Valora l'organitzador d'un esdeveniment
+      description: >
+        Desa la valoració (`score` 1..5, R9) de l'organitzador de l'esdeveniment. Regla R10: l'usuari ha d'haver assistit
+        (inscripció amb `attendance = true`; R8 només permet fixar-la un cop l'esdeveniment ha començat), si no `403`.
+        Un usuari no pot valorar-se a si mateix.
+        Una sola valoració per usuari i esdeveniment: la repetida dona `409`. Veure DP-033.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [score]
+              properties:
+                score:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+      responses:
+        '201':
+          description: Valoració desada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserRating'
+        '400':
+          description: Id invàlid, cos invàlid o `score` fora de 1..5
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: L'usuari no ha assistit a l'esdeveniment (R10)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          $ref: '#/components/responses/EventNotFound'
+        '409':
+          description: L'usuari ja havia valorat l'esdeveniment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /events/{id}/creator/ratings/me:
+    parameters:
+      - $ref: '#/components/parameters/EventId'
+    put:
+      tags: [events]
+      operationId: updateMyUserRating
+      summary: Modifica la meva valoració de l'organitzador d'un esdeveniment
+      description: >
+        Canvia el `score` (1..5, R9) de la valoració de l'usuari autenticat (cos igual que el de `POST`).
+        La valoració de l'organitzador (`Users.Rating`) es recalcula amb un trigger, així que el canvi s'hi reflecteix de seguida.
+        No es torna a comprovar R10. Veure DP-036.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [score]
+              properties:
+                score:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+      responses:
+        '200':
+          description: Valoració actualitzada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserRating'
+        '400':
+          description: Id invàlid, cos invàlid o `score` fora de 1..5
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: L'esdeveniment no existeix o l'usuari no l'havia valorat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [events]
+      operationId: deleteMyUserRating
+      summary: Elimina la meva valoració de l'organitzador d'un esdeveniment
       description: Veure DP-036.
       responses:
         '204':
@@ -1162,7 +1311,7 @@ paths:
     get:
       tags: [users]
       operationId: listReceivedRatings
-      summary: Valoracions rebudes als esdeveniments no oficials d'un usuari (base de la seva fiabilitat)
+      summary: Valoracions rebudes d'un usuari (base de la seva fiabilitat)
       parameters:
         - $ref: '#/components/parameters/UserIdentifier'
       responses:
@@ -1174,12 +1323,8 @@ paths:
                 type: array
                 items:
                   type: object
-                  required: [event-id, event-title, rating, rating-date]
-                  properties:
-                    event-id: {type: integer}
-                    event-title: {type: string}
-                    rating: {type: integer, minimum: 1, maximum: 5}
-                    rating-date: {type: string, format: date-time}
+                  items:
+                    $ref: '#/components/responses/UserRatingResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -2293,6 +2438,30 @@ components:
             eventId:
               value:
                 error: 'invalid event id: 0'
+    EventRatingResponse:
+      content:
+        application/json:
+          type: object
+          properties:
+            rating:
+              type: integer
+            rating-date:
+              type: string
+              format: date-time
+    UserRatingResponse:
+      content:
+        application/json:
+          type: object
+          properties:
+            event-id:
+              type: integer
+            event-title:
+              type: string
+            rating:
+              type: integer
+            ratingdate:
+              type: string
+              format: date-time
 
   schemas:
     Error:
@@ -2613,6 +2782,20 @@ components:
         user-id:
           type: string
         event-id:
+          type: integer
+        score:
+          type: integer
+          minimum: 1
+          maximum: 5
+    UserRating:
+      type: object
+      required: [user-id, event-id, score]
+      properties:
+        rater:
+          type: string
+        rated:
+          type: string
+        event:
           type: integer
         score:
           type: integer

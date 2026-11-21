@@ -386,26 +386,6 @@ func (q *Queries) GetUserFriends(ctx context.Context, user1 pgtype.UUID) ([]pgty
 	return items, nil
 }
 
-const getUserReliability = `-- name: GetUserReliability :one
-SELECT COALESCE(AVG(er.Rating), 0)::real AS reliability, COUNT(er.Rating)::bigint AS ratings_count
-FROM EventRatings er
-JOIN UnofficialEvents ue ON ue.ID = er.Event
-WHERE ue.Creator = $1::uuid
-`
-
-type GetUserReliabilityRow struct {
-	Reliability  float32
-	RatingsCount int64
-}
-
-// Mean of the ratings of every NoOficial event created by the user; count = 0 means "no ratings".
-func (q *Queries) GetUserReliability(ctx context.Context, creator pgtype.UUID) (GetUserReliabilityRow, error) {
-	row := q.db.QueryRow(ctx, getUserReliability, creator)
-	var i GetUserReliabilityRow
-	err := row.Scan(&i.Reliability, &i.RatingsCount)
-	return i, err
-}
-
 const isBlocked = `-- name: IsBlocked :one
 SELECT EXISTS (SELECT 1 from blocked where (blockeduser = $1 and blockinguser = $2) or (blockeduser = $2 and blockinguser = $1) limit 1)
 `
@@ -516,15 +496,16 @@ func (q *Queries) ListUserCreatedEvents(ctx context.Context, creator pgtype.UUID
 }
 
 const listUserReceivedRatings = `-- name: ListUserReceivedRatings :many
-SELECT er.Event AS event_id, e.Title AS event_title, er.Rating, er.RatingDate
-FROM EventRatings er
-JOIN UnofficialEvents ue ON ue.ID = er.Event
-JOIN Events e ON e.ID = er.Event
-WHERE ue.Creator = $1::uuid
-ORDER BY er.RatingDate DESC, er.Event DESC
+SELECT ur.rater, ur.rated, e.ID as event_id, e.title as event_title, ur.Rating, ur.RatingDate
+FROM UserRatings ur
+JOIN Events e ON e.ID = ur.Event
+WHERE ur.rated = $1::uuid
+ORDER BY ur.RatingDate DESC, ur.Event DESC
 `
 
 type ListUserReceivedRatingsRow struct {
+	Rater      pgtype.UUID
+	Rated      pgtype.UUID
 	EventID    int32
 	EventTitle string
 	Rating     int32
@@ -541,6 +522,8 @@ func (q *Queries) ListUserReceivedRatings(ctx context.Context, creator pgtype.UU
 	for rows.Next() {
 		var i ListUserReceivedRatingsRow
 		if err := rows.Scan(
+			&i.Rater,
+			&i.Rated,
 			&i.EventID,
 			&i.EventTitle,
 			&i.Rating,

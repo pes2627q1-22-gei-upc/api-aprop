@@ -158,13 +158,11 @@ func (s *userService) GetUserProfile(ctx context.Context, targetIdentifier strin
 		friendsCount        int
 		plansCount          int
 		completedPlansCount int
-		reliability         *float32
 	)
 
 	friendsCount, _ = s.userRepo.CountFriends(ctx, target.ID)
 	plansCount, _ = s.userRepo.CountPlans(ctx, target.ID)
 	completedPlansCount, _ = s.userRepo.CountCompletedPlans(ctx, target.ID)
-	reliability, _ = s.userRepo.GetReliability(ctx, target.ID)
 
 	var (
 		isFriend     *bool
@@ -209,8 +207,7 @@ func (s *userService) GetUserProfile(ctx context.Context, targetIdentifier strin
 		AccountState:        target.AccountState,
 		Experience:          target.Experience,
 		Level:               target.Level,
-		Rating:              target.Rating,
-		Reliability:         reliability,
+		Reliability:         target.Rating,
 		FriendsCount:        friendsCount,
 		PlansCount:          plansCount,
 		CompletedPlansCount: completedPlansCount,

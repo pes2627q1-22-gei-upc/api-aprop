@@ -45,7 +45,7 @@ INSERT INTO events (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
     $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26
 )
-RETURNING id, title, subtitle, description, schedule, url, tickets, ticketsurl, free, permanent, relatedurls, urlnames, images, videos, email, phone, activityurl, startdate, enddate, modality, place, latitude, longitude, postalcode, municipality, region, address
+RETURNING id, title, subtitle, description, schedule, url, tickets, ticketsurl, free, permanent, relatedurls, urlnames, images, videos, email, phone, activityurl, startdate, enddate, modality, place, latitude, longitude, postalcode, municipality, region, address, rating
 `
 
 type CreateEventParams struct {
@@ -135,6 +135,7 @@ func (q *Queries) CreateEvent(ctx context.Context, arg CreateEventParams) (Event
 		&i.Municipality,
 		&i.Region,
 		&i.Address,
+		&i.Rating,
 	)
 	return i, err
 }
@@ -414,7 +415,7 @@ const getEvent = `-- name: GetEvent :many
 SELECT e.id, e.title, e.subtitle, e.description, e.schedule, e.tickets, e.url, e.ticketsurl,
 e.free, e.permanent, e.modality, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone,
 e.activityurl, e.startdate, e.enddate, e.place, e.latitude, e.longitude, e.postalcode, e.municipality,
-e.region, e.address, oe.code, ue.creator, ue.datecreated, c.name as category FROM events e left join officialevents oe on e.id=oe.id left join unofficialevents ue on e.id=ue.id
+e.region, e.address, oe.code, ue.creator, ue.datecreated, e.rating, c.name as category FROM events e left join officialevents oe on e.id=oe.id left join unofficialevents ue on e.id=ue.id
 left join eventcategories ec on e.id = ec.event left join categories c on ec.category = c.id
 WHERE e.id = $1
 `
@@ -450,6 +451,7 @@ type GetEventRow struct {
 	Code         pgtype.Int8
 	Creator      pgtype.UUID
 	Datecreated  pgtype.Timestamp
+	Rating       pgtype.Float4
 	Category     pgtype.Text
 }
 
@@ -493,6 +495,7 @@ func (q *Queries) GetEvent(ctx context.Context, id int32) ([]GetEventRow, error)
 			&i.Code,
 			&i.Creator,
 			&i.Datecreated,
+			&i.Rating,
 			&i.Category,
 		); err != nil {
 			return nil, err
@@ -505,12 +508,41 @@ func (q *Queries) GetEvent(ctx context.Context, id int32) ([]GetEventRow, error)
 	return items, nil
 }
 
+const getEventRatings = `-- name: GetEventRatings :many
+SELECT Rating, RatingDate from EventRatings where event=$1
+`
+
+type GetEventRatingsRow struct {
+	Rating     int32
+	Ratingdate pgtype.Timestamp
+}
+
+func (q *Queries) GetEventRatings(ctx context.Context, event int32) ([]GetEventRatingsRow, error) {
+	rows, err := q.db.Query(ctx, getEventRatings, event)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetEventRatingsRow
+	for rows.Next() {
+		var i GetEventRatingsRow
+		if err := rows.Scan(&i.Rating, &i.Ratingdate); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getPopularEvents = `-- name: GetPopularEvents :many
-SELECT evlst.id, evlst.title, evlst.subtitle, evlst.description, evlst.schedule, evlst.tickets, evlst.url, evlst.ticketsurl, evlst.free, evlst.permanent, evlst.modality, evlst.relatedurls, evlst.urlnames, evlst.images, evlst.videos, evlst.email, evlst.phone, evlst.activityurl, evlst.startdate, evlst.enddate, evlst.place, evlst.latitude, evlst.longitude, evlst.postalcode, evlst.municipality, evlst.region, evlst.address, evlst.code, evlst.creator, evlst.datecreated, evlst.num_signups, c.name as category FROM (
+SELECT evlst.id, evlst.title, evlst.subtitle, evlst.description, evlst.schedule, evlst.tickets, evlst.url, evlst.ticketsurl, evlst.free, evlst.permanent, evlst.modality, evlst.relatedurls, evlst.urlnames, evlst.images, evlst.videos, evlst.email, evlst.phone, evlst.activityurl, evlst.startdate, evlst.enddate, evlst.place, evlst.latitude, evlst.longitude, evlst.postalcode, evlst.municipality, evlst.region, evlst.address, evlst.code, evlst.creator, evlst.datecreated, evlst.rating, evlst.num_signups, c.name as category FROM (
     SELECT e.id, e.title, e.subtitle, e.description, e.schedule, e.tickets, e.url, e.ticketsurl,
     e.free, e.permanent, e.modality, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone,
     e.activityurl, e.startdate, e.enddate, e.place, e.latitude, e.longitude, e.postalcode, e.municipality,
-    e.region, e.address, oe.code, ue.creator, ue.datecreated, count(s.userid) as num_signups FROM events e left join officialevents oe on e.id=oe.id
+    e.region, e.address, oe.code, ue.creator, ue.datecreated, e.rating, count(s.userid) as num_signups FROM events e left join officialevents oe on e.id=oe.id
     left join unofficialevents ue on e.id=ue.id left join signup s on s.event=e.id
     WHERE e.enddate is null or e.enddate > now()
     GROUP BY e.id, oe.id, ue.id ORDER BY num_signups DESC, e.enddate ASC NULLS LAST
@@ -554,6 +586,7 @@ type GetPopularEventsRow struct {
 	Code         pgtype.Int8
 	Creator      pgtype.UUID
 	Datecreated  pgtype.Timestamp
+	Rating       pgtype.Float4
 	NumSignups   int64
 	Category     pgtype.Text
 }
@@ -598,6 +631,7 @@ func (q *Queries) GetPopularEvents(ctx context.Context, arg GetPopularEventsPara
 			&i.Code,
 			&i.Creator,
 			&i.Datecreated,
+			&i.Rating,
 			&i.NumSignups,
 			&i.Category,
 		); err != nil {
@@ -637,11 +671,11 @@ func (q *Queries) GetUnofficialEventState(ctx context.Context, id int32) (string
 }
 
 const listEvents = `-- name: ListEvents :many
-SELECT evlst.id, evlst.title, evlst.subtitle, evlst.description, evlst.schedule, evlst.tickets, evlst.url, evlst.ticketsurl, evlst.free, evlst.permanent, evlst.modality, evlst.relatedurls, evlst.urlnames, evlst.images, evlst.videos, evlst.email, evlst.phone, evlst.activityurl, evlst.startdate, evlst.enddate, evlst.place, evlst.latitude, evlst.longitude, evlst.postalcode, evlst.municipality, evlst.region, evlst.address, evlst.code, evlst.creator, evlst.datecreated, c.name as category FROM (
+SELECT evlst.id, evlst.title, evlst.subtitle, evlst.description, evlst.schedule, evlst.tickets, evlst.url, evlst.ticketsurl, evlst.free, evlst.permanent, evlst.modality, evlst.relatedurls, evlst.urlnames, evlst.images, evlst.videos, evlst.email, evlst.phone, evlst.activityurl, evlst.startdate, evlst.enddate, evlst.place, evlst.latitude, evlst.longitude, evlst.postalcode, evlst.municipality, evlst.region, evlst.address, evlst.code, evlst.creator, evlst.datecreated, evlst.rating, c.name as category FROM (
     SELECT e.id, e.title, e.subtitle, e.description, e.schedule, e.tickets, e.url, e.ticketsurl,
     e.free, e.permanent, e.modality, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone,
     e.activityurl, e.startdate, e.enddate, e.place, e.latitude, e.longitude, e.postalcode, e.municipality,
-    e.region, e.address, oe.code, ue.creator, ue.datecreated FROM events e left join officialevents oe on e.id=oe.id left join unofficialevents ue on e.id=ue.id
+    e.region, e.address, oe.code, ue.creator, ue.datecreated, e.rating FROM events e left join officialevents oe on e.id=oe.id left join unofficialevents ue on e.id=ue.id
     WHERE ($3::int = 0 or exists (select 1 from eventcategories ec where ec.event=e.id and ec.category = $3::int))   -- category filter
     and ($4::text = '' or e.region = $4::text)    -- region filter
     and ($5::date is null or e.startdate <= $5::date)   -- start-before filter
@@ -704,6 +738,7 @@ type ListEventsRow struct {
 	Code         pgtype.Int8
 	Creator      pgtype.UUID
 	Datecreated  pgtype.Timestamp
+	Rating       pgtype.Float4
 	Category     pgtype.Text
 }
 
@@ -760,6 +795,7 @@ func (q *Queries) ListEvents(ctx context.Context, arg ListEventsParams) ([]ListE
 			&i.Code,
 			&i.Creator,
 			&i.Datecreated,
+			&i.Rating,
 			&i.Category,
 		); err != nil {
 			return nil, err
@@ -799,7 +835,7 @@ UPDATE events SET
     images = $14, videos = $15, email = $16, place = $17, latitude = $18, longitude = $19, postalcode = $20,
     municipality = $21, region = $22, address = $23, phone = $24, activityurl = $25, startdate = $26, enddate = $27
 WHERE id = $1
-RETURNING id, title, subtitle, description, schedule, url, tickets, ticketsurl, free, permanent, relatedurls, urlnames, images, videos, email, phone, activityurl, startdate, enddate, modality, place, latitude, longitude, postalcode, municipality, region, address
+RETURNING id, title, subtitle, description, schedule, url, tickets, ticketsurl, free, permanent, relatedurls, urlnames, images, videos, email, phone, activityurl, startdate, enddate, modality, place, latitude, longitude, postalcode, municipality, region, address, rating
 `
 
 type UpdateEventParams struct {
@@ -891,6 +927,7 @@ func (q *Queries) UpdateEvent(ctx context.Context, arg UpdateEventParams) (Event
 		&i.Municipality,
 		&i.Region,
 		&i.Address,
+		&i.Rating,
 	)
 	return i, err
 }

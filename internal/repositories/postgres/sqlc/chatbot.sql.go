@@ -160,7 +160,7 @@ func (q *Queries) ListChatbotMessages(ctx context.Context, arg ListChatbotMessag
 }
 
 const listChatbotRecommendations = `-- name: ListChatbotRecommendations :many
-SELECT r.SentAt, e.id, e.title, e.subtitle, e.description, e.schedule, e.url, e.tickets, e.ticketsurl, e.free, e.permanent, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone, e.activityurl, e.startdate, e.enddate, e.modality, e.place, e.latitude, e.longitude, e.postalcode, e.municipality, e.region, e.address
+SELECT r.SentAt, e.id, e.title, e.subtitle, e.description, e.schedule, e.url, e.tickets, e.ticketsurl, e.free, e.permanent, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone, e.activityurl, e.startdate, e.enddate, e.modality, e.place, e.latitude, e.longitude, e.postalcode, e.municipality, e.region, e.address, e.rating
 FROM ChatbotRecommendations r
 JOIN Events e ON e.ID = r.Event
 WHERE r.UserID = $1::uuid AND r.ConversationStartedAt = $2::timestamptz
@@ -215,6 +215,7 @@ func (q *Queries) ListChatbotRecommendations(ctx context.Context, arg ListChatbo
 			&i.Event.Municipality,
 			&i.Event.Region,
 			&i.Event.Address,
+			&i.Event.Rating,
 		); err != nil {
 			return nil, err
 		}
