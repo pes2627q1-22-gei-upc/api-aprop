@@ -48,6 +48,26 @@ func (q *Queries) CreatePreferenceTest(ctx context.Context, arg CreatePreference
 	return err
 }
 
+const deletePreferenceTestChoicesByUser = `-- name: DeletePreferenceTestChoicesByUser :exec
+DELETE FROM PreferenceTestChoices
+WHERE TestUser = $1::uuid
+`
+
+func (q *Queries) DeletePreferenceTestChoicesByUser(ctx context.Context, userID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deletePreferenceTestChoicesByUser, userID)
+	return err
+}
+
+const deletePreferenceTestsByUser = `-- name: DeletePreferenceTestsByUser :exec
+DELETE FROM PreferenceTests
+WHERE UserID = $1::uuid
+`
+
+func (q *Queries) DeletePreferenceTestsByUser(ctx context.Context, userID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deletePreferenceTestsByUser, userID)
+	return err
+}
+
 const getCategoriesForEvents = `-- name: GetCategoriesForEvents :many
 SELECT ec.event, ec.category, c.name AS category_name
 FROM EventCategories ec
@@ -82,19 +102,53 @@ func (q *Queries) GetCategoriesForEvents(ctx context.Context, eventIds []int32) 
 }
 
 const getPreferenceTestQuestions = `-- name: GetPreferenceTestQuestions :many
+WITH candidates AS (
+    SELECT
+        e.id,
+        e.title,
+        e.description,
+        e.images,
+        COALESCE(MIN(ec.category), 0) AS primary_category
+    FROM Events e
+    LEFT JOIN EventCategories ec ON ec.event = e.id
+    WHERE btrim(e.title) != ''
+      AND e.images IS NOT NULL
+      AND btrim(e.images) != ''
+    GROUP BY e.id, e.title, e.description, e.images
+),
+ranked AS (
+    SELECT
+        id,
+        title,
+        description,
+        images,
+        primary_category,
+        ROW_NUMBER() OVER (
+            PARTITION BY primary_category
+            ORDER BY random()
+        ) AS rn
+    FROM candidates
+),
+selected AS (
+    SELECT id, title, description, images
+    FROM ranked
+    ORDER BY (primary_category = 0) ASC, rn ASC, random()
+    LIMIT $1
+)
 SELECT
-    e.id, e.title, e.description, e.images,
+    s.id,
+    s.title,
+    s.description,
+    s.images,
     COALESCE(
-        (SELECT string_agg(c.name, ',')
+        (SELECT string_agg(c.name, ',' ORDER BY c.id)
          FROM EventCategories ec
          JOIN Categories c ON c.id = ec.category
-         WHERE ec.event = e.id),
+         WHERE ec.event = s.id),
         ''
     )::text AS categories
-FROM Events e
-WHERE e.title != ''
-ORDER BY e.id
-LIMIT $1
+FROM selected s
+ORDER BY random()
 `
 
 type GetPreferenceTestQuestionsRow struct {
@@ -105,6 +159,8 @@ type GetPreferenceTestQuestionsRow struct {
 	Categories  string
 }
 
+// Selects events with non-empty title and images, diversified by primary category
+// (round-robin random per category) and returned in random order.
 func (q *Queries) GetPreferenceTestQuestions(ctx context.Context, limit int32) ([]GetPreferenceTestQuestionsRow, error) {
 	rows, err := q.db.Query(ctx, getPreferenceTestQuestions, limit)
 	if err != nil {
@@ -129,6 +185,21 @@ func (q *Queries) GetPreferenceTestQuestions(ctx context.Context, limit int32) (
 		return nil, err
 	}
 	return items, nil
+}
+
+const getPreferenceTestStatus = `-- name: GetPreferenceTestStatus :one
+SELECT DateTaken
+FROM PreferenceTests
+WHERE UserID = $1::uuid
+ORDER BY DateTaken DESC
+LIMIT 1
+`
+
+func (q *Queries) GetPreferenceTestStatus(ctx context.Context, userID pgtype.UUID) (pgtype.Timestamp, error) {
+	row := q.db.QueryRow(ctx, getPreferenceTestStatus, userID)
+	var datetaken pgtype.Timestamp
+	err := row.Scan(&datetaken)
+	return datetaken, err
 }
 
 const getUserPreferences = `-- name: GetUserPreferences :many
@@ -177,6 +248,42 @@ func (q *Queries) HasCompletedPreferenceTest(ctx context.Context, userID pgtype.
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
+}
+
+const listAllCategories = `-- name: ListAllCategories :many
+SELECT id, name
+FROM Categories
+ORDER BY id ASC
+`
+
+func (q *Queries) ListAllCategories(ctx context.Context) ([]Category, error) {
+	rows, err := q.db.Query(ctx, listAllCategories)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Category
+	for rows.Next() {
+		var i Category
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockUserPreferenceTest = `-- name: LockUserPreferenceTest :exec
+SELECT pg_advisory_xact_lock(hashtext($1::text))
+`
+
+// Serialises concurrent submits of the same user within a transaction so R1 holds.
+func (q *Queries) LockUserPreferenceTest(ctx context.Context, lockKey string) error {
+	_, err := q.db.Exec(ctx, lockUserPreferenceTest, lockKey)
+	return err
 }
 
 const upsertUserPreference = `-- name: UpsertUserPreference :exec

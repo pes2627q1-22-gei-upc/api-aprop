@@ -11,7 +11,7 @@ Complementa `AGENTS.md` (arquitectura i límits) amb les convencions en tocar co
 - **Arquitectura en capes:**
   - `handlers/`: només transport HTTP, parsing de paràmetres, validació d'entrada i resposta JSON amb `handlers/response`. Cap accés directe a BD ni lògica de negoci pesada.
   - `services/`: lògica de negoci pura darrere d'interfícies (`interface.go`). No importar `net/http` ni barrejar estructures de transport.
-  - `repositories/`: persistència darrere d'interfície. Consultes tipades a `internal/repositories/postgres/sqlc`.
+  - `repositories/`: persistència darrere d'interfície. Totes les consultes SQL han d'anar a `internal/repositories/postgres/queries/*.sql` i generar-se sempre executant `sqlc generate` (mai SQL inline als repositoris ni edicions manuals a `internal/repositories/postgres/sqlc/*.go`).
   - `clients/`: consum de serveis externs darrere d'interfície (`gencat_client`, `groq_client`, etc.).
 - **Errors i respostes:**
   - Utilitza errors embolicats (`fmt.Errorf("...: %w", err)`).

@@ -2,10 +2,12 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -30,7 +32,25 @@ func NewPreferenceRepository(pool *pgxpool.Pool) *PreferenceRepository {
 	}
 }
 
+func parseCategories(raw string) []string {
+	cats := make([]string, 0)
+	if raw == "" {
+		return cats
+	}
+	for _, c := range strings.Split(raw, ",") {
+		trimmed := strings.TrimSpace(c)
+		if trimmed != "" {
+			cats = append(cats, trimmed)
+		}
+	}
+	return cats
+}
+
 func (r *PreferenceRepository) GetQuestions(ctx context.Context, limit int) ([]preference_model.TestQuestion, error) {
+	if limit <= 0 {
+		return []preference_model.TestQuestion{}, nil
+	}
+
 	rows, err := r.queries.GetPreferenceTestQuestions(ctx, int32(limit))
 	if err != nil {
 		return nil, fmt.Errorf("get preference questions: %w", err)
@@ -38,21 +58,12 @@ func (r *PreferenceRepository) GetQuestions(ctx context.Context, limit int) ([]p
 
 	questions := make([]preference_model.TestQuestion, 0, len(rows))
 	for _, row := range rows {
-		var cats []string
-		if row.Categories != "" {
-			for _, c := range strings.Split(row.Categories, ",") {
-				trimmed := strings.TrimSpace(c)
-				if trimmed != "" {
-					cats = append(cats, trimmed)
-				}
-			}
-		}
 		questions = append(questions, preference_model.TestQuestion{
 			EventID:     int(row.ID),
 			Title:       row.Title,
 			Description: row.Description.String,
 			Images:      row.Images.String,
-			Categories:  cats,
+			Categories:  parseCategories(row.Categories),
 		})
 	}
 	return questions, nil
@@ -64,6 +75,31 @@ func (r *PreferenceRepository) HasCompletedTest(ctx context.Context, userID stri
 		return false, err
 	}
 	return r.queries.HasCompletedPreferenceTest(ctx, uid)
+}
+
+func (r *PreferenceRepository) GetTestStatus(ctx context.Context, userID string) (preference_model.TestStatus, error) {
+	uid, err := user_model.ParseID(userID)
+	if err != nil {
+		return preference_model.TestStatus{}, err
+	}
+
+	ts, err := r.queries.GetPreferenceTestStatus(ctx, uid)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return preference_model.TestStatus{Completed: false, DateTaken: nil}, nil
+		}
+		return preference_model.TestStatus{}, fmt.Errorf("get preference test status: %w", err)
+	}
+
+	var dateTaken *time.Time
+	if ts.Valid {
+		t := ts.Time.UTC()
+		dateTaken = &t
+	}
+	return preference_model.TestStatus{
+		Completed: true,
+		DateTaken: dateTaken,
+	}, nil
 }
 
 func (r *PreferenceRepository) SaveTestAndPreferences(
@@ -86,8 +122,22 @@ func (r *PreferenceRepository) SaveTestAndPreferences(
 
 	qtx := r.queries.WithTx(tx)
 
+	// Serialise concurrent submits of the same user so R1 holds (a first test has no row to lock).
+	if err := qtx.LockUserPreferenceTest(ctx, uid.String()); err != nil {
+		return fmt.Errorf("lock preference test: %w", err)
+	}
+
+	// 0. Replace previous test and choices so each user keeps a single active TestInteressos (R1).
+	// TODO(DP-044): R1 s'aplica per esborrat + inserció dins la transacció (sense UNIQUE(UserID) a la BD).
+	if err := qtx.DeletePreferenceTestChoicesByUser(ctx, uid); err != nil {
+		return fmt.Errorf("delete previous preference choices: %w", err)
+	}
+	if err := qtx.DeletePreferenceTestsByUser(ctx, uid); err != nil {
+		return fmt.Errorf("delete previous preference tests: %w", err)
+	}
+
 	// 1. Record test
-	ts := pgtype.Timestamp{Time: dateTaken, Valid: true}
+	ts := pgtype.Timestamp{Time: dateTaken.UTC(), Valid: true}
 	if err := qtx.CreatePreferenceTest(ctx, sqlc.CreatePreferenceTestParams{
 		UserID:    uid,
 		DateTaken: ts,
@@ -143,22 +193,19 @@ func (r *PreferenceRepository) GetEventCategories(ctx context.Context, eventIDs 
 }
 
 func (r *PreferenceRepository) ListAllCategories(ctx context.Context) ([]event_model.Category, error) {
-	// Reusing GetCategories from EventRepository or querying directly
-	rows, err := r.pool.Query(ctx, "SELECT id, name FROM Categories ORDER BY id ASC")
+	rows, err := r.queries.ListAllCategories(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list all categories: %w", err)
 	}
-	defer rows.Close()
 
-	var categories []event_model.Category
-	for rows.Next() {
-		var c event_model.Category
-		if err := rows.Scan(&c.ID, &c.Name); err != nil {
-			return nil, err
-		}
-		categories = append(categories, c)
+	categories := make([]event_model.Category, 0, len(rows))
+	for _, row := range rows {
+		categories = append(categories, event_model.Category{
+			ID:   int(row.ID),
+			Name: row.Name,
+		})
 	}
-	return categories, rows.Err()
+	return categories, nil
 }
 
 func (r *PreferenceRepository) GetUserPreferences(ctx context.Context, userID string) ([]preference_model.UserPreference, error) {

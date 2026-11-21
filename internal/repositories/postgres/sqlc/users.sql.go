@@ -195,13 +195,14 @@ func (q *Queries) GetFriendRequests(ctx context.Context, receiver pgtype.UUID) (
 }
 
 const getSettings = `-- name: GetSettings :many
-SELECT s.id, s.showplans, s.notificationbefore, COALESCE(an.notificationtype, -1) from settings s left join allowednotifications an on an.settings=s.id where id=$1
+SELECT s.id, s.showplans, s.notificationbefore, s.language, COALESCE(an.notificationtype, -1) from settings s left join allowednotifications an on an.settings=s.id where id=$1
 `
 
 type GetSettingsRow struct {
 	ID                 int32
 	Showplans          bool
 	Notificationbefore pgtype.Interval
+	Language           string
 	Notificationtype   int32
 }
 
@@ -218,6 +219,7 @@ func (q *Queries) GetSettings(ctx context.Context, id int32) ([]GetSettingsRow, 
 			&i.ID,
 			&i.Showplans,
 			&i.Notificationbefore,
+			&i.Language,
 			&i.Notificationtype,
 		); err != nil {
 			return nil, err
@@ -638,7 +640,7 @@ UPDATE Settings SET
     ShowPlans = $1::boolean,
     NotificationBefore = ($2::varchar)::interval
 WHERE ID = $3::integer
-RETURNING id, showplans, notificationbefore
+RETURNING id, showplans, notificationbefore, language
 `
 
 type UpdateUserSettingsParams struct {
@@ -650,6 +652,11 @@ type UpdateUserSettingsParams struct {
 func (q *Queries) UpdateUserSettings(ctx context.Context, arg UpdateUserSettingsParams) (Setting, error) {
 	row := q.db.QueryRow(ctx, updateUserSettings, arg.ShowPlans, arg.NotificationBefore, arg.ID)
 	var i Setting
-	err := row.Scan(&i.ID, &i.Showplans, &i.Notificationbefore)
+	err := row.Scan(
+		&i.ID,
+		&i.Showplans,
+		&i.Notificationbefore,
+		&i.Language,
+	)
 	return i, err
 }

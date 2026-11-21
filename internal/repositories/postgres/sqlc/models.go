@@ -97,6 +97,49 @@ func (ns NullModalitytype) Value() (driver.Value, error) {
 	return string(ns.Modalitytype), nil
 }
 
+type Unofficialeventstate string
+
+const (
+	UnofficialeventstateActive    Unofficialeventstate = "Active"
+	UnofficialeventstateWithdrawn Unofficialeventstate = "Withdrawn"
+	UnofficialeventstateCancelled Unofficialeventstate = "Cancelled"
+)
+
+func (e *Unofficialeventstate) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = Unofficialeventstate(s)
+	case string:
+		*e = Unofficialeventstate(s)
+	default:
+		return fmt.Errorf("unsupported scan type for Unofficialeventstate: %T", src)
+	}
+	return nil
+}
+
+type NullUnofficialeventstate struct {
+	Unofficialeventstate Unofficialeventstate
+	Valid                bool // Valid is true if Unofficialeventstate is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullUnofficialeventstate) Scan(value interface{}) error {
+	if value == nil {
+		ns.Unofficialeventstate, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.Unofficialeventstate.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullUnofficialeventstate) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.Unofficialeventstate), nil
+}
+
 type Accountstate struct {
 	ID   int32
 	Name string
@@ -110,6 +153,7 @@ type Allowednotification struct {
 type Blocked struct {
 	Blockinguser pgtype.UUID
 	Blockeduser  pgtype.UUID
+	Dateblocked  pgtype.Timestamp
 }
 
 type Category struct {
@@ -203,6 +247,19 @@ type Eventrating struct {
 	Rating     int32
 }
 
+type Eventtranslation struct {
+	Event       int32
+	Lang        string
+	Title       string
+	Subtitle    string
+	Description string
+	Schedule    string
+	Tickets     string
+	Urlnames    string
+	Sourcehash  string
+	Updatedat   pgtype.Timestamptz
+}
+
 type Friendrequest struct {
 	Sender       pgtype.UUID
 	Receiver     pgtype.UUID
@@ -260,6 +317,7 @@ type Setting struct {
 	ID                 int32
 	Showplans          bool
 	Notificationbefore pgtype.Interval
+	Language           string
 }
 
 type Signup struct {
@@ -273,7 +331,7 @@ type Unofficialevent struct {
 	ID          int32
 	Creator     pgtype.UUID
 	Datecreated pgtype.Timestamp
-	State       interface{}
+	State       Unofficialeventstate
 }
 
 type User struct {
