@@ -408,10 +408,11 @@ const listUserCreatedEvents = `-- name: ListUserCreatedEvents :many
 SELECT e.id, e.title, e.subtitle, e.description, e.schedule, e.tickets, e.url, e.ticketsurl,
 e.free, e.permanent, e.modality, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone,
 e.activityurl, e.startdate, e.enddate, e.place, e.latitude, e.longitude, e.postalcode, e.municipality,
-e.region, e.address, ue.creator, ue.datecreated
+e.region, e.address, ue.creator, ue.datecreated, ue.state
 FROM events e
 JOIN unofficialevents ue ON e.id = ue.id
 WHERE ue.creator = $1::uuid
+and ue.state = 'Active'::unofficialeventstate
 ORDER BY e.startdate DESC NULLS LAST, e.id DESC
 `
 
@@ -445,6 +446,7 @@ type ListUserCreatedEventsRow struct {
 	Address      pgtype.Text
 	Creator      pgtype.UUID
 	Datecreated  pgtype.Timestamp
+	State        Unofficialeventstate
 }
 
 func (q *Queries) ListUserCreatedEvents(ctx context.Context, creator pgtype.UUID) ([]ListUserCreatedEventsRow, error) {
@@ -486,6 +488,7 @@ func (q *Queries) ListUserCreatedEvents(ctx context.Context, creator pgtype.UUID
 			&i.Address,
 			&i.Creator,
 			&i.Datecreated,
+			&i.State,
 		); err != nil {
 			return nil, err
 		}

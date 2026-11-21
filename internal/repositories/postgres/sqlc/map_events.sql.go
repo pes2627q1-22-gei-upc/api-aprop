@@ -17,13 +17,7 @@ SELECT
     e.free, e.permanent, COALESCE(e.modality::text, '')::text AS modality, e.relatedurls, e.urlnames, e.images,
     e.videos, e.email, e.place, e.latitude, e.longitude, e.postalcode, e.municipality,
     e.region, e.address, e.phone, e.activityurl, e.startdate, e.enddate, c.name as category,
-    (
-        EXISTS (SELECT 1 FROM OfficialEvents oe WHERE oe.ID = e.ID)
-        OR (
-            NOT EXISTS (SELECT 1 FROM UnofficialEvents ue WHERE ue.ID = e.ID)
-            AND NOT EXISTS (SELECT 1 FROM OfficialEvents)
-        )
-    )::boolean AS is_official,
+    (ue.id is null)::boolean AS is_official, ue.creator, ue.datecreated, ue.state,
     (
         $1::uuid IS NOT NULL
         AND (
@@ -36,17 +30,14 @@ SELECT
                 WHERE s.Event = e.ID
             )
             OR EXISTS (
-                SELECT 1 FROM UnofficialEvents ue
-                JOIN Friendships f ON (
-                    (f.User1 = $1::uuid AND f.User2 = ue.Creator)
-                    OR (f.User2 = $1::uuid AND f.User1 = ue.Creator)
-                )
-                WHERE ue.ID = e.ID
+                SELECT 1 FROM Friendships f WHERE (f.User1 = $1::uuid AND f.User2 = ue.Creator)
+                                            OR (f.User2 = $1::uuid AND f.User1 = ue.Creator)
             )
         )
     )::boolean AS has_friends
-FROM Events e left join eventcategories ec on ec.event = e.ID left join categories c on ec.category = c.id
-WHERE e.Latitude IS NOT NULL
+FROM Events e left join eventcategories ec on ec.event = e.ID left join categories c on ec.category = c.id left join unofficialevents ue on ue.id=e.id
+WHERE (ue.id is null or ue.state=='Active'::unofficialeventstate)
+  AND e.Latitude IS NOT NULL
   AND e.Longitude IS NOT NULL
   AND NOT (e.Latitude = 0 AND e.Longitude = 0)
   AND e.Latitude >= $2::real
@@ -95,6 +86,9 @@ type ListMapEventsRow struct {
 	Enddate      pgtype.Date
 	Category     pgtype.Text
 	IsOfficial   bool
+	Creator      pgtype.UUID
+	Datecreated  pgtype.Timestamp
+	State        NullUnofficialeventstate
 	HasFriends   bool
 }
 
@@ -145,6 +139,9 @@ func (q *Queries) ListMapEvents(ctx context.Context, arg ListMapEventsParams) ([
 			&i.Enddate,
 			&i.Category,
 			&i.IsOfficial,
+			&i.Creator,
+			&i.Datecreated,
+			&i.State,
 			&i.HasFriends,
 		); err != nil {
 			return nil, err

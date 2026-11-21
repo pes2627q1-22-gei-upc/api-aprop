@@ -25,7 +25,7 @@ SELECT EXISTS (SELECT 1 FROM events WHERE id = $1);
 SELECT e.id, e.title, e.subtitle, e.description, e.schedule, e.tickets, e.url, e.ticketsurl,
 e.free, e.permanent, e.modality, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone,
 e.activityurl, e.startdate, e.enddate, e.place, e.latitude, e.longitude, e.postalcode, e.municipality,
-e.region, e.address, oe.code, ue.creator, ue.datecreated, e.rating, c.name as category FROM events e left join officialevents oe on e.id=oe.id left join unofficialevents ue on e.id=ue.id
+e.region, e.address, oe.code, ue.creator, ue.state, ue.datecreated, e.rating, c.name as category FROM events e left join officialevents oe on e.id=oe.id left join unofficialevents ue on e.id=ue.id
 left join eventcategories ec on e.id = ec.event left join categories c on ec.category = c.id
 WHERE e.id = $1;
 
@@ -34,8 +34,9 @@ SELECT evlst.*, c.name as category FROM (
     SELECT e.id, e.title, e.subtitle, e.description, e.schedule, e.tickets, e.url, e.ticketsurl,
     e.free, e.permanent, e.modality, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone,
     e.activityurl, e.startdate, e.enddate, e.place, e.latitude, e.longitude, e.postalcode, e.municipality,
-    e.region, e.address, oe.code, ue.creator, ue.datecreated, e.rating FROM events e left join officialevents oe on e.id=oe.id left join unofficialevents ue on e.id=ue.id
-    WHERE (@category::int = 0 or exists (select 1 from eventcategories ec where ec.event=e.id and ec.category = @category::int))   -- category filter
+    e.region, e.address, oe.code, ue.creator, ue.state, ue.datecreated, e.rating FROM events e left join officialevents oe on e.id=oe.id left join unofficialevents ue on e.id=ue.id
+    WHERE (ue.id is null or ue.state = 'Active'::unofficialeventstate)
+    and (@category::int = 0 or exists (select 1 from eventcategories ec where ec.event=e.id and ec.category = @category::int))   -- category filter
     and (@region::text = '' or e.region = @region::text)    -- region filter
     and (@startbefore::date is null or e.startdate <= @startbefore::date)   -- start-before filter
     and (@startafter::date is null or e.startdate >= @startafter::date)   -- start-after filter
@@ -55,9 +56,9 @@ SELECT evlst.*, c.name as category FROM (
     SELECT e.id, e.title, e.subtitle, e.description, e.schedule, e.tickets, e.url, e.ticketsurl,
     e.free, e.permanent, e.modality, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone,
     e.activityurl, e.startdate, e.enddate, e.place, e.latitude, e.longitude, e.postalcode, e.municipality,
-    e.region, e.address, oe.code, ue.creator, ue.datecreated, e.rating, count(s.userid) as num_signups FROM events e left join officialevents oe on e.id=oe.id
+    e.region, e.address, oe.code, ue.creator, ue.state, ue.datecreated, e.rating, count(s.userid) as num_signups FROM events e left join officialevents oe on e.id=oe.id
     left join unofficialevents ue on e.id=ue.id left join signup s on s.event=e.id
-    WHERE e.enddate is null or e.enddate > now()
+    WHERE (ue.id is null or ue.state = 'Active'::unofficialeventstate) and e.enddate is null or e.enddate > now()
     GROUP BY e.id, oe.id, ue.id ORDER BY num_signups DESC, e.enddate ASC NULLS LAST
     LIMIT $1 OFFSET $2
 ) evlst left join eventcategories ec on evlst.id = ec.event left join categories c on ec.category = c.id ORDER BY evlst.num_signups DESC, evlst.enddate ASC NULLS LAST, evlst.id ASC;
