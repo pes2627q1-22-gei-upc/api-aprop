@@ -25,7 +25,7 @@ SELECT
         )
     )::boolean AS has_friends
 FROM Events e left join eventcategories ec on ec.event = e.ID left join categories c on ec.category = c.id left join unofficialevents ue on ue.id=e.id
-WHERE (ue.id is null or ue.state=='Active'::unofficialeventstate)
+WHERE (ue.id is null or ue.state='Active'::unofficialeventstate)
   AND e.Latitude IS NOT NULL
   AND e.Longitude IS NOT NULL
   AND NOT (e.Latitude = 0 AND e.Longitude = 0)
