@@ -295,24 +295,8 @@ func TestGetUserPreferences(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := tt.service
-			req := httptest.NewRequest(http.MethodGet, "/preferences", nil)
-			if tt.userHeader != "" {
-				req.Header.Set(requester.UserIDHeader, tt.userHeader)
-			}
-
-			rec := serve(&s, req)
-
-			if rec.Code != tt.wantStatus {
-				t.Fatalf("status = %d, want %d (body %s)", rec.Code, tt.wantStatus, rec.Body.String())
-			}
-			if s.calls != tt.wantCalls {
-				t.Errorf("calls = %d, want %d", s.calls, tt.wantCalls)
-			}
-			if tt.wantError != "" {
-				if got := errorMessage(t, rec); got != tt.wantError {
-					t.Errorf("error = %q, want %q", got, tt.wantError)
-				}
+			rec, ok := getAndCheck(t, "/preferences", tt.userHeader, tt.service, tt.wantStatus, tt.wantCalls, tt.wantError)
+			if !ok {
 				return
 			}
 			var prefs []preference_model.UserPreference
@@ -324,6 +308,30 @@ func TestGetUserPreferences(t *testing.T) {
 			}
 		})
 	}
+}
+
+// getAndCheck serves a GET request and verifies status, service calls and error
+// message; ok is false when the case expected an error and nothing more must be checked.
+func getAndCheck(t *testing.T, path, userHeader string, svc fakePreferenceService, wantStatus, wantCalls int, wantError string) (rec *httptest.ResponseRecorder, ok bool) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	if userHeader != "" {
+		req.Header.Set(requester.UserIDHeader, userHeader)
+	}
+	rec = serve(&svc, req)
+	if rec.Code != wantStatus {
+		t.Fatalf("status = %d, want %d (body %s)", rec.Code, wantStatus, rec.Body.String())
+	}
+	if svc.calls != wantCalls {
+		t.Errorf("calls = %d, want %d", svc.calls, wantCalls)
+	}
+	if wantError != "" {
+		if got := errorMessage(t, rec); got != wantError {
+			t.Errorf("error = %q, want %q", got, wantError)
+		}
+		return rec, false
+	}
+	return rec, true
 }
 
 type fakeResolver struct {
@@ -338,19 +346,28 @@ func withFirebaseUser(req *http.Request) *http.Request {
 }
 
 // A Firebase user is translated to its database UUID before the service is called.
-func TestGetUserPreferences_TranslatesFirebaseUID(t *testing.T) {
+func assertTranslatesFirebaseUID(t *testing.T, path string, call func(*PreferenceHandler, http.ResponseWriter, *http.Request)) {
+	t.Helper()
 	s := &fakePreferenceService{}
 	rec := httptest.NewRecorder()
-	NewPreferenceHandler(s, fakeResolver{id: validUserID}).GetUserPreferences(rec, withFirebaseUser(httptest.NewRequest(http.MethodGet, "/preferences", nil)))
+	call(NewPreferenceHandler(s, fakeResolver{id: validUserID}), rec, withFirebaseUser(httptest.NewRequest(http.MethodGet, path, nil)))
 	if rec.Code != http.StatusOK || s.gotUserID != validUserID {
 		t.Fatalf("status = %d, user passed to service = %q; want 200 and %q", rec.Code, s.gotUserID, validUserID)
 	}
 
 	rec = httptest.NewRecorder()
-	NewPreferenceHandler(s, fakeResolver{err: auth_service.ErrUserNotRegistered}).GetUserPreferences(rec, withFirebaseUser(httptest.NewRequest(http.MethodGet, "/preferences", nil)))
+	call(NewPreferenceHandler(s, fakeResolver{err: auth_service.ErrUserNotRegistered}), rec, withFirebaseUser(httptest.NewRequest(http.MethodGet, path, nil)))
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("not registered: status = %d, want 401", rec.Code)
 	}
+}
+
+func TestGetUserPreferences_TranslatesFirebaseUID(t *testing.T) {
+	assertTranslatesFirebaseUID(t, "/preferences", (*PreferenceHandler).GetUserPreferences)
+}
+
+func TestGetTestStatus_TranslatesFirebaseUID(t *testing.T) {
+	assertTranslatesFirebaseUID(t, "/preferences/test/status", (*PreferenceHandler).GetTestStatus)
 }
 
 func TestGetTestStatus(t *testing.T) {
@@ -423,24 +440,8 @@ func TestGetTestStatus(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := tt.service
-			req := httptest.NewRequest(http.MethodGet, "/preferences/test/status", nil)
-			if tt.userHeader != "" {
-				req.Header.Set(requester.UserIDHeader, tt.userHeader)
-			}
-
-			rec := serve(&s, req)
-
-			if rec.Code != tt.wantStatus {
-				t.Fatalf("status = %d, want %d (body %s)", rec.Code, tt.wantStatus, rec.Body.String())
-			}
-			if s.calls != tt.wantCalls {
-				t.Errorf("calls = %d, want %d", s.calls, tt.wantCalls)
-			}
-			if tt.wantError != "" {
-				if got := errorMessage(t, rec); got != tt.wantError {
-					t.Errorf("error = %q, want %q", got, tt.wantError)
-				}
+			rec, ok := getAndCheck(t, "/preferences/test/status", tt.userHeader, tt.service, tt.wantStatus, tt.wantCalls, tt.wantError)
+			if !ok {
 				return
 			}
 
@@ -462,20 +463,5 @@ func TestGetTestStatus(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestGetTestStatus_TranslatesFirebaseUID(t *testing.T) {
-	s := &fakePreferenceService{}
-	rec := httptest.NewRecorder()
-	NewPreferenceHandler(s, fakeResolver{id: validUserID}).GetTestStatus(rec, withFirebaseUser(httptest.NewRequest(http.MethodGet, "/preferences/test/status", nil)))
-	if rec.Code != http.StatusOK || s.gotUserID != validUserID {
-		t.Fatalf("status = %d, user passed to service = %q; want 200 and %q", rec.Code, s.gotUserID, validUserID)
-	}
-
-	rec = httptest.NewRecorder()
-	NewPreferenceHandler(s, fakeResolver{err: auth_service.ErrUserNotRegistered}).GetTestStatus(rec, withFirebaseUser(httptest.NewRequest(http.MethodGet, "/preferences/test/status", nil)))
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("not registered: status = %d, want 401", rec.Code)
 	}
 }
