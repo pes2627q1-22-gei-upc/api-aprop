@@ -50,6 +50,10 @@ func (s *SignUpService) SignUp(ctx context.Context, userID string, eventID int) 
 		return signup_model.SignUp{}, fmt.Errorf("sign up to event %d: %w", eventID, ErrEventExpired)
 	}
 
+	if event.State != nil && *(event.State) != "Active" {
+		return signup_model.SignUp{}, fmt.Errorf("sign up to event %d: %w", eventID, ErrEventCanceled)
+	}
+
 	created, err := s.signUpRepository.Create(ctx, userID, eventID)
 	if errors.Is(err, signup_repository.ErrEventNotFound) {
 		return signup_model.SignUp{}, fmt.Errorf("%w: %w", ErrEventNotFound, err)

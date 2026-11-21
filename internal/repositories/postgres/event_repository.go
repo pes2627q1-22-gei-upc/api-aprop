@@ -729,7 +729,7 @@ func getPopularToGetEventRow(row sqlc.GetPopularEventsRow) sqlc.GetEventRow {
 		Creator:      row.Creator,
 		Datecreated:  row.Datecreated,
 		Category:     row.Category,
-		State:		  row.State,
+		State:        row.State,
 	}
 }
 
@@ -792,7 +792,7 @@ func recommendedRowToGetEventRow(row sqlc.ListRecommendedEventsRow) sqlc.GetEven
 		Creator:      row.Creator,
 		Datecreated:  row.Datecreated,
 		Category:     row.Category,
-		State:		  row.State,
+		State:        row.State,
 	}
 }
 
@@ -879,7 +879,7 @@ func mapEventRowToModel(row sqlc.ListMapEventsRow, cats []string) event_model.Ma
 			Activityurl:  row.Activityurl,
 			Startdate:    row.Startdate,
 			Enddate:      row.Enddate,
-			State:		  row.State,
+			State:        row.State,
 		}, cats),
 		IsOfficial: row.IsOfficial,
 		HasFriends: row.HasFriends,
@@ -978,7 +978,7 @@ func toModelExtended(row sqlc.GetEventRow, cats []string) event_model.Event {
 		DateCreated:  row.Datecreated.Time,
 		Categories:   cats,
 		Rating:       rating,
-		State:		  state,
+		State:        state,
 	}
 }
 

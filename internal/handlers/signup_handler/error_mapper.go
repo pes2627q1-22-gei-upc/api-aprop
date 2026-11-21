@@ -25,6 +25,8 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		response.WriteError(w, http.StatusBadRequest, "invalid event id")
 	case errors.Is(err, signup_service.ErrInvalidDateRange):
 		response.WriteError(w, http.StatusBadRequest, "invalid date range: from must not be after to")
+	case errors.Is(err, signup_service.ErrEventCanceled):
+		response.WriteError(w, http.StatusBadRequest, "event has been canceled")
 	default:
 		log.Printf("internal error: %v", err)
 		response.WriteError(w, http.StatusInternalServerError, "internal server error")
