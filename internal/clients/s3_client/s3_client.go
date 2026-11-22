@@ -7,19 +7,31 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
+// S3Config configures the storage. Bucket, Region, Endpoint and PublicURL are used by the event images; the
+// avatars use the Supabase Storage API of SupabaseURL with SecretKey (#247).
 type S3Config struct {
 	Bucket    string
 	Region    string
 	Endpoint  string // Optional, e.g. https://<project>.supabase.co/storage/v1/s3 or custom endpoint
 	PublicURL string // Optional base URL to construct the public image URL
+
+	SupabaseURL  string        // Project URL, e.g. https://<ref>.supabase.co. Without it (or SecretKey) avatars are disabled
+	SecretKey    string        // Supabase secret key (sb_secret_...) or legacy service_role key; never sent to clients
+	AvatarBucket string        // Private bucket of the profile pictures, "avatars" by default
+	AvatarURLTTL time.Duration // Lifetime of the signed avatar URLs, DefaultAvatarURLTTL by default
 }
 
 type S3Client struct {
 	httpClient *http.Client
 	config     S3Config
+	now        func() time.Time
+
+	mu         sync.Mutex
+	signedURLs map[string]signedURL // cache of signed avatar URLs by object path
 }
 
 var _ Client = (*S3Client)(nil)
@@ -31,25 +43,22 @@ func NewS3Client(httpClient *http.Client, config S3Config) *S3Client {
 	if config.Region == "" {
 		config.Region = "eu-west-1"
 	}
+	if config.AvatarBucket == "" {
+		config.AvatarBucket = "avatars"
+	}
+	if config.AvatarURLTTL <= 0 {
+		config.AvatarURLTTL = DefaultAvatarURLTTL
+	}
+	config.SupabaseURL = strings.TrimRight(config.SupabaseURL, "/")
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 30 * time.Second}
 	}
 	return &S3Client{
 		httpClient: httpClient,
 		config:     config,
+		now:        time.Now,
+		signedURLs: map[string]signedURL{},
 	}
-}
-
-func (c *S3Client) UploadAvatar(ctx context.Context, userID string, filename string, contentType string, reader io.Reader) (string, error) {
-	switch contentType {
-	case "image/jpeg", "image/png", "image/webp":
-	default:
-		return "", ErrInvalidContentType
-	}
-
-	ext := extensionForMime(filename, contentType)
-	key := fmt.Sprintf("avatars/%s/avatar-%d%s", userID, time.Now().Unix(), ext)
-	return c.upload(ctx, key, contentType, reader)
 }
 
 func (c *S3Client) UploadEventImage(ctx context.Context, eventID int, filename string, contentType string, reader io.Reader) (string, error) {
@@ -92,53 +101,6 @@ func (c *S3Client) upload(ctx context.Context, key string, contentType string, r
 	}
 
 	return fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", c.config.Bucket, c.config.Region, key), nil
-}
-
-func (c *S3Client) DeleteAvatar(ctx context.Context, userID string, url string) error {
-	if c.config.Endpoint == "" || userID == "" {
-		return nil // without endpoint nothing was uploaded (see upload)
-	}
-	key, ok := c.keyFromURL(url)
-	if !ok || !strings.HasPrefix(key, "avatars/"+userID+"/") || strings.Contains(key, "..") {
-		return nil
-	}
-
-	// TODO(DP-031): unsigned request, like the upload
-	deleteURL := fmt.Sprintf("%s/%s/%s", strings.TrimRight(c.config.Endpoint, "/"), c.config.Bucket, key)
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, deleteURL, nil)
-	if err != nil {
-		return fmt.Errorf("create s3 delete request: %w", err)
-	}
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("%w: %v", ErrDeleteFailed, err)
-	}
-	defer resp.Body.Close()
-
-	// 404: already deleted
-	if resp.StatusCode == http.StatusNotFound || (resp.StatusCode >= 200 && resp.StatusCode < 300) {
-		return nil
-	}
-	return fmt.Errorf("%w: storage responded with status %d", ErrDeleteFailed, resp.StatusCode)
-}
-
-// keyFromURL returns the object key of a URL built by upload.
-func (c *S3Client) keyFromURL(url string) (string, bool) {
-	prefixes := []string{
-		fmt.Sprintf("https://%s.s3.%s.amazonaws.com", c.config.Bucket, c.config.Region),
-	}
-	if c.config.Endpoint != "" {
-		prefixes = append(prefixes, fmt.Sprintf("%s/%s", strings.TrimRight(c.config.Endpoint, "/"), c.config.Bucket))
-	}
-	if c.config.PublicURL != "" {
-		prefixes = append(prefixes, strings.TrimRight(c.config.PublicURL, "/"))
-	}
-	for _, prefix := range prefixes {
-		if key, ok := strings.CutPrefix(url, prefix+"/"); ok && key != "" {
-			return key, true
-		}
-	}
-	return "", false
 }
 
 func extensionForMime(filename, contentType string) string {
