@@ -156,12 +156,6 @@ func (s *AssistantService) GetConversation(ctx context.Context, userID string) (
 	return chatbot_model.Conversation{StartedAt: startedAt, Messages: messages}, nil
 }
 
-// lastSearch is the latest successful search_events call of a reply.
-type lastSearch struct {
-	input    SearchEventsInput
-	eventIDs []int
-}
-
 // reply runs the agent loop: Groq decides which tools to call until it answers with text.
 // Messages that are not about the app get a fixed reply and never reach the tools.
 func (s *AssistantService) reply(ctx context.Context, userID string, now time.Time, history []chatbot_model.Message, text string) (chatbot_model.Message, error) {
@@ -174,14 +168,16 @@ func (s *AssistantService) reply(ctx context.Context, userID string, now time.Ti
 		return chatbot_model.Message{Sender: chatbot_model.SenderAssistant, Text: offTopicReply}, nil
 	}
 
+	shownIDs := collectShownEventIDs(history)
+
 	messages := make([]groq_client.Message, 0, len(history)+2)
 	messages = append(messages, groq_client.SystemMessage(systemInstruction(now)))
-	messages = append(messages, historyToMessages(history)...)
+	messages = append(messages, historyToMessages(history, true)...)
 	messages = append(messages, groq_client.UserMessage(text))
 
 	groqTools := toolDefinitions()
 
-	var search *lastSearch
+	searches := newTurnSearches()
 	var action string
 	for range maxToolRounds {
 		resp, err := s.ai.ChatCompletion(ctx, groq_client.ChatCompletionRequest{
@@ -199,17 +195,23 @@ func (s *AssistantService) reply(ctx context.Context, userID string, now time.Ti
 		messages = append(messages, assistantMsg)
 
 		if len(assistantMsg.ToolCalls) == 0 {
-			replyText := stripThinking(assistantMsg.Content)
+			rawText := stripThinking(assistantMsg.Content)
+			replyText, taggedIDs, hasTag := parseRecommendedIDs(rawText)
 			if replyText == "" {
 				return chatbot_model.Message{}, errors.New("empty reply from groq")
 			}
-			m, err := s.assistantMessage(ctx, replyText, search)
+			chosenIDs := resolveRecommendedIDs(replyText, hasTag, taggedIDs, searches, shownIDs)
+			m, err := s.assistantMessage(ctx, replyText, searches, chosenIDs)
 			m.Action = action
 			return m, err
 		}
 
 		for _, call := range assistantMsg.ToolCalls {
-			resultText, found, err := s.callTool(ctx, userID, now, call.Function.Name, call.Function.Arguments)
+			resultText, found, err := s.callToolWithExcluded(ctx, userID, now, shownIDs, call.Function.Name, call.Function.Arguments)
+			if call.Function.Name == ToolSearchEvents && needsClarification(history, call.Function.Arguments) {
+				// Deterministic guard: the model sometimes ignores the prompt rule for vague requests.
+				resultText, found = clarifyFirstResult, nil
+			}
 			if err != nil {
 				return chatbot_model.Message{}, err
 			}
@@ -220,7 +222,7 @@ func (s *AssistantService) reply(ctx context.Context, userID string, now time.Ti
 				}
 			}
 			if found != nil {
-				search = found
+				searches.record(found)
 			}
 			messages = append(messages, groq_client.ToolResultMessage(call.ID, resultText))
 		}
@@ -236,7 +238,7 @@ func (s *AssistantService) isOnTopic(ctx context.Context, history []chatbot_mode
 	}
 	messages := make([]groq_client.Message, 0, len(history)+2)
 	messages = append(messages, groq_client.SystemMessage(topicInstruction))
-	messages = append(messages, historyToMessages(history)...)
+	messages = append(messages, historyToMessages(history, false)...)
 	messages = append(messages, groq_client.UserMessage(text))
 
 	resp, err := s.ai.ChatCompletion(ctx, groq_client.ChatCompletionRequest{
@@ -251,15 +253,19 @@ func (s *AssistantService) isOnTopic(ctx context.Context, history []chatbot_mode
 	return !strings.Contains(strings.ToLower(resp.Choices[0].Message.Content), labelOffTopic), nil
 }
 
-// assistantMessage builds the reply. The interpretation is what the model searched for and the
-// recommendations are the events the catalogue returned, so the model cannot invent either of them.
-func (s *AssistantService) assistantMessage(ctx context.Context, text string, search *lastSearch) (chatbot_model.Message, error) {
-	m := chatbot_model.Message{Sender: chatbot_model.SenderAssistant, Text: text}
-	if search == nil {
+// assistantMessage builds the reply. The interpretation comes from the model's search parameters and
+// the recommended cards are loaded from the catalogue using only the validated event IDs chosen by
+// the model, so cards match the reply text in identity, order and count without inventing events.
+func (s *AssistantService) assistantMessage(ctx context.Context, text string, searches *turnSearches, chosenIDs []int) (chatbot_model.Message, error) {
+	m := chatbot_model.Message{
+		Sender:         chatbot_model.SenderAssistant,
+		Text:           text,
+		Interpretation: interpretationFor(searches, chosenIDs),
+	}
+	if len(chosenIDs) == 0 {
 		return m, nil
 	}
-	m.Interpretation = toInterpretation(search.input)
-	events, err := s.catalogueRepository.ListByIDs(ctx, search.eventIDs)
+	events, err := s.catalogueRepository.ListByIDs(ctx, chosenIDs)
 	if err != nil {
 		return chatbot_model.Message{}, err
 	}
@@ -285,7 +291,9 @@ func parseDate(s string) *time.Time {
 }
 
 // historyToMessages replays the latest messages so the model understands follow up questions.
-func historyToMessages(history []chatbot_model.Message) []groq_client.Message {
+// When includeShownEvents is true, assistant messages that recommended events carry a compact
+// summary of those event IDs and titles so the model can answer follow-ups and avoid repeats.
+func historyToMessages(history []chatbot_model.Message, includeShownEvents bool) []groq_client.Message {
 	if len(history) > historyMessages {
 		history = history[len(history)-historyMessages:]
 	}
@@ -294,7 +302,15 @@ func historyToMessages(history []chatbot_model.Message) []groq_client.Message {
 		if m.Sender == chatbot_model.SenderUser {
 			msgs = append(msgs, groq_client.UserMessage(m.Text))
 		} else {
-			msgs = append(msgs, groq_client.AssistantMessage(m.Text))
+			content := m.Text
+			if includeShownEvents && len(m.RecommendedEvents) > 0 {
+				parts := make([]string, 0, len(m.RecommendedEvents))
+				for _, e := range m.RecommendedEvents {
+					parts = append(parts, fmt.Sprintf("#%d %s", e.ID, e.Title))
+				}
+				content = content + "\n[Shown events: " + strings.Join(parts, ", ") + "]"
+			}
+			msgs = append(msgs, groq_client.AssistantMessage(content))
 		}
 	}
 	return msgs

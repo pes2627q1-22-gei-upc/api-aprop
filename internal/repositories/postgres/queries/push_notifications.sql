@@ -1,4 +1,4 @@
--- Push notifications (Taiga #275, DP-046): device tokens and the outbox of Notifications.
+-- Push notifications (Taiga #275, DP-050): device tokens and the outbox of Notifications.
 
 -- name: UpsertDeviceToken :exec
 -- A token identifies one app install: registering it again moves it to the current user.

@@ -14,14 +14,14 @@ const maxPushTargets = 500
 var _ PushSender = (*FirebaseClient)(nil)
 
 // Send pushes msg to the devices in chunks of maxPushTargets. The frontend registers an FCM registration token
-// (FirebaseMessaging.getToken) or a Firebase Installation ID (FID registration); both are accepted (DP-046).
+// (FirebaseMessaging.getToken) or a Firebase Installation ID (FID registration); both are accepted (DP-050).
 func (c *FirebaseClient) Send(ctx context.Context, tokens []string, msg PushMessage) (PushResult, error) {
 	var result PushResult
 	for _, chunk := range chunkTargets(tokens, maxPushTargets) {
 		registrationTokens, fids := splitTargets(chunk)
 		resp, err := c.messaging.SendEachForMulticast(ctx, &messaging.MulticastMessage{
 			// The SDK deprecates registration tokens in favour of FIDs, but Flutter apps still get tokens and FCM keeps
-			// accepting them. TODO(DP-046): drop them once the app registers FIDs.
+			// accepting them. TODO(DP-050): drop them once the app registers FIDs.
 			Tokens:       registrationTokens, //nolint:staticcheck // SA1019: registration tokens are still supported
 			Fids:         fids,
 			Notification: &messaging.Notification{Title: msg.Title, Body: msg.Body},

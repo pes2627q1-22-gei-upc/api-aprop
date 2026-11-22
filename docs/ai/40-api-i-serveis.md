@@ -88,12 +88,12 @@ amb el camp `language` de `GET /users/me` (només al perfil propi) i `PATCH /use
 ### Notificacions push (`push_handler`, Tasca #275)
 Cada notificació de la bústia (`Notifications`) s'envia també com a push als dispositius del destinatari amb Firebase
 Cloud Messaging. Un ticker (`PUSH_DISPATCH_INTERVAL`, 30 s per defecte) envia les pendents (`PushedAt` nul); les de
-més de 24 h es descarten sense enviar. Sense el fitxer de credencials de Firebase no s'envia res. Supòsits a DP-046.
+més de 24 h es descarten sense enviar. Sense el fitxer de credencials de Firebase no s'envia res. Supòsits a DP-050.
 
 | Mètode i ruta | Handler | Descripció | Estat |
 |---|---|---|---|
-| `PUT /users/me/devices` | `PushHandler.RegisterDevice` | Registra el dispositiu de l'usuari autenticat: cos `{"token": "<token FCM o FID>", "platform": "android"\|"ios"\|"web"}`. L'app el crida després d'iniciar sessió i quan FCM renova el token. Un token ja registrat passa a l'usuari actual. `204`; `400` cos, token (buit o > 4096 caràcters) o plataforma invàlids; `401` sense identitat | Implementat (DP-046) |
-| `DELETE /users/me/devices/{token}` | `PushHandler.UnregisterDevice` | Oblida el dispositiu (en tancar la sessió). Idempotent: `204` encara que no existís; `401` sense identitat | Implementat (DP-046) |
+| `PUT /users/me/devices` | `PushHandler.RegisterDevice` | Registra el dispositiu de l'usuari autenticat: cos `{"token": "<token FCM o FID>", "platform": "android"\|"ios"\|"web"}`. L'app el crida després d'iniciar sessió i quan FCM renova el token. Un token ja registrat passa a l'usuari actual. `204`; `400` cos, token (buit o > 4096 caràcters) o plataforma invàlids; `401` sense identitat | Implementat (DP-050) |
+| `DELETE /users/me/devices/{token}` | `PushHandler.UnregisterDevice` | Oblida el dispositiu (en tancar la sessió). Idempotent: `204` encara que no existís; `401` sense identitat | Implementat (DP-050) |
 
 - **Contingut del push:** títol segons el tipus (`Social`, `Recordatori`, `Recomanació`, `Esdeveniment cancel·lat`), cos = `text` de la notificació (màx. 1000 caràcters) i `data` (cadenes) amb `notification-id`, `type`, `event-id` i `friend-id` quan n'hi ha, perquè l'app obri la fitxa o Avisos.
 - **Preferència:** `push-enabled` (per defecte `true`) es llegeix a `GET /users/me` (només al perfil propi) i es canvia amb `PATCH /users/me`. Desactivat, les notificacions continuen arribant a la bústia però sense push.

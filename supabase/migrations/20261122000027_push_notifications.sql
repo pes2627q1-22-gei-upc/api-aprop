@@ -1,4 +1,4 @@
--- Push notifications (Taiga #275, DP-046). Every notification of the inbox (Notifications) is also sent as a push to the
+-- Push notifications (Taiga #275, DP-050). Every notification of the inbox (Notifications) is also sent as a push to the
 -- devices of its user through Firebase Cloud Messaging.
 -- DeviceTokens: FCM registration tokens of the devices of each user. A token identifies one app install, so it is the
 -- key: when another user signs in on the same device, the token moves to that user. The tokens go with the user (RGPD).

@@ -14,7 +14,7 @@ import (
 	"api-aprop/internal/repositories/push_repository"
 )
 
-// TODO(DP-046): values proposed by the backend.
+// TODO(DP-050): values proposed by the backend.
 const (
 	// MaxPushAge is how long a notification waits to be pushed; an older one only stays in the inbox.
 	MaxPushAge = 24 * time.Hour

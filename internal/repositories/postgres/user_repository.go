@@ -243,7 +243,7 @@ func (r *UserRepository) UpdateSettings(ctx context.Context, settings user_model
 			return fmt.Errorf("update settings %d: %w", settings.ID, err)
 		}
 
-		// TODO(DP-046): PushEnabled has its own query, like Language, to leave the generated Setting model untouched.
+		// TODO(DP-050): PushEnabled has its own query, like Language, to leave the generated Setting model untouched.
 		err = q.UpdateSettingsPushEnabled(ctx, sqlc.UpdateSettingsPushEnabledParams{ID: int32(settings.ID), PushEnabled: settings.PushEnabled})
 		if err != nil {
 			return fmt.Errorf("update push setting %d: %w", settings.ID, err)

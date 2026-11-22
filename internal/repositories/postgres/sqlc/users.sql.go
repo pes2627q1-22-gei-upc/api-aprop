@@ -600,7 +600,7 @@ UPDATE Users SET
     Biography = COALESCE($3::varchar, Biography),
     ProfilePicture = COALESCE($4::varchar, ProfilePicture)
 WHERE ID = $5::uuid
-RETURNING firebaseuid, username, email, profilepicture, biography, dateregistered, accountstate, experience, level, rating, settings, name, id
+RETURNING firebaseuid, username, email, profilepicture, biography, dateregistered, accountstate, experience, level, rating, settings, name, id, interesttestprompted
 `
 
 type UpdateUserProfileParams struct {
@@ -634,6 +634,7 @@ func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfilePa
 		&i.Settings,
 		&i.Name,
 		&i.ID,
+		&i.Interesttestprompted,
 	)
 	return i, err
 }
