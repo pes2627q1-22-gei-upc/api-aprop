@@ -108,7 +108,6 @@ ORDER BY id ASC;
 
 -- name: GetPreferenceTestQuestionsExcluding :many
 -- Selects diversified events with non-empty title and images excluding already-answered event IDs.
--- TODO(DP-047): pending sqlc generate by the team (internal/repositories/postgres/sqlc/* not touched).
 WITH candidates AS (
     SELECT
         e.id,
@@ -159,33 +158,28 @@ FROM selected s
 ORDER BY random();
 
 -- name: GetPreferenceTestFullStatus :one
--- TODO(DP-047): pending sqlc generate by the team.
 SELECT
     COALESCE((SELECT u.InterestTestPrompted FROM Users u WHERE u.ID = sqlc.arg(user_id)::uuid), false)::boolean AS prompted,
     (SELECT pt.DateTaken FROM PreferenceTests pt WHERE pt.UserID = sqlc.arg(user_id)::uuid ORDER BY pt.DateTaken DESC LIMIT 1) AS date_taken,
     (SELECT COUNT(*)::integer FROM PreferenceTestProgress p WHERE p.UserID = sqlc.arg(user_id)::uuid) AS answered_count;
 
 -- name: MarkUserInterestTestPrompted :exec
--- TODO(DP-047): pending sqlc generate by the team.
 UPDATE Users
 SET InterestTestPrompted = true
 WHERE ID = sqlc.arg(user_id)::uuid;
 
 -- name: ListPreferenceTestProgress :many
--- TODO(DP-047): pending sqlc generate by the team.
 SELECT Event, Likes
 FROM PreferenceTestProgress
 WHERE UserID = sqlc.arg(user_id)::uuid
 ORDER BY UpdatedAt ASC, Event ASC;
 
 -- name: UpsertPreferenceTestProgress :exec
--- TODO(DP-047): pending sqlc generate by the team.
 INSERT INTO PreferenceTestProgress (UserID, Event, Likes, UpdatedAt)
 VALUES (sqlc.arg(user_id)::uuid, sqlc.arg(event_id)::integer, sqlc.arg(likes)::boolean, sqlc.arg(updated_at)::timestamp)
 ON CONFLICT (UserID, Event)
 DO UPDATE SET Likes = EXCLUDED.Likes, UpdatedAt = EXCLUDED.UpdatedAt;
 
 -- name: DeletePreferenceTestProgressByUser :exec
--- TODO(DP-047): pending sqlc generate by the team.
 DELETE FROM PreferenceTestProgress
 WHERE UserID = sqlc.arg(user_id)::uuid;

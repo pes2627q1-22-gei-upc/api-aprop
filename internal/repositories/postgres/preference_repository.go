@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -15,88 +14,6 @@ import (
 	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/repositories/postgres/sqlc"
 	"api-aprop/internal/repositories/preference_repository"
-)
-
-// TODO(DP-047): These queries are declared in internal/repositories/postgres/queries/preferences.sql
-// and executed directly via pgx until the team runs `sqlc generate` (internal/repositories/postgres/sqlc/*
-// must not be modified directly).
-const (
-	getPreferenceTestQuestionsExcludingSQL = `
-WITH candidates AS (
-    SELECT
-        e.id,
-        e.title,
-        e.description,
-        e.images,
-        COALESCE(MIN(ec.category), 0) AS primary_category
-    FROM Events e
-    LEFT JOIN EventCategories ec ON ec.event = e.id
-    WHERE btrim(e.title) != ''
-      AND e.images IS NOT NULL
-      AND btrim(e.images) != ''
-      AND NOT (e.id = ANY($1::int[]))
-    GROUP BY e.id, e.title, e.description, e.images
-),
-ranked AS (
-    SELECT
-        id,
-        title,
-        description,
-        images,
-        primary_category,
-        ROW_NUMBER() OVER (
-            PARTITION BY primary_category
-            ORDER BY random()
-        ) AS rn
-    FROM candidates
-),
-selected AS (
-    SELECT id, title, description, images
-    FROM ranked
-    ORDER BY (primary_category = 0) ASC, rn ASC, random()
-    LIMIT $2::integer
-)
-SELECT
-    s.id,
-    s.title,
-    s.description,
-    s.images,
-    COALESCE(
-        (SELECT string_agg(c.name, ',' ORDER BY c.id)
-         FROM EventCategories ec
-         JOIN Categories c ON c.id = ec.category
-         WHERE ec.event = s.id),
-        ''
-    )::text AS categories
-FROM selected s
-ORDER BY random()`
-
-	getPreferenceTestFullStatusSQL = `
-SELECT
-    COALESCE((SELECT u.InterestTestPrompted FROM Users u WHERE u.ID = $1::uuid), false)::boolean AS prompted,
-    (SELECT pt.DateTaken FROM PreferenceTests pt WHERE pt.UserID = $1::uuid ORDER BY pt.DateTaken DESC LIMIT 1) AS date_taken,
-    (SELECT COUNT(*)::integer FROM PreferenceTestProgress p WHERE p.UserID = $1::uuid) AS answered_count`
-
-	markUserInterestTestPromptedSQL = `
-UPDATE Users
-SET InterestTestPrompted = true
-WHERE ID = $1::uuid`
-
-	listPreferenceTestProgressSQL = `
-SELECT Event, Likes
-FROM PreferenceTestProgress
-WHERE UserID = $1::uuid
-ORDER BY UpdatedAt ASC, Event ASC`
-
-	upsertPreferenceTestProgressSQL = `
-INSERT INTO PreferenceTestProgress (UserID, Event, Likes, UpdatedAt)
-VALUES ($1::uuid, $2::integer, $3::boolean, $4::timestamp)
-ON CONFLICT (UserID, Event)
-DO UPDATE SET Likes = EXCLUDED.Likes, UpdatedAt = EXCLUDED.UpdatedAt`
-
-	deletePreferenceTestProgressByUserSQL = `
-DELETE FROM PreferenceTestProgress
-WHERE UserID = $1::uuid`
 )
 
 type PreferenceRepository struct {
@@ -170,28 +87,17 @@ func (r *PreferenceRepository) GetQuestionsExcluding(ctx context.Context, limit 
 		return r.GetQuestions(ctx, limit)
 	}
 
-	rows, err := r.pool.Query(ctx, getPreferenceTestQuestionsExcludingSQL, toInt32Slice(excludeEventIDs), int32(limit))
+	rows, err := r.queries.GetPreferenceTestQuestionsExcluding(ctx, sqlc.GetPreferenceTestQuestionsExcludingParams{
+		ExcludeEventIds: toInt32Slice(excludeEventIDs),
+		QuestionLimit:   int32(limit),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("get preference questions excluding answered: %w", err)
 	}
-	defer rows.Close()
 
-	questions := make([]preference_model.TestQuestion, 0, limit)
-	for rows.Next() {
-		var (
-			id          int32
-			title       string
-			description pgtype.Text
-			images      pgtype.Text
-			categories  string
-		)
-		if err := rows.Scan(&id, &title, &description, &images, &categories); err != nil {
-			return nil, fmt.Errorf("scan preference question: %w", err)
-		}
-		questions = append(questions, newTestQuestion(id, title, description, images, categories))
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate preference questions: %w", err)
+	questions := make([]preference_model.TestQuestion, 0, len(rows))
+	for _, row := range rows {
+		questions = append(questions, newTestQuestion(row.ID, row.Title, row.Description, row.Images, row.Categories))
 	}
 	return questions, nil
 }
@@ -210,28 +116,24 @@ func (r *PreferenceRepository) GetTestStatus(ctx context.Context, userID string)
 		return preference_model.TestStatus{}, err
 	}
 
-	var (
-		prompted      bool
-		ts            pgtype.Timestamp
-		answeredCount int32
-	)
-	if err := r.pool.QueryRow(ctx, getPreferenceTestFullStatusSQL, uid).Scan(&prompted, &ts, &answeredCount); err != nil {
+	row, err := r.queries.GetPreferenceTestFullStatus(ctx, uid)
+	if err != nil {
 		return preference_model.TestStatus{}, fmt.Errorf("get preference test status: %w", err)
 	}
 
 	var dateTaken *time.Time
 	completed := false
-	if ts.Valid {
-		t := ts.Time.UTC()
+	if row.DateTaken.Valid {
+		t := row.DateTaken.Time.UTC()
 		dateTaken = &t
 		completed = true
 	}
-	inProgress := answeredCount > 0
+	inProgress := row.AnsweredCount > 0
 	return preference_model.TestStatus{
 		Completed:     completed,
-		Prompted:      prompted || completed || inProgress,
+		Prompted:      row.Prompted || completed || inProgress,
 		InProgress:    inProgress,
-		AnsweredCount: int(answeredCount),
+		AnsweredCount: int(row.AnsweredCount),
 		DateTaken:     dateTaken,
 	}, nil
 }
@@ -241,7 +143,7 @@ func (r *PreferenceRepository) MarkTestPrompted(ctx context.Context, userID stri
 	if err != nil {
 		return err
 	}
-	if _, err := r.pool.Exec(ctx, markUserInterestTestPromptedSQL, uid); err != nil {
+	if err := r.queries.MarkUserInterestTestPrompted(ctx, uid); err != nil {
 		return fmt.Errorf("mark preference test prompted: %w", err)
 	}
 	return nil
@@ -253,28 +155,17 @@ func (r *PreferenceRepository) GetTestProgress(ctx context.Context, userID strin
 		return nil, err
 	}
 
-	rows, err := r.pool.Query(ctx, listPreferenceTestProgressSQL, uid)
+	rows, err := r.queries.ListPreferenceTestProgress(ctx, uid)
 	if err != nil {
 		return nil, fmt.Errorf("list preference test progress: %w", err)
 	}
-	defer rows.Close()
 
-	answers := make([]preference_model.TestAnswer, 0)
-	for rows.Next() {
-		var (
-			eventID int32
-			likes   bool
-		)
-		if err := rows.Scan(&eventID, &likes); err != nil {
-			return nil, fmt.Errorf("scan preference test progress: %w", err)
-		}
+	answers := make([]preference_model.TestAnswer, 0, len(rows))
+	for _, row := range rows {
 		answers = append(answers, preference_model.TestAnswer{
-			EventID: int(eventID),
-			Likes:   likes,
+			EventID: int(row.Event),
+			Likes:   row.Likes,
 		})
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate preference test progress: %w", err)
 	}
 	return answers, nil
 }
@@ -283,7 +174,7 @@ func (r *PreferenceRepository) withLockedUserTx(
 	ctx context.Context,
 	userID string,
 	commitOp string,
-	fn func(tx pgx.Tx, qtx *sqlc.Queries, uid pgtype.UUID) error,
+	fn func(qtx *sqlc.Queries, uid pgtype.UUID) error,
 ) error {
 	uid, err := user_model.ParseID(userID)
 	if err != nil {
@@ -302,11 +193,11 @@ func (r *PreferenceRepository) withLockedUserTx(
 		return fmt.Errorf("lock preference test: %w", err)
 	}
 
-	if err := fn(tx, qtx, uid); err != nil {
+	if err := fn(qtx, uid); err != nil {
 		return err
 	}
 
-	if _, err := tx.Exec(ctx, markUserInterestTestPromptedSQL, uid); err != nil {
+	if err := qtx.MarkUserInterestTestPrompted(ctx, uid); err != nil {
 		return fmt.Errorf("mark preference test prompted: %w", err)
 	}
 
@@ -322,10 +213,15 @@ func (r *PreferenceRepository) SavePartialProgress(
 	updatedAt time.Time,
 	answers []preference_model.TestAnswer,
 ) error {
-	return r.withLockedUserTx(ctx, userID, "commit partial preference progress", func(tx pgx.Tx, _ *sqlc.Queries, uid pgtype.UUID) error {
+	return r.withLockedUserTx(ctx, userID, "commit partial preference progress", func(qtx *sqlc.Queries, uid pgtype.UUID) error {
 		ts := pgtype.Timestamp{Time: updatedAt.UTC(), Valid: true}
 		for _, a := range answers {
-			if _, err := tx.Exec(ctx, upsertPreferenceTestProgressSQL, uid, int32(a.EventID), a.Likes, ts); err != nil {
+			if err := qtx.UpsertPreferenceTestProgress(ctx, sqlc.UpsertPreferenceTestProgressParams{
+				UserID:    uid,
+				EventID:   int32(a.EventID),
+				Likes:     a.Likes,
+				UpdatedAt: ts,
+			}); err != nil {
 				return fmt.Errorf("upsert partial preference choice for event %d: %w", a.EventID, err)
 			}
 		}
@@ -340,7 +236,7 @@ func (r *PreferenceRepository) SaveTestAndPreferences(
 	answers []preference_model.TestAnswer,
 	preferences []preference_model.UserPreference,
 ) error {
-	return r.withLockedUserTx(ctx, userID, "commit preference test", func(tx pgx.Tx, qtx *sqlc.Queries, uid pgtype.UUID) error {
+	return r.withLockedUserTx(ctx, userID, "commit preference test", func(qtx *sqlc.Queries, uid pgtype.UUID) error {
 		// 0. Replace previous test, choices and any draft progress so each user keeps a single active TestInteressos (R1).
 		// TODO(DP-044): R1 s'aplica per esborrat + inserció dins la transacció (sense UNIQUE(UserID) a la BD).
 		if err := qtx.DeletePreferenceTestChoicesByUser(ctx, uid); err != nil {
@@ -349,7 +245,7 @@ func (r *PreferenceRepository) SaveTestAndPreferences(
 		if err := qtx.DeletePreferenceTestsByUser(ctx, uid); err != nil {
 			return fmt.Errorf("delete previous preference tests: %w", err)
 		}
-		if _, err := tx.Exec(ctx, deletePreferenceTestProgressByUserSQL, uid); err != nil {
+		if err := qtx.DeletePreferenceTestProgressByUser(ctx, uid); err != nil {
 			return fmt.Errorf("delete partial preference progress: %w", err)
 		}
 
