@@ -129,7 +129,7 @@ func (s *AssistantService) runTool(ctx context.Context, userID string, now time.
 		filter.UserID = userID
 		desired := filter.Limit
 		if len(excludedIDs) > 0 {
-			// TODO(DP-045): fetch extra rows to filter already-shown IDs in Go without modifying sqlc queries.
+			// TODO(DP-046): fetch extra rows to filter already-shown IDs in Go without modifying sqlc queries.
 			filter.Limit = min(desired+len(excludedIDs), maxCatalogueFetch)
 		}
 		events, err := s.catalogueRepository.Search(ctx, filter)

@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"unicode/utf8"
 
+	"api-aprop/internal/clients/s3_client"
 	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/repositories/auth_repository"
 )
@@ -18,15 +20,35 @@ const (
 
 type AuthService struct {
 	authRepository auth_repository.Repository
+	avatars        s3_client.AvatarSigner
 }
 
 func NewAuthService(authRepository auth_repository.Repository) *AuthService {
 	return &AuthService{authRepository: authRepository}
 }
 
+// WithAvatarSigner signs the avatar of the private bucket in the response of Sync (#247). Without it, only
+// external profile pictures are returned.
+func (s *AuthService) WithAvatarSigner(avatars s3_client.AvatarSigner) *AuthService {
+	s.avatars = avatars
+	return s
+}
+
 // Sync returns the database user of the Firebase account, creating it the first time the user signs in.
 // The username is only needed (and used) when the user is created. The email always follows Firebase.
 func (s *AuthService) Sync(ctx context.Context, firebaseUID, email, username string) (user_model.SyncResult, error) {
+	result, err := s.sync(ctx, firebaseUID, email, username)
+	if err != nil {
+		return user_model.SyncResult{}, err
+	}
+	field := s3_client.AvatarField{UserID: result.User.ID.String(), Picture: &result.User.ProfilePicture}
+	if err := s3_client.ResolveAvatars(ctx, s.avatars, []s3_client.AvatarField{field}); err != nil {
+		slog.Warn("could not sign the profile picture", "user", result.User.ID.String(), "error", err)
+	}
+	return result, nil
+}
+
+func (s *AuthService) sync(ctx context.Context, firebaseUID, email, username string) (user_model.SyncResult, error) {
 	user, err := s.authRepository.GetByFirebaseUID(ctx, firebaseUID)
 	if err == nil {
 		user, err = s.syncEmail(ctx, user, email)

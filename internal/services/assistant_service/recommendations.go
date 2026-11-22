@@ -16,7 +16,7 @@ const (
 	maxRecommendations = 3
 	// maxTrackedShownIDs bounds how many previously recommended events we exclude from future
 	// searches so the database query limit stays bounded even in very long conversations.
-	// TODO(DP-045): revisit once conversations can be reset or SQL supports excluding IDs directly.
+	// TODO(DP-046): revisit once conversations can be reset or SQL supports excluding IDs directly.
 	maxTrackedShownIDs = 200
 	// minTitleMatchRunes prevents tiny words from accidentally matching unrelated prose during fallback.
 	minTitleMatchRunes = 4
@@ -88,7 +88,7 @@ func collectShownEventIDs(history []chatbot_model.Message) map[int]struct{} {
 // parseRecommendedIDs extracts and removes the structured [RECOMMENDED_IDS: ...] trailer
 // from the model's reply. When the tag is present, hasTag is true even if it lists no IDs
 // (e.g. [RECOMMENDED_IDS: none]).
-// TODO(DP-045): confirm whether to keep the trailer tag or move to a structured JSON response schema.
+// TODO(DP-046): confirm whether to keep the trailer tag or move to a structured JSON response schema.
 func parseRecommendedIDs(text string) (cleanText string, ids []int, hasTag bool) {
 	matches := recommendedIDsBracketPattern.FindAllStringSubmatch(text, -1)
 	if len(matches) > 0 {

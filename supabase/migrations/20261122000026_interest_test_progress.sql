@@ -1,7 +1,7 @@
 -- Tracks whether the user has already been prompted with the onboarding interest test
 -- so skipping or closing it never forces it again on subsequent logins.
 -- Existing accounts default to true; newly registered accounts default to false.
--- TODO(DP-047)
+-- TODO(DP-048)
 ALTER TABLE Users ADD COLUMN IF NOT EXISTS InterestTestPrompted Boolean NOT NULL DEFAULT true;
 ALTER TABLE Users ALTER COLUMN InterestTestPrompted SET DEFAULT false;
 

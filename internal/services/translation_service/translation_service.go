@@ -92,7 +92,7 @@ func (s *TranslationService) TranslateMapEvents(ctx context.Context, lang string
 
 // TranslateTestQuestions translates the title and description of interest-test questions into lang,
 // reusing cached EventTranslations rows without overwriting fuller 6-field event translations.
-// TODO(DP-046): cached rows are reused whenever translated title/description are present without verifying
+// TODO(DP-047): cached rows are reused whenever translated title/description are present without verifying
 // the full 6-field SourceHash (TestQuestion only carries title and description); misses cache a 2-field hash
 // that GET /events/{id} later upgrades if the event has additional fields.
 func (s *TranslationService) TranslateTestQuestions(ctx context.Context, lang string, questions []preference_model.TestQuestion) []preference_model.TestQuestion {
@@ -281,7 +281,7 @@ func (s *TranslationService) translateTexts(
 
 // translate replaces the free-text fields of the events with their translation into lang: from the cache when
 // the Catalan texts have not changed, otherwise asking the translation server and caching the result.
-// TODO(DP-048): preserves valid 2-field cached translations (from TranslateTestQuestions) as fallback if the
+// TODO(DP-049): preserves valid 2-field cached translations (from TranslateTestQuestions) as fallback if the
 // 6-field upgrade is capped by maxMisses or fails/times out, and rejects blank upstream translations so cache
 // rows are never poisoned; per-request caps, timeouts and upstream NMT differences remain design limitations.
 func (s *TranslationService) translate(ctx context.Context, lang string, events []*event_model.Event) {

@@ -301,6 +301,25 @@ type mockS3Client struct {
 	deleteCalls     int
 	deletedUserID   string
 	deletedAvatarAt string
+
+	signErr    error
+	signedRefs []s3_client.AvatarRef
+}
+
+// AvatarURLs keeps empty and external pictures and signs the rest as "signed:<stored>", like the real client
+// (which also checks the owner). With signErr it returns the error and hides the stored avatars.
+func (m *mockS3Client) AvatarURLs(_ context.Context, avatars []s3_client.AvatarRef) ([]string, error) {
+	m.signedRefs = append(m.signedRefs, avatars...)
+	urls := make([]string, len(avatars))
+	for i, a := range avatars {
+		switch {
+		case a.Stored == "" || s3_client.IsExternalPicture(a.Stored):
+			urls[i] = a.Stored
+		case m.signErr == nil:
+			urls[i] = "signed:" + a.Stored
+		}
+	}
+	return urls, m.signErr
 }
 
 func (m *mockS3Client) DeleteAvatar(_ context.Context, userID, url string) error {
@@ -318,7 +337,7 @@ func (m *mockS3Client) UploadAvatar(_ context.Context, userID, filename, content
 	if m.uploadedURL != "" {
 		return m.uploadedURL, nil
 	}
-	return "https://my-bucket.s3.amazonaws.com/avatars/" + userID + "/" + filename, nil
+	return userID + "/avatar-1.png", nil
 }
 
 func (m *mockS3Client) UploadEventImage(_ context.Context, _ int, _, _ string, _ io.Reader) (string, error) {
@@ -630,7 +649,7 @@ func TestUploadAvatar_Success(t *testing.T) {
 	}
 	repo.addUser(u, true)
 
-	s3 := &mockS3Client{uploadedURL: "https://storage.example.com/avatar.png"}
+	s3 := &mockS3Client{}
 	svc := user_service.NewUserService(repo, &mockNotificationRepo{}, s3, nil)
 
 	profile, err := svc.UploadAvatar(context.Background(), "fb-alice", "photo.png", "image/png", strings.NewReader("fake-image"))
@@ -638,8 +657,15 @@ func TestUploadAvatar_Success(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if profile.ProfilePicture != "https://storage.example.com/avatar.png" {
-		t.Errorf("expected profile picture to be updated, got %s", profile.ProfilePicture)
+	stored := u.ID.String() + "/avatar-1.png"
+	if got := repo.usersByID[u.ID].ProfilePicture; got != stored {
+		t.Errorf("stored profile picture = %q, want the object path %q", got, stored)
+	}
+	if profile.ProfilePicture != "signed:"+stored {
+		t.Errorf("profile picture = %q, want the signed URL", profile.ProfilePicture)
+	}
+	if s3.deleteCalls != 0 {
+		t.Errorf("deleted %d avatars, want 0 (there was no previous one)", s3.deleteCalls)
 	}
 }
 

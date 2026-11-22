@@ -6,6 +6,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"api-aprop/internal/clients/s3_client"
 	"api-aprop/internal/models/user_model"
 )
 
@@ -45,6 +46,11 @@ func (s *userService) SearchUsers(ctx context.Context, requesterID, query string
 	if users != nil {
 		result.Users = users
 	}
+	fields := make([]s3_client.AvatarField, len(result.Users))
+	for i := range result.Users {
+		fields[i] = s3_client.AvatarField{UserID: result.Users[i].ID.String(), Picture: &result.Users[i].ProfilePicture}
+	}
+	s.resolveAvatars(ctx, fields...)
 	result.Total = total
 	return result, nil
 }

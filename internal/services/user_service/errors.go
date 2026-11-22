@@ -21,4 +21,8 @@ var (
 	ErrAuthProvider            = errors.New("could not delete the authentication account")
 	ErrInvalidInterval         = errors.New("invalid format for time interval")
 	ErrInvalidNotificationType = errors.New("notification type does not exist")
+	// ErrStorageUnavailable means the avatar storage is not configured.
+	ErrStorageUnavailable = errors.New("avatar storage is not available")
+	// ErrStorageFailed means the avatar storage answered with an error.
+	ErrStorageFailed = errors.New("could not store the profile picture")
 )

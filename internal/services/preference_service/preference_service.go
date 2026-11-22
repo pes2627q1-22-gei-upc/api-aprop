@@ -126,7 +126,7 @@ func (s *PreferenceService) withPreparedAnswers(
 func (s *PreferenceService) SavePartialTest(ctx context.Context, userID string, answers []preference_model.TestAnswer) (preference_model.SubmitTestResponse, error) {
 	return s.withPreparedAnswers(ctx, userID, answers, func(p preparedAnswers) (preference_model.SubmitTestResponse, error) {
 		updatedAt := s.now().UTC()
-		// TODO(DP-047): Partial progress is persisted in PreferenceTestProgress without touching
+		// TODO(DP-048): Partial progress is persisted in PreferenceTestProgress without touching
 		// PreferenceTests / UserPreferences so prior completed answers stay intact during a paused retake.
 		if err := s.repo.SavePartialProgress(ctx, p.userID, updatedAt, p.deduped); err != nil {
 			return preference_model.SubmitTestResponse{}, err

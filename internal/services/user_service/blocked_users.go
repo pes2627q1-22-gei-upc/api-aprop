@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"api-aprop/internal/clients/s3_client"
 	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/repositories/user_repository"
 )
@@ -24,7 +25,7 @@ func (s *userService) BlockUser(ctx context.Context, requesterID, targetID strin
 	if err != nil {
 		return user_model.BlockedUser{}, err
 	}
-	return user_model.BlockedUser{
+	blocked := user_model.BlockedUser{
 		UserSummary: user_model.UserSummary{
 			ID:             target.ID,
 			Username:       target.Username,
@@ -32,7 +33,9 @@ func (s *userService) BlockUser(ctx context.Context, requesterID, targetID strin
 			ProfilePicture: target.ProfilePicture,
 		},
 		DateBlocked: date,
-	}, nil
+	}
+	s.resolveAvatars(ctx, s3_client.AvatarField{UserID: target.ID.String(), Picture: &blocked.ProfilePicture})
+	return blocked, nil
 }
 
 // UnblockUser removes the block of the target user. The friendship removed when blocking is not restored.
@@ -65,6 +68,11 @@ func (s *userService) ListBlockedUsers(ctx context.Context, requesterID string) 
 	if users == nil {
 		users = []user_model.BlockedUser{}
 	}
+	fields := make([]s3_client.AvatarField, len(users))
+	for i := range users {
+		fields[i] = s3_client.AvatarField{UserID: users[i].ID.String(), Picture: &users[i].ProfilePicture}
+	}
+	s.resolveAvatars(ctx, fields...)
 	return users, nil
 }
 

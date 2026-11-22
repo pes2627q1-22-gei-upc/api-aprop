@@ -551,18 +551,37 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Qui decideix:** backend + frontend
 - **Resolució:**
 
-### DP-045 · Millores del xatbot: selecció estructurada d'IDs, lots de 3 i exclusió d'esdeveniments ja mostrats
+### DP-045 · Fotos de perfil en un bucket privat amb URLs signades (#247)
+- **Estat:** oberta
+- **Obert per:** 2026-11-20 · Claude Code (Opus 5.5) · branca `feature/restringir-fotos-perfil` (Taiga #247)
+- **Context:** `s3_client/avatar_storage.go`, `s3_client/resolve.go`, `user_service`, `message_service`, `auth_service`, `user_handler/error_mapper.go`, migració 000025. Abans no hi havia cap bucket ni variables `S3_*`: sense `S3_ENDPOINT`, `POST /users/me/avatar` no pujava res i desava una URL inventada (`https://media.s3.eu-west-1.amazonaws.com/avatars/...`). L'usuari (Arnau) ha creat el bucket privat `avatars` sense policies i una *secret key* nova.
+- **Dubte / supòsits:**
+  1. **Accés:** el bucket és privat i només hi accedeix el backend amb `SUPABASE_SECRET_KEY` (capçalera `apikey`; les claus `service_role` antigues, que són JWT, també van a `Authorization`). S'usa l'API REST de Storage (`/storage/v1/object/...`) en lloc del protocol S3 per no afegir l'SDK d'AWS ni signar amb SigV4.
+  2. **Què es desa:** `Users.ProfilePicture` guarda la ruta `<uuid>/avatar-<unix ms>.<jpg|png|webp>` (extensió segons el `Content-Type`, no el nom del fitxer). Només es signen les rutes que encaixen amb aquest format **i** pertanyen a l'usuari de la fila; la resta de valors que no són URL `http(s)` s'amaguen.
+  3. **Lectura:** cada resposta amb `profile-picture` (perfil, cerca, bloquejats, xat, `POST /auth/sync`) signa les rutes en una sola petició (`POST /object/sign/avatars`). TTL **1 h**; la URL es cacheja en memòria i es reutilitza mentre li queda ≥ 30 min, perquè el frontend pugui fer servir la cau d'imatges. Qualsevol usuari autenticat que vegi un altre usuari rep la URL (com abans); un bloqueig no invalida les URLs ja lliurades fins que caduquen.
+  4. **Errors:** si no es pot signar (Storage caigut o sense configurar) la foto surt buida (al perfil, l'avatar generat de ui-avatars) i es registra; la petició no falla. Pujada: `503` sense configuració, `502` si Storage falla, `400` tipus invàlid.
+  5. **`PATCH /users/me`:** `profile-picture` només accepta buit o una URL `http(s)` externa (màx. 2048). Les rutes del bucket es rebutgen perquè ningú no pugui apuntar a l'avatar d'un altre. Encara s'accepten URL externes arbitràries: cal decidir si es tanquen.
+  6. **Esborrat:** en pujar una foto nova o canviar-la amb `PATCH` s'esborra l'anterior del bucket (best-effort), igual que a la baixa del compte (DP-031), ara amb una petició autenticada (ja no queda l'esborrat sense signar de la DP-031). Si l'`UPDATE` falla després de pujar, s'esborra l'objecte pujat.
+  7. **Migració 000025:** posa a `NULL` les URLs inventades `https://*.s3.*.amazonaws.com/avatars/...`. No crea el bucket: les migracions incrustades també s'executen contra PostgreSQL local, sense l'esquema `storage`.
+  8. **Fora d'abast:** els cartells d'esdeveniments (`UploadEventImage`) segueixen amb el codi antic i tampoc es pugen sense `S3_ENDPOINT`.
+  9. **No provat contra Supabase real:** pujada, signatura i esborrat només estan provats amb tests unitaris (servidor HTTP fals); falta verificar el format de resposta de `/object/sign` i que la *secret key* nova només a `apikey` funciona. Frontend: la URL caduca, cal un `cacheKey` estable (p. ex. l'id de l'usuari) si es fa servir `CachedNetworkImage`.
+- **Opcions:** —
+- **Provisionalment:** els supòsits anteriors.
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
+### DP-046 · Millores del xatbot: selecció estructurada d'IDs, lots de 3 i exclusió d'esdeveniments ja mostrats
 - **Estat:** oberta
 - **Obert per:** 2026-11-21 · Antigravity (Gemini 4 Neon) · branca `fix/app-improvements-chatbot`
 - **Context:** `internal/services/assistant_service/{assistant_service.go,prompt.go,tools.go,recommendations.go}` i `api/openapi.yaml`. (Nota: el servidor MCP `cmd/mcp` ja s'havia eliminat a DP-027.)
 - **Dubte / supòsits:**
-  1. **Selecció estructurada d'IDs amb etiqueta final (`[RECOMMENDED_IDS: id1, id2, id3]` / `[RECOMMENDED_IDS: none]`):** s'evita `response_format` JSON per compatibilitat amb tool calling a Groq i Gemini fallback i per no afegir rondes dins el timeout de 8 s. Si el model omet l'etiqueta, el servidor busca els títols candidats dins del text (per ordre d'aparició, màxim 3) i, com a últim recurs, limita a 3 els resultats no vistos de l'última cerca (`TODO(DP-045)`).
-  2. **Exclusió d'esdeveniments ja mostrats sense tocar `sqlc/`:** `tools.go` augmenta `filter.Limit` (`desired + len(excludedIDs)`, màxim 250) i filtra en Go fins als 200 darrers IDs recomanats a la conversa (`history` carregat per `ListMessages`). Com que les converses encara no es reinicien (DP-017), els IDs s'acumulen a la conversa única de l'usuari fins al límit de 200 (`TODO(DP-045)`).
+  1. **Selecció estructurada d'IDs amb etiqueta final (`[RECOMMENDED_IDS: id1, id2, id3]` / `[RECOMMENDED_IDS: none]`):** s'evita `response_format` JSON per compatibilitat amb tool calling a Groq i Gemini fallback i per no afegir rondes dins el timeout de 8 s. Si el model omet l'etiqueta, el servidor busca els títols candidats dins del text (per ordre d'aparició, màxim 3) i, com a últim recurs, limita a 3 els resultats no vistos de l'última cerca (`TODO(DP-046)`).
+  2. **Exclusió d'esdeveniments ja mostrats sense tocar `sqlc/`:** `tools.go` augmenta `filter.Limit` (`desired + len(excludedIDs)`, màxim 250) i filtra en Go fins als 200 darrers IDs recomanats a la conversa (`history` carregat per `ListMessages`). Com que les converses encara no es reinicien (DP-017), els IDs s'acumulen a la conversa única de l'usuari fins al límit de 200 (`TODO(DP-046)`).
   3. **Flux conversacional (preguntes aclaridores vs recomanació directa):** aplicat al prompt del sistema (`prompt.go`) i verificat amb tests unitaris amb fakes; pendent de provar amb el model real (`TestEval` contra Groq/Gemini).
 - **Opcions:** A) mantenir l'etiqueta `[RECOMMENDED_IDS: ...]` + filtratge en Go · B) passar a sortida JSON estructurada o filtre `NOT (e.ID = ANY(...))` a `queries/catalogue.sql` (regenerant `sqlc`).
-- **Provisionalment:** A (`TODO(DP-045)` a `recommendations.go` i `tools.go`).
+- **Provisionalment:** A (`TODO(DP-046)` a `recommendations.go` i `tools.go`).
 - **Qui decideix:** backend + equip
-### DP-046 · Traducció del test d'interessos (`GET /preferences/test?lang=`) reutilitzant `EventTranslations`
+### DP-047 · Traducció del test d'interessos (`GET /preferences/test?lang=`) reutilitzant `EventTranslations`
 - **Estat:** oberta
 - **Obert per:** 2026-11-21 · Antigravity (Gemini 4 Neon) · branca `fix/app-improvements-lang`
 - **Context:** `internal/services/translation_service/`, `internal/handlers/preference_handler/preference_handler.go`, `cmd/app/main.go`, `api/openapi.yaml`.
@@ -571,37 +590,37 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
   2. **Compartició de cau sense invalidar `EventTranslations`:** `TestQuestion` només conté `title` i `description` (no `subtitle`, `schedule`, `tickets` ni `url-names`), i no es regenera `sqlc/*`. Per evitar invalidar ni sobreescriure les traduccions completes de 6 camps desades per `TranslateEvents`, `TranslateTestQuestions` aprofita qualsevol fila existent d'`EventTranslations` que tingui `title` (i `description`, si l'original no és buida) no buits, sense comprovar el `SourceHash` de 6 camps. En cas de miss, tradueix `title` i `description` i desa un `SourceHash` dels 2 camps (si l'esdeveniment té més camps, un `GET /events/{id}` posterior l'actualitzarà automàticament amb els 6 camps). Limitació: si s'edita el títol/descripció d'un esdeveniment ja present a `EventTranslations`, el test veurà la traducció anterior fins que un endpoint d'`/events` la refresqui.
   3. **Límit de misses:** `maxQuestionMisses = 25` (en lots de 5) per poder traduir totes les 25 preguntes del test en una sola petició (només 2 camps per pregunta en lloc de 6).
   4. **Idioma al perfil (`Settings.Language`):** es reutilitza la columna existent `Settings.Language NOT NULL DEFAULT 'ca'` (migració 000022) i `GET`/`PATCH /users/me` sense duplicar camps ni tocar `sqlc/*`.
-- **Opcions:** A) reutilitzar `EventTranslations` i `TranslationService` tal com està (`TODO(DP-046)`) · B) afegir els 4 camps addicionals a `GetPreferenceTestQuestions` (requereix regenerar `sqlc`) o una taula separada de traduccions per al test.
-- **Provisionalment:** A (`TODO(DP-046)` a `internal/services/translation_service/translation_service.go`).
-### DP-047 · Test d'interessos: onboarding només al registre, progrés parcial i represa
+- **Opcions:** A) reutilitzar `EventTranslations` i `TranslationService` tal com està (`TODO(DP-047)`) · B) afegir els 4 camps addicionals a `GetPreferenceTestQuestions` (requereix regenerar `sqlc`) o una taula separada de traduccions per al test.
+- **Provisionalment:** A (`TODO(DP-047)` a `internal/services/translation_service/translation_service.go`).
+### DP-048 · Test d'interessos: onboarding només al registre, progrés parcial i represa
 - **Estat:** oberta
 - **Obert per:** 2026-11-21 · Antigravity (Gemini 4 Neon) · branca `fix/app-improvements-interest`
-- **Context:** `migrations/000025_interest_test_progress.{up,down}.sql`, `supabase/migrations/20261121000025_interest_test_progress.sql`, `internal/repositories/postgres/queries/preferences.sql`, `internal/repositories/postgres/preference_repository.go`, `internal/services/preference_service/`, `internal/handlers/preference_handler/`, `api/openapi.yaml`.
+- **Context:** `migrations/000026_interest_test_progress.{up,down}.sql`, `supabase/migrations/20261121000026_interest_test_progress.sql`, `internal/repositories/postgres/queries/preferences.sql`, `internal/repositories/postgres/preference_repository.go`, `internal/services/preference_service/`, `internal/handlers/preference_handler/`, `api/openapi.yaml`.
 - **Dubte / supòsits:**
-  1. **Estat `prompted` al servidor:** migració `000025` afegeix `Users.InterestTestPrompted` amb `DEFAULT true` per als comptes ja existents (evita reobrir l'onboarding als usuaris antics en iniciar sessió) i `ALTER COLUMN ... SET DEFAULT false` per als nous registres (idempotent en re-execucions). Nou endpoint `POST /preferences/test/prompted` (`204 No Content`, idempotent) i camp `prompted` a `GET /preferences/test/status`.
+  1. **Estat `prompted` al servidor:** migració `000026` afegeix `Users.InterestTestPrompted` amb `DEFAULT true` per als comptes ja existents (evita reobrir l'onboarding als usuaris antics en iniciar sessió) i `ALTER COLUMN ... SET DEFAULT false` per als nous registres (idempotent en re-execucions). Nou endpoint `POST /preferences/test/prompted` (`204 No Content`, idempotent) i camp `prompted` a `GET /preferences/test/status`.
   2. **Taula separada `PreferenceTestProgress`:** guarda les respostes parcials («Més tard») amb PK `(UserID, Event)` i `ON DELETE CASCADE` cap a `Users` i `Events` (RLS habilitat). Així un desat parcial (`POST /preferences/test` amb `{"answers": [...], "partial": true}`) acumula respostes per `ON CONFLICT DO UPDATE` sense sobreescriure ni esborrar un `PreferenceTests`/`UserPreferences` completat prèviament (R1). En completar (`partial: false`), es fusionen l'esborrany i les respostes noves (màx. 25), es recalcula `UserPreferences` sobre el conjunt complet, es substitueix `PreferenceTests`/`PreferenceTestChoices` i s'esborra `PreferenceTestProgress`.
   3. **Represa a `GET /preferences/test`:** quan hi ha files a `PreferenceTestProgress`, es retornen com a màxim `25 - answered_count` preguntes excloent els esdeveniments ja contestats, conservant el format d'array `[]TestQuestion` (compatible amb el paràmetre d'idioma en curs).
   4. **Consultes generades amb `sqlc`:** arran de la revisió de la PR #80, les 6 consultes noves de `queries/preferences.sql` s'han generat amb `sqlc generate` v1.31.1 (fent servir `sqlc_schema_compat.sql` per al bloc `DO $$` de la migració 000018) i `preference_repository.go` ja les invoca a través de `sqlc.Queries` sense SQL directe.
 - **Opcions:** A) mantenir `Users.InterestTestPrompted` + taula `PreferenceTestProgress` amb `sqlc` · B) desar el progrés dins `PreferenceTests` amb una columna `Completed` (impediria pausar una repetició sense perdre el test anterior) o només en local al dispositiu.
-- **Provisionalment:** A (`TODO(DP-047)` a `migrations/000025_interest_test_progress.up.sql` i `preference_service.go`).
+- **Provisionalment:** A (`TODO(DP-048)` a `migrations/000026_interest_test_progress.up.sql` i `preference_service.go`).
 - **Qui decideix:** backend + frontend
 - **Resolució:**
 
-### DP-048 · Traducció parcial o asimètrica de títols d'esdeveniments entre idiomes (`EventTranslations` / `translation_service`)
+### DP-049 · Traducció parcial o asimètrica de títols d'esdeveniments entre idiomes (`EventTranslations` / `translation_service`)
 - **Estat:** oberta
 - **Obert per:** 2026-11-21 · Antigravity (Gemini 4 Neon) · branca `fix/app-improvements` (incidència A4)
-- **Context:** `internal/services/translation_service/translation_service.go`, `internal/clients/translate_client/translator_client.go`, `internal/repositories/postgres/queries/map_events.sql`, `internal/handlers/assistant_handler/`. Relacionada amb DP-043 i DP-046.
+- **Context:** `internal/services/translation_service/translation_service.go`, `internal/clients/translate_client/translator_client.go`, `internal/repositories/postgres/queries/map_events.sql`, `internal/handlers/assistant_handler/`. Relacionada amb DP-043 i DP-047.
 - **Diagnòstic (per què alguns títols surten traduïts en un idioma i no en un altre):**
   1. **Bugs clars corregits a `translation_service.go`:**
      - Si el servei traductor extern retornava cadenes buides o només espais per a camps no buits, `translateBatch` / `translateQuestionBatch` sobreescrivia el camp amb `""` i desava la fila corrupta a `EventTranslations` amb un `SourceHash` vàlid. Ara es conserva el text original per a aquell camp i no es desa cap fila incompleta a la cau.
-     - Quan un esdeveniment ja tenia una traducció parcial de 2 camps (`Title`, `Description`) desada per `TranslateTestQuestions` (DP-046) i `TranslateEvents` / `TranslateMapEvents` intentava actualitzar-lo als 6 camps però quedava fora de `maxMisses` o el lot fallava/expirava, es descartava la traducció de 2 camps i es retornava el títol en català. Ara, si el `SourceHash` de 2 camps coincideix amb el text actual i l'actualització a 6 camps no s'ha completat, s'aplica el fallback dels camps ja traduïts a la cau.
+     - Quan un esdeveniment ja tenia una traducció parcial de 2 camps (`Title`, `Description`) desada per `TranslateTestQuestions` (DP-047) i `TranslateEvents` / `TranslateMapEvents` intentava actualitzar-lo als 6 camps però quedava fora de `maxMisses` o el lot fallava/expirava, es descartava la traducció de 2 camps i es retornava el títol en català. Ara, si el `SourceHash` de 2 camps coincideix amb el text actual i l'actualització a 6 camps no s'ha completat, s'aplica el fallback dels camps ja traduïts a la cau.
   2. **Limitacions estructurals de disseny (no canviades per no tocar `sqlc/*` ni trencar límits de latència):**
      - **Cau independent per `(Event, Lang)` + límit `maxMisses = 20` + timeout compartit de 12 s + fallback parcial per lots (`batchSize = 3`, màx. 4 en paral·lel):** `GET /events` sol demanar `pageSize = 50` i `GET /events/map` no té límit, de manera que només els primers 20 esdeveniments sense cau d'una petició s'intenten traduir; si un lot falla o supera els 12 s, cau en català mentre els altres lots sí que queden a la cau. En canviar d'idioma, el client llança en paral·lel les peticions de llista, mapa, agenda i descobriment sense `singleflight` al servidor (DP-043 #8c), amplificant timeouts/429 del traductor i fent que un esdeveniment quedi en cau en `es` i no en `en` (o a l'inrevés).
      - **Precedència d'`OR` a `queries/map_events.sql` (línia 36):** `AND e.enddate is null or e.enddate > now()` sense parèntesis fa que `GET /events/map` ignori el requadre geogràfic per a esdeveniments futurs i retorni molt més de 20 esdeveniments sense cau per petició. No s'edita aquí perquè requereix regenerar `internal/repositories/postgres/sqlc/*`.
      - **Comportament del model NMT extern (`TRANSLATOR_URL`):** la traducció automàtica `ca→es` i `ca→en` de títols culturals curts o noms propis pot traduir un títol en castellà i deixar-lo intacte en anglès (o viceversa), i `EventTranslations` no té caducitat.
      - **Assistent cultural:** `POST /assistant/messages` i `GET /assistant/conversation` encara no tradueixen `recommended-events` (DP-043 #7).
 - **Opcions:** A) mantenir les correccions defensives a `translation_service.go` i documentar les limitacions (actual) · B) pre-escalfar traduccions en background en ingerir esdeveniments de Gencat, afegir `singleflight` per `(eventID, lang)` i corregir els parèntesis de `map_events.sql` regenerant `sqlc`.
-- **Provisionalment:** A (`TODO(DP-048)` a `internal/services/translation_service/translation_service.go`).
+- **Provisionalment:** A (`TODO(DP-049)` a `internal/services/translation_service/translation_service.go`).
 - **Qui decideix:** backend + equip
 - **Resolució:**
 
