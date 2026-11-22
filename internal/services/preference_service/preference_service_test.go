@@ -15,8 +15,12 @@ const validUserID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
 type fakePreferenceRepository struct {
 	questions      []preference_model.TestQuestion
 	questionsErr   error
+	gotLimit       int
 	hasCompleted   bool
 	hasCompleteErr error
+	testStatus     preference_model.TestStatus
+	testStatusErr  error
+	gotStatusUID   string
 
 	saveErr        error
 	savedUserID    string
@@ -35,12 +39,18 @@ type fakePreferenceRepository struct {
 	userPreferencesErr error
 }
 
-func (f *fakePreferenceRepository) GetQuestions(_ context.Context, _ int) ([]preference_model.TestQuestion, error) {
+func (f *fakePreferenceRepository) GetQuestions(_ context.Context, limit int) ([]preference_model.TestQuestion, error) {
+	f.gotLimit = limit
 	return f.questions, f.questionsErr
 }
 
 func (f *fakePreferenceRepository) HasCompletedTest(_ context.Context, _ string) (bool, error) {
 	return f.hasCompleted, f.hasCompleteErr
+}
+
+func (f *fakePreferenceRepository) GetTestStatus(_ context.Context, userID string) (preference_model.TestStatus, error) {
+	f.gotStatusUID = userID
+	return f.testStatus, f.testStatusErr
 }
 
 func (f *fakePreferenceRepository) SaveTestAndPreferences(
@@ -55,7 +65,15 @@ func (f *fakePreferenceRepository) SaveTestAndPreferences(
 	f.savedDateTaken = dateTaken
 	f.savedAnswers = answers
 	f.savedPrefs = preferences
-	return f.saveErr
+	if f.saveErr != nil {
+		return f.saveErr
+	}
+	// Mirror R1 replace semantics: latest test replaces previous state and preferences.
+	dt := dateTaken
+	f.hasCompleted = true
+	f.testStatus = preference_model.TestStatus{Completed: true, DateTaken: &dt}
+	f.userPreferences = preferences
+	return nil
 }
 
 func (f *fakePreferenceRepository) GetEventCategories(_ context.Context, _ []int) (map[int][]int, error) {
@@ -84,8 +102,8 @@ func TestGetQuestions(t *testing.T) {
 			userID: validUserID,
 			repo: fakePreferenceRepository{
 				questions: []preference_model.TestQuestion{
-					{EventID: 1, Title: "Concert"},
-					{EventID: 2, Title: "Teatre"},
+					{EventID: 1, Title: "Concert", Images: "https://example.cat/1.jpg", Categories: []string{"agenda:categories/musica"}},
+					{EventID: 2, Title: "Teatre", Images: "https://example.cat/2.jpg", Categories: []string{"agenda:categories/dansa"}},
 				},
 			},
 			wantCount: 2,
@@ -123,7 +141,171 @@ func TestGetQuestions(t *testing.T) {
 			if len(got) != tt.wantCount {
 				t.Errorf("got %d questions, want %d", len(got), tt.wantCount)
 			}
+			if tt.repo.gotLimit != defaultTestLimit {
+				t.Errorf("repo limit = %d, want %d", tt.repo.gotLimit, defaultTestLimit)
+			}
 		})
+	}
+}
+
+func TestGetTestStatus(t *testing.T) {
+	fixedTime := time.Date(2026, 10, 24, 18, 0, 0, 0, time.UTC)
+	repoErr := errors.New("db down")
+
+	tests := []struct {
+		name          string
+		userID        string
+		repo          fakePreferenceRepository
+		wantCompleted bool
+		wantDateTaken *time.Time
+		wantErr       error
+	}{
+		{
+			name:          "not completed returns false and nil date",
+			userID:        validUserID,
+			repo:          fakePreferenceRepository{testStatus: preference_model.TestStatus{Completed: false, DateTaken: nil}},
+			wantCompleted: false,
+			wantDateTaken: nil,
+		},
+		{
+			name:   "completed returns true and timestamp",
+			userID: "3F2504E0-4F89-11D3-9A0C-0305E82C3301",
+			repo: fakePreferenceRepository{
+				testStatus: preference_model.TestStatus{Completed: true, DateTaken: &fixedTime},
+			},
+			wantCompleted: true,
+			wantDateTaken: &fixedTime,
+		},
+		{
+			name:    "invalid user id returns ErrInvalidUserID",
+			userID:  "not-a-uuid",
+			wantErr: ErrInvalidUserID,
+		},
+		{
+			name:    "repository error is propagated",
+			userID:  validUserID,
+			repo:    fakePreferenceRepository{testStatusErr: repoErr},
+			wantErr: repoErr,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := NewPreferenceService(&tt.repo)
+			got, err := s.GetTestStatus(context.Background(), tt.userID)
+
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("error = %v, want %v", err, tt.wantErr)
+			}
+			if tt.wantErr != nil {
+				return
+			}
+			if tt.repo.gotStatusUID != validUserID {
+				t.Errorf("normalized userID = %q, want %q", tt.repo.gotStatusUID, validUserID)
+			}
+			if got.Completed != tt.wantCompleted {
+				t.Errorf("completed = %v, want %v", got.Completed, tt.wantCompleted)
+			}
+			if tt.wantDateTaken == nil {
+				if got.DateTaken != nil {
+					t.Errorf("dateTaken = %v, want nil", got.DateTaken)
+				}
+			} else if got.DateTaken == nil || !got.DateTaken.Equal(*tt.wantDateTaken) {
+				t.Errorf("dateTaken = %v, want %v", got.DateTaken, *tt.wantDateTaken)
+			}
+		})
+	}
+}
+
+func TestR1_SubmitTest_RetakeReplacesPreviousTest(t *testing.T) {
+	t1 := time.Date(2026, 10, 24, 18, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, 10, 25, 10, 30, 0, 0, time.UTC)
+	t3 := time.Date(2026, 10, 26, 9, 0, 0, 0, time.UTC)
+
+	repo := &fakePreferenceRepository{
+		allCategories: []event_model.Category{
+			{ID: 1, Name: "agenda:categories/musica"},
+			{ID: 2, Name: "agenda:categories/teatre"},
+			{ID: 3, Name: "agenda:categories/dansa"},
+		},
+		eventCategories: map[int][]int{
+			10: {1},
+			20: {2},
+			30: {3},
+		},
+	}
+
+	now := t1
+	s := NewPreferenceService(repo)
+	s.now = func() time.Time { return now }
+
+	// Before any submission, status is not completed.
+	status, err := s.GetTestStatus(context.Background(), validUserID)
+	if err != nil {
+		t.Fatalf("initial GetTestStatus: %v", err)
+	}
+	if status.Completed || status.DateTaken != nil {
+		t.Fatalf("initial status = %+v, want {Completed:false DateTaken:nil}", status)
+	}
+
+	// First submission: likes Música (1.2), dislikes Teatre (0.8), Dansa untouched (1.0).
+	res1, err := s.SubmitTest(context.Background(), validUserID, []preference_model.TestAnswer{
+		{EventID: 10, Likes: true},
+		{EventID: 20, Likes: false},
+	})
+	if err != nil {
+		t.Fatalf("first SubmitTest: %v", err)
+	}
+	if !res1.DateTaken.Equal(t1) {
+		t.Errorf("first dateTaken = %v, want %v", res1.DateTaken, t1)
+	}
+
+	// Second submission (retake): dislikes Música (0.8), likes Dansa (1.2), Teatre reset to 1.0.
+	now = t2
+	retakeAnswers := []preference_model.TestAnswer{
+		{EventID: 10, Likes: false},
+		{EventID: 30, Likes: true},
+	}
+	res2, err := s.SubmitTest(context.Background(), validUserID, retakeAnswers)
+	if err != nil {
+		t.Fatalf("second SubmitTest (retake): %v", err)
+	}
+	if !res2.DateTaken.Equal(t2) {
+		t.Errorf("second dateTaken = %v, want %v", res2.DateTaken, t2)
+	}
+	if repo.saveCalls != 2 {
+		t.Errorf("saveCalls = %d, want 2", repo.saveCalls)
+	}
+	if len(repo.savedAnswers) != 2 || repo.savedAnswers[0].EventID != 10 || repo.savedAnswers[1].EventID != 30 {
+		t.Errorf("savedAnswers = %+v, want replaced answers %+v", repo.savedAnswers, retakeAnswers)
+	}
+
+	weights := make(map[int]float32, len(res2.Preferences))
+	for _, p := range res2.Preferences {
+		weights[p.CategoryID] = p.Weight
+	}
+	if weights[1] != 0.8 || weights[2] != 1.0 || weights[3] != 1.2 {
+		t.Errorf("recomputed weights = %v, want {1:0.8 2:1.0 3:1.2}", weights)
+	}
+
+	status, err = s.GetTestStatus(context.Background(), validUserID)
+	if err != nil {
+		t.Fatalf("GetTestStatus after retake: %v", err)
+	}
+	if !status.Completed || status.DateTaken == nil || !status.DateTaken.Equal(t2) {
+		t.Errorf("status after retake = %+v, want completed at %v", status, t2)
+	}
+
+	// Third submission confirms retaking works any number of times.
+	now = t3
+	res3, err := s.SubmitTest(context.Background(), validUserID, []preference_model.TestAnswer{
+		{EventID: 20, Likes: true},
+	})
+	if err != nil {
+		t.Fatalf("third SubmitTest: %v", err)
+	}
+	if !res3.DateTaken.Equal(t3) || repo.saveCalls != 3 {
+		t.Errorf("third submit: dateTaken=%v saveCalls=%d, want %v and 3", res3.DateTaken, repo.saveCalls, t3)
 	}
 }
 

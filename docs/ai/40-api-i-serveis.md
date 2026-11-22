@@ -43,6 +43,14 @@ Totes les respostes i cossos de petició utilitzen claus JSON en **kebab-case**.
 | `GET /events/{id}/messages?pageNum=<n>&pageSize=<n>` | `MessageHandler.ListMessages` | Missatges del xat de l'esdeveniment, del més nou al més antic, amb l'autor (`user-id`, `username`, `name`, `profile-picture`). Només per als inscrits (R11, `403`). Resposta `{event-id, total, page-num, page-size, messages: [...]}`; `pageNum` des de 0, `pageSize` 50 per defecte i màxim 100 (`400` si no); `404` si l'esdeveniment no existeix | Implementat (Tasca #147, DP-040) |
 | `POST /events/{id}/messages` | `MessageHandler.SendMessage` | Envia un missatge (cos `{"text": "..."}`, retallat, 1–1000 caràcters). R11: l'autor ha d'estar inscrit (`403`). `201` amb el missatge; `400`/`401`/`404`; `409` si el mateix usuari n'envia dos en el mateix instant (clau R1). Taula `EventMessages` (migració 000019); el text es desa comprimit amb DEFLATE quan ocupa menys (`bytea` amb byte de format) | Implementat (Tasca #147, DP-040) |
 
+### Preferències i test d'interessos (`preference_handler`)
+| Mètode i ruta | Handler | Descripció | Estat |
+|---|---|---|---|
+| `GET /preferences/test` | `PreferenceHandler.GetQuestions` | Fins a 25 esdeveniments amb títol i imatges no buits, diversificats per categoria (round-robin per primera categoria) i en ordre aleatori; categories en format brut (`agenda:categories/...`) | Implementat (Tasca #154, DP-044) |
+| `GET /preferences/test/status` | `PreferenceHandler.GetTestStatus` | Estat del test de l'usuari autenticat: `200 {"completed": bool, "date-taken": <RFC3339 UTC \| null>}` | Implementat (Tasca #154, DP-044) |
+| `POST /preferences/test` | `PreferenceHandler.SubmitTest` | Substitució idempotent (R1: un sol `TestInteressos` actiu per usuari): dins la mateixa transacció elimina `PreferenceTestChoices` i `PreferenceTests` previs, desa el nou test i recalcula des de zero els pesos a `UserPreferences`. Repetible indefinidament | Implementat (Tasca #154, DP-044) |
+| `GET /preferences` | `PreferenceHandler.GetUserPreferences` | Pesos actuals de preferència per categoria de l'usuari autenticat | Implementat |
+
 ### Assistent Virtual i Xatbot (`assistant_handler`)
 | Mètode i ruta | Handler | Descripció | Estat |
 |---|---|---|---|
@@ -63,7 +71,7 @@ Totes les respostes i cossos de petició utilitzen claus JSON en **kebab-case**.
 | `DELETE /users/{id}/block` | `UserHandler.UnblockUser` | Desbloqueja l'usuari (`204`; `404` si no existeix o no estava bloquejat). L'amistat no es recupera | Implementat (Tasca #108, DP-042) |
 | `GET /users/me/blocked` | `UserHandler.ListBlockedUsers` | Usuaris que he bloquejat, del més recent al més antic (pantalla «Usuaris bloquejats», fig. 19). Llista sense paginació | Implementat (Tasca #108, DP-042) |
 | `DELETE /users/me` | `UserHandler.DeleteMyAccount` | Baixa del compte (RGPD): esborra en una transacció l'usuari, la seva configuració, els esdeveniments no oficials que ha creat (amb les dades que en depenen) i totes les files que el referencien; dins la transacció esborra el compte de Firebase Auth i, després del commit, l'avatar del bucket privat (best-effort). `204`; `401` sense identitat; `404` usuari inexistent; `502` si Firebase falla (no s'esborra res) | Implementat (DP-031) |
-| `POST /users/me/avatar` | `UserHandler.UploadAvatar` | Puja la foto de perfil (multipart `avatar` o `file`; JPEG, PNG o WebP; màxim 5 MB) al bucket **privat** `avatars` de Supabase Storage i esborra l'anterior. `200` amb el perfil; `400` imatge invàlida; `502` si Storage falla; `503` sense `SUPABASE_URL`/`SUPABASE_SECRET_KEY` | Implementat (Tasca #247, DP-044) |
+| `POST /users/me/avatar` | `UserHandler.UploadAvatar` | Puja la foto de perfil (multipart `avatar` o `file`; JPEG, PNG o WebP; màxim 5 MB) al bucket **privat** `avatars` de Supabase Storage i esborra l'anterior. `200` amb el perfil; `400` imatge invàlida; `502` si Storage falla; `503` sense `SUPABASE_URL`/`SUPABASE_SECRET_KEY` | Implementat (Tasca #247, DP-045) |
 
 ### Fotos de perfil privades (Tasca #247)
 Les fotos pujades es desen al bucket privat `avatars` (`S3_AVATAR_BUCKET`) i `Users.ProfilePicture` guarda la ruta de l'objecte
@@ -71,7 +79,7 @@ Les fotos pujades es desen al bucket privat `avatars` (`S3_AVATAR_BUCKET`) i `Us
 `POST /users/me/avatar`, `GET /users?q=`, `POST /users/{id}/block`, `GET /users/me/blocked`, `GET`/`POST /events/{id}/messages` i
 `POST /auth/sync`) la retornen com una **URL signada** que caduca en 1 hora (la mateixa URL es reutilitza mentre li queden ≥ 30 min). Les
 URL externes (p. ex. la foto de Google) es retornen tal qual. Si no es pot signar, `profile-picture` surt buit (o l'avatar generat al
-perfil). `PATCH /users/me` només accepta `profile-picture` buit o una URL `http(s)` (`400` en cas contrari). Detalls a DP-044.
+perfil). `PATCH /users/me` només accepta `profile-picture` buit o una URL `http(s)` (`400` en cas contrari). Detalls a DP-045.
 
 ### Idioma i traducció d'esdeveniments (US #28)
 Idiomes: `ca` (original, per defecte), `es`, `en`. L'idioma de l'usuari es guarda a `Settings.Language` i es llegeix/modifica
@@ -114,8 +122,6 @@ Fora del router i del middleware de Firebase: s'autentica amb la capçalera `X-A
 | `DELETE /events/{id}/enroll` | **US #49** (Tasca #186) | Desapuntar-se d'un esdeveniment (decrementar places i eliminar de l'agenda) |
 | `GET /users/me` i `GET /users/{id}` | **US #36** (Tasca #165) | Obtenir el perfil propi o d'un altre usuari amb mètriques i plans |
 | `PATCH /users/me` | **US #12** (Tasca #119) | Modificar nom, biografia i foto de perfil de l'usuari |
-| `GET /preferences/test` | **US #27** (Tasca #226) | Obtenir els 25 esdeveniments representatius per al test d'interessos |
-| `POST /preferences/test` | **US #27** (Tasca #226) | Enviar les respostes del test i calcular pesos per categoria |
 
 ---
 

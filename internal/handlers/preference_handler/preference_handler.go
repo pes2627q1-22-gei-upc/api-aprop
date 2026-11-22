@@ -21,6 +21,7 @@ func NewPreferenceHandler(svc preference_service.Service, resolver requester.Res
 
 func (h *PreferenceHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /preferences/test", h.GetQuestions)
+	mux.HandleFunc("GET /preferences/test/status", h.GetTestStatus)
 	mux.HandleFunc("POST /preferences/test", h.SubmitTest)
 	mux.HandleFunc("GET /preferences", h.GetUserPreferences)
 }
@@ -37,6 +38,20 @@ func (h *PreferenceHandler) GetQuestions(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	response.WriteJSON(w, http.StatusOK, questions)
+}
+
+func (h *PreferenceHandler) GetTestStatus(w http.ResponseWriter, r *http.Request) {
+	userID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
+		return
+	}
+
+	status, err := h.svc.GetTestStatus(r.Context(), userID)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	response.WriteJSON(w, http.StatusOK, status)
 }
 
 func (h *PreferenceHandler) SubmitTest(w http.ResponseWriter, r *http.Request) {

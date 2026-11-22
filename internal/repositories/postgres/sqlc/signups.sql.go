@@ -66,6 +66,22 @@ func (q *Queries) DeleteSignUp(ctx context.Context, arg DeleteSignUpParams) (int
 	return result.RowsAffected(), nil
 }
 
+const getAttendance = `-- name: GetAttendance :one
+SELECT attendance from signup where userid = $1 and event = $2
+`
+
+type GetAttendanceParams struct {
+	Userid pgtype.UUID
+	Event  int32
+}
+
+func (q *Queries) GetAttendance(ctx context.Context, arg GetAttendanceParams) (pgtype.Bool, error) {
+	row := q.db.QueryRow(ctx, getAttendance, arg.Userid, arg.Event)
+	var attendance pgtype.Bool
+	err := row.Scan(&attendance)
+	return attendance, err
+}
+
 const isUserSignedUp = `-- name: IsUserSignedUp :one
 SELECT EXISTS (
     SELECT 1 FROM SignUp

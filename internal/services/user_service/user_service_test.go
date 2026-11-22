@@ -151,10 +151,6 @@ func (m *mockUserRepo) CountCompletedPlans(_ context.Context, userUUID pgtype.UU
 	return m.completedPlans[userUUID], nil
 }
 
-func (m *mockUserRepo) GetReliability(_ context.Context, creatorUUID pgtype.UUID) (*float32, error) {
-	return m.reliability[creatorUUID], nil
-}
-
 func (m *mockUserRepo) ListReceivedRatings(_ context.Context, creatorUUID pgtype.UUID) ([]user_model.ReceivedRating, error) {
 	return m.receivedRatings[creatorUUID], nil
 }
@@ -698,7 +694,6 @@ func TestListCreatedEvents(t *testing.T) {
 }
 
 func TestGetUserProfile_Reliability(t *testing.T) {
-	rating := float32(4.5)
 	avg := float32(3.5)
 	tests := []struct {
 		name        string
@@ -706,8 +701,8 @@ func TestGetUserProfile_Reliability(t *testing.T) {
 		reliability *float32
 		want        *float32
 	}{
-		{"no ratings gives null reliability", &rating, nil, nil},
-		{"mean of the NoOficial ratings", nil, &avg, &avg},
+		{"no ratings gives null reliability", nil, nil, nil},
+		{"mean of the NoOficial ratings", &avg, &avg, &avg},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

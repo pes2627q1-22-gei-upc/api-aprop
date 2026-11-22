@@ -179,6 +179,9 @@ func (f *fakeUserService) ListBlockedUsers(_ context.Context, requesterID string
 func (f *fakeUserService) Unfriend(ctx context.Context, userid string, targetid string) error {
 	return nil
 }
+func (f *fakeUserService) GetSettings(ctx context.Context, userid string) (user_model.Settings, error) {
+	return user_model.Settings{ShowPlans: true, NotificationBefore: "3 days", AllowedNotifTypes: []int{7, 8, 9}}, nil
+}
 
 const (
 	aliceID          = "11111111-1111-1111-1111-111111111111"

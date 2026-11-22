@@ -50,6 +50,10 @@ func (s *SignUpService) SignUp(ctx context.Context, userID string, eventID int) 
 		return signup_model.SignUp{}, fmt.Errorf("sign up to event %d: %w", eventID, ErrEventExpired)
 	}
 
+	if event.State != nil && *(event.State) != "Active" {
+		return signup_model.SignUp{}, fmt.Errorf("sign up to event %d: %w", eventID, ErrEventCanceled)
+	}
+
 	created, err := s.signUpRepository.Create(ctx, userID, eventID)
 	if errors.Is(err, signup_repository.ErrEventNotFound) {
 		return signup_model.SignUp{}, fmt.Errorf("%w: %w", ErrEventNotFound, err)
@@ -157,11 +161,16 @@ func (s *SignUpService) GetEnrollmentStatus(ctx context.Context, userID string, 
 		return signup_model.EnrollmentStatus{}, err
 	}
 
+	var hasAttended *bool
 	var isEnrolled bool
 	if userID != "" {
 		normalizedUID, normErr := user_model.NormalizeID(userID)
 		if normErr == nil {
 			isEnrolled, err = s.signUpRepository.IsSignedUp(ctx, normalizedUID, eventID)
+			if err != nil {
+				return signup_model.EnrollmentStatus{}, err
+			}
+			hasAttended, err = s.signUpRepository.GetAttendance(ctx, normalizedUID, eventID)
 			if err != nil {
 				return signup_model.EnrollmentStatus{}, err
 			}
@@ -171,6 +180,7 @@ func (s *SignUpService) GetEnrollmentStatus(ctx context.Context, userID string, 
 	return signup_model.EnrollmentStatus{
 		EventID:       eventID,
 		IsEnrolled:    isEnrolled,
+		HasAttended:   hasAttended,
 		EnrolledCount: count,
 	}, nil
 }

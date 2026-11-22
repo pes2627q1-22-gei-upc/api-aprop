@@ -537,10 +537,24 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Qui decideix:** frontend + backend
 - **Resolució:**
 
-### DP-044 · Fotos de perfil en un bucket privat amb URLs signades (#247)
+### DP-044 · Repetir el test d'interessos (#30/#154): substitució R1, estat i selecció de preguntes
+- **Estat:** oberta
+- **Obert per:** 2026-11-21 · Antigravity (Gemini 4 Neon) · branca `feature/interest-test-retake-30` (Taiga #30 / #154)
+- **Context:** `internal/repositories/postgres/queries/preferences.sql`, `internal/repositories/postgres/sqlc/preferences.sql.go`, `internal/repositories/postgres/preference_repository.go` (`GetQuestions`, `GetTestStatus`, `SaveTestAndPreferences`), `internal/services/preference_service/`, `internal/handlers/preference_handler/`, `api/openapi.yaml`.
+- **Dubte / supòsits:**
+  1. **Unicitat R1 sense migració:** `PreferenceTests` té PK `(UserID, DateTaken)` i no té restricció `UNIQUE (UserID)` a la BD. R1 (un sol `TestInteressos` actiu per usuari) s'aplica dins la transacció de `SaveTestAndPreferences` amb `LockUserPreferenceTest` (`pg_advisory_xact_lock`) i esborrant primer `PreferenceTestChoices` i `PreferenceTests` de l'usuari abans d'inserir el nou test (`TODO(DP-044)`). `GetTestStatus` llegeix `ORDER BY DateTaken DESC LIMIT 1`.
+  2. **Selecció de preguntes (`GET /preferences/test`):** `GetPreferenceTestQuestions` a `queries/preferences.sql` filtra `btrim(e.title) != ''` i `e.images IS NOT NULL AND btrim(e.images) != ''`, agrupa per `COALESCE(MIN(ec.category), 0)`, fa round-robin aleatori (`ROW_NUMBER() OVER (PARTITION BY primary_category ORDER BY random())`) prioritzant esdeveniments amb categoria (`primary_category > 0`) i barrejant el resultat final. No s'exclouen esdeveniments acabats (`enddate`) ni no oficials cancel·lats/retirats (`UnofficialEvents.State`).
+  3. **Recàlcul de pesos:** en repetir el test, els pesos de totes les categories es recalculen des de zero (`1.0` per defecte, ± `0.2` per resposta, rang `[0.1, 3.0]`); les categories absents al nou test tornen a `1.0`.
+  4. **Proves d'integració contra BD:** totes les consultes s'han mogut a `queries/preferences.sql` i generat amb `sqlc generate` v1.31.1 (amb `sqlc_schema_compat.sql` per al `CREATE TYPE UnofficialEventState` del bloc `DO $$` de la migració 000018), però no hi ha tests d'integració automatitzats contra una BD PostgreSQL/Supabase local (verificat per compilació `sqlc`, revisió i proves unitàries amb fakes).
+- **Opcions:** A) mantenir la substitució transaccional amb lock i la selecció actual a `preferences.sql` · B) afegir una migració amb `UNIQUE (UserID)` a `PreferenceTests` i filtrar per estat `Active` / dates futures.
+- **Provisionalment:** A (`TODO(DP-044)` a `internal/repositories/postgres/preference_repository.go`).
+- **Qui decideix:** backend + frontend
+- **Resolució:**
+
+### DP-045 · Fotos de perfil en un bucket privat amb URLs signades (#247)
 - **Estat:** oberta
 - **Obert per:** 2026-11-20 · Claude Code (Opus 5.5) · branca `feature/restringir-fotos-perfil` (Taiga #247)
-- **Context:** `s3_client/avatar_storage.go`, `s3_client/resolve.go`, `user_service`, `message_service`, `auth_service`, `user_handler/error_mapper.go`, migració 000023. Abans no hi havia cap bucket ni variables `S3_*`: sense `S3_ENDPOINT`, `POST /users/me/avatar` no pujava res i desava una URL inventada (`https://media.s3.eu-west-1.amazonaws.com/avatars/...`). L'usuari (Arnau) ha creat el bucket privat `avatars` sense policies i una *secret key* nova.
+- **Context:** `s3_client/avatar_storage.go`, `s3_client/resolve.go`, `user_service`, `message_service`, `auth_service`, `user_handler/error_mapper.go`, migració 000025. Abans no hi havia cap bucket ni variables `S3_*`: sense `S3_ENDPOINT`, `POST /users/me/avatar` no pujava res i desava una URL inventada (`https://media.s3.eu-west-1.amazonaws.com/avatars/...`). L'usuari (Arnau) ha creat el bucket privat `avatars` sense policies i una *secret key* nova.
 - **Dubte / supòsits:**
   1. **Accés:** el bucket és privat i només hi accedeix el backend amb `SUPABASE_SECRET_KEY` (capçalera `apikey`; les claus `service_role` antigues, que són JWT, també van a `Authorization`). S'usa l'API REST de Storage (`/storage/v1/object/...`) en lloc del protocol S3 per no afegir l'SDK d'AWS ni signar amb SigV4.
   2. **Què es desa:** `Users.ProfilePicture` guarda la ruta `<uuid>/avatar-<unix ms>.<jpg|png|webp>` (extensió segons el `Content-Type`, no el nom del fitxer). Només es signen les rutes que encaixen amb aquest format **i** pertanyen a l'usuari de la fila; la resta de valors que no són URL `http(s)` s'amaguen.
@@ -548,7 +562,7 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
   4. **Errors:** si no es pot signar (Storage caigut o sense configurar) la foto surt buida (al perfil, l'avatar generat de ui-avatars) i es registra; la petició no falla. Pujada: `503` sense configuració, `502` si Storage falla, `400` tipus invàlid.
   5. **`PATCH /users/me`:** `profile-picture` només accepta buit o una URL `http(s)` externa (màx. 2048). Les rutes del bucket es rebutgen perquè ningú no pugui apuntar a l'avatar d'un altre. Encara s'accepten URL externes arbitràries: cal decidir si es tanquen.
   6. **Esborrat:** en pujar una foto nova o canviar-la amb `PATCH` s'esborra l'anterior del bucket (best-effort), igual que a la baixa del compte (DP-031), ara amb una petició autenticada (ja no queda l'esborrat sense signar de la DP-031). Si l'`UPDATE` falla després de pujar, s'esborra l'objecte pujat.
-  7. **Migració 000023:** posa a `NULL` les URLs inventades `https://*.s3.*.amazonaws.com/avatars/...`. No crea el bucket: les migracions incrustades també s'executen contra PostgreSQL local, sense l'esquema `storage`.
+  7. **Migració 000025:** posa a `NULL` les URLs inventades `https://*.s3.*.amazonaws.com/avatars/...`. No crea el bucket: les migracions incrustades també s'executen contra PostgreSQL local, sense l'esquema `storage`.
   8. **Fora d'abast:** els cartells d'esdeveniments (`UploadEventImage`) segueixen amb el codi antic i tampoc es pugen sense `S3_ENDPOINT`.
   9. **No provat contra Supabase real:** pujada, signatura i esborrat només estan provats amb tests unitaris (servidor HTTP fals); falta verificar el format de resposta de `/object/sign` i que la *secret key* nova només a `apikey` funciona. Frontend: la URL caduca, cal un `cacheKey` estable (p. ex. l'id de l'usuari) si es fa servir `CachedNetworkImage`.
 - **Opcions:** —

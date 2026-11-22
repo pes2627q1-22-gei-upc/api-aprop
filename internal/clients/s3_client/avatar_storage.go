@@ -13,7 +13,7 @@ import (
 )
 
 // DefaultAvatarURLTTL is the lifetime of the signed avatar URLs.
-// TODO(DP-044): proposed value, not agreed with the frontend.
+// TODO(DP-045): proposed value, not agreed with the frontend.
 const DefaultAvatarURLTTL = time.Hour
 
 // maxCachedSignedURLs bounds the cache of signed URLs; expired entries are dropped when it is reached.

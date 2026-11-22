@@ -72,13 +72,13 @@ FROM EventMessages m
 JOIN Users u ON u.ID = m.UserID
 WHERE m.Event = $1::integer
 ORDER BY m.DateSent DESC, m.UserID
-LIMIT $2::int OFFSET $3::int
+LIMIT $3::int OFFSET $2::int
 `
 
 type ListEventMessagesParams struct {
 	EventID    int32
-	PageSize   int32
 	PageOffset int32
+	PageSize   int32
 }
 
 type ListEventMessagesRow struct {
@@ -92,7 +92,7 @@ type ListEventMessagesRow struct {
 
 // Chat messages of the event with their authors, newest first.
 func (q *Queries) ListEventMessages(ctx context.Context, arg ListEventMessagesParams) ([]ListEventMessagesRow, error) {
-	rows, err := q.db.Query(ctx, listEventMessages, arg.EventID, arg.PageSize, arg.PageOffset)
+	rows, err := q.db.Query(ctx, listEventMessages, arg.EventID, arg.PageOffset, arg.PageSize)
 	if err != nil {
 		return nil, err
 	}
