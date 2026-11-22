@@ -19,8 +19,9 @@ const (
 
 	DateLayout = "2006-01-02"
 
-	defaultLimit       = 5
+	defaultLimit       = 6
 	maxLimit           = 10
+	maxCatalogueFetch  = 250
 	maxDescriptionRune = 300
 )
 
@@ -60,7 +61,7 @@ func toolDefinitions() []groq_client.Tool {
 	return []groq_client.Tool{
 		{Type: "function", Function: groq_client.ToolDefinition{
 			Name:        ToolSearchEvents,
-			Description: "Searches the real catalogue of cultural events. Only returns events that have not ended before the start of the range.",
+			Description: "Searches the real catalogue of cultural events. Only returns events that have not ended before the start of the range, and automatically excludes events already shown in this conversation.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -68,7 +69,7 @@ func toolDefinitions() []groq_client.Tool {
 					"municipality": map[string]any{"type": "string", "description": "municipality of Catalonia, e.g. Girona"},
 					"from":         map[string]any{"type": "string", "description": "first day of the date range as YYYY-MM-DD; defaults to today"},
 					"to":           map[string]any{"type": "string", "description": "last day of the date range as YYYY-MM-DD"},
-					"limit":        map[string]any{"type": "integer", "description": "maximum number of events to return, from 1 to 10; defaults to 5"},
+					"limit":        map[string]any{"type": "integer", "description": "maximum number of unseen candidate events to return, from 1 to 10; defaults to 6 (recommend at most 3 of them)"},
 				},
 			},
 		}},
@@ -100,8 +101,12 @@ func topicKeys() []string {
 
 // callTool runs a tool and returns the JSON text for the model. A toolError is returned as an error
 // result for the model; any other error aborts the reply. search is set for a successful search_events call.
-func (s *AssistantService) callTool(ctx context.Context, userID string, now time.Time, name string, arguments string) (text string, search *lastSearch, err error) {
-	text, search, err = s.runTool(ctx, userID, now, name, arguments)
+func (s *AssistantService) callTool(ctx context.Context, userID string, now time.Time, name string, arguments string) (text string, search *searchResult, err error) {
+	return s.callToolWithExcluded(ctx, userID, now, nil, name, arguments)
+}
+
+func (s *AssistantService) callToolWithExcluded(ctx context.Context, userID string, now time.Time, excludedIDs map[int]struct{}, name string, arguments string) (text string, search *searchResult, err error) {
+	text, search, err = s.runTool(ctx, userID, now, excludedIDs, name, arguments)
 	var te toolError
 	if errors.As(err, &te) {
 		b, _ := json.Marshal(map[string]any{"error": te.msg, "is_error": true})
@@ -110,7 +115,7 @@ func (s *AssistantService) callTool(ctx context.Context, userID string, now time
 	return text, search, err
 }
 
-func (s *AssistantService) runTool(ctx context.Context, userID string, now time.Time, name string, arguments string) (string, *lastSearch, error) {
+func (s *AssistantService) runTool(ctx context.Context, userID string, now time.Time, excludedIDs map[int]struct{}, name string, arguments string) (string, *searchResult, error) {
 	switch name {
 	case ToolSearchEvents:
 		var in SearchEventsInput
@@ -122,20 +127,39 @@ func (s *AssistantService) runTool(ctx context.Context, userID string, now time.
 			return "", nil, toolError{err.Error()}
 		}
 		filter.UserID = userID
+		desired := filter.Limit
+		if len(excludedIDs) > 0 {
+			// TODO(DP-046): fetch extra rows to filter already-shown IDs in Go without modifying sqlc queries.
+			filter.Limit = min(desired+len(excludedIDs), maxCatalogueFetch)
+		}
 		events, err := s.catalogueRepository.Search(ctx, filter)
 		if err != nil {
 			return "", nil, toolError{"the catalogue is not available"}
 		}
-		out := struct {
-			Events []EventSummary `json:"events"`
-		}{Events: make([]EventSummary, 0, len(events))}
-		ids := make([]int, 0, len(events))
+		unseen := make([]event_model.Event, 0, min(desired, len(events)))
+		skipped := 0
 		for _, e := range events {
+			if _, shown := excludedIDs[e.ID]; shown {
+				skipped++
+				continue
+			}
+			unseen = append(unseen, e)
+			if len(unseen) == desired {
+				break
+			}
+		}
+		out := struct {
+			Events              []EventSummary `json:"events"`
+			AlreadyShownSkipped int            `json:"already-shown-skipped,omitempty"`
+		}{
+			Events:              make([]EventSummary, 0, len(unseen)),
+			AlreadyShownSkipped: skipped,
+		}
+		for _, e := range unseen {
 			out.Events = append(out.Events, toSummary(e))
-			ids = append(ids, e.ID)
 		}
 		b, _ := json.Marshal(out)
-		return string(b), &lastSearch{input: in, eventIDs: ids}, nil
+		return string(b), &searchResult{input: in, events: unseen}, nil
 	case ToolGetAppHelp:
 		text, err := s.getAppHelp(ctx, userID, arguments)
 		return text, nil, err

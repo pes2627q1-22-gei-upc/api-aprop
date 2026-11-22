@@ -299,7 +299,7 @@ func main() {
 	authHandler := auth_handler.NewAuthHandler(authService)
 	userHandler := user_handler.NewUserHandler(userService, authService).WithTranslator(translationService)
 	notificationHandler := notification_handler.NewNotificationHandler(notificationService)
-	preferenceHandler := preference_handler.NewPreferenceHandler(preferenceService, authService)
+	preferenceHandler := preference_handler.NewPreferenceHandler(preferenceService, authService).WithTranslator(translationService)
 	congestionHandler := congestion_handler.NewCongestionHandler(congestionService)
 	passwordResetHandler := password_reset_handler.NewPasswordResetHandler(passwordResetService)
 

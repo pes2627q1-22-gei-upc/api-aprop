@@ -17,9 +17,10 @@ type TestAnswer struct {
 	Likes   bool `json:"likes"`
 }
 
-// SubmitTestRequest is the body sent when submitting the test.
+// SubmitTestRequest is the body sent when submitting the test (full or partial).
 type SubmitTestRequest struct {
 	Answers []TestAnswer `json:"answers"`
+	Partial bool         `json:"partial,omitempty"`
 }
 
 // UserPreference is the computed preference weight for a category.
@@ -29,15 +30,21 @@ type UserPreference struct {
 	Weight       float32 `json:"weight"`
 }
 
-// SubmitTestResponse is returned after submitting the test.
+// SubmitTestResponse is returned after submitting the test (full or partial).
 type SubmitTestResponse struct {
-	UserID      string           `json:"user-id"`
-	DateTaken   time.Time        `json:"date-taken"`
-	Preferences []UserPreference `json:"preferences"`
+	UserID        string           `json:"user-id"`
+	DateTaken     time.Time        `json:"date-taken"`
+	Preferences   []UserPreference `json:"preferences"`
+	Partial       bool             `json:"partial,omitempty"`
+	AnsweredCount int              `json:"answered-count,omitempty"`
 }
 
-// TestStatus reports whether the user has completed the interest test and when.
+// TestStatus reports the user's interest test completion, onboarding prompt
+// and partial-progress state.
 type TestStatus struct {
-	Completed bool       `json:"completed"`
-	DateTaken *time.Time `json:"date-taken"`
+	Completed     bool       `json:"completed"`
+	Prompted      bool       `json:"prompted"`
+	InProgress    bool       `json:"in-progress"`
+	AnsweredCount int        `json:"answered-count"`
+	DateTaken     *time.Time `json:"date-taken"`
 }

@@ -230,22 +230,19 @@ func (r *UserRepository) UpdateSettings(ctx context.Context, settings user_model
 
 	// TODO(DP-043): with a language, a hand-written query updates everything in one statement (the generated Setting model does not have Language).
 	if settings.Language != "" {
-		err := r.queries.UpdateSettings(ctx, sqlc.UpdateSettingsParams{
+		err = qtx.UpdateSettings(ctx, sqlc.UpdateSettingsParams{
 			ID:                 int32(settings.ID),
 			ShowPlans:          settings.ShowPlans,
 			NotificationBefore: settings.NotificationBefore,
 			Language:           settings.Language,
 		})
-		if err != nil {
-			return fmt.Errorf("update settings %d: %w", settings.ID, err)
-		}
-		return nil
+	} else {
+		_, err = qtx.UpdateUserSettings(ctx, sqlc.UpdateUserSettingsParams{
+			ID:                 int32(settings.ID),
+			ShowPlans:          settings.ShowPlans,
+			NotificationBefore: settings.NotificationBefore,
+		})
 	}
-	_, err = r.queries.UpdateUserSettings(ctx, sqlc.UpdateUserSettingsParams{
-		ID:                 int32(settings.ID),
-		ShowPlans:          settings.ShowPlans,
-		NotificationBefore: settings.NotificationBefore,
-	})
 	if isInvalidInterval(err) {
 		return user_repository.ErrInvalidInterval
 	} else if err != nil {

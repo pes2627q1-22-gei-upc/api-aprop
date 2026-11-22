@@ -9,6 +9,7 @@ import (
 
 	"api-aprop/internal/clients/translate_client"
 	"api-aprop/internal/models/event_model"
+	"api-aprop/internal/models/preference_model"
 	"api-aprop/internal/repositories/translation_repository"
 )
 
@@ -316,5 +317,172 @@ func TestPartialBatchFailureStillCachesOtherBatches(t *testing.T) {
 	}
 	if repo.saved != batchSize {
 		t.Errorf("saved = %d, want %d", repo.saved, batchSize)
+	}
+}
+
+func TestTranslateTestQuestions_CatalanDoesNotTranslate(t *testing.T) {
+	client := &translate_client.FakeClient{}
+	svc := NewTranslationService(&fakeRepo{}, client)
+	in := []preference_model.TestQuestion{{EventID: 1, Title: "Concert", Description: "Música"}}
+	got := svc.TranslateTestQuestions(context.Background(), "ca", in)
+	if got[0].Title != "Concert" || got[0].Description != "Música" || client.Calls() != 0 {
+		t.Errorf("got = %+v, calls = %d", got, client.Calls())
+	}
+}
+
+func TestTranslateTestQuestions_CacheMissTranslatesAndCaches(t *testing.T) {
+	repo, client := &fakeRepo{}, &translate_client.FakeClient{}
+	svc := NewTranslationService(repo, client)
+	in := []preference_model.TestQuestion{
+		{EventID: 1, Title: "Concert", Description: "Música en directe", Categories: []string{"musica"}},
+		{EventID: 2, Title: "Exposició", Description: "", Categories: []string{"art"}},
+	}
+
+	got := svc.TranslateTestQuestions(context.Background(), "en", in)
+	if got[0].Title != "[en] Concert" || got[0].Description != "[en] Música en directe" {
+		t.Errorf("got[0] = %+v", got[0])
+	}
+	if got[1].Title != "[en] Exposició" || got[1].Description != "" {
+		t.Errorf("got[1] = %+v", got[1])
+	}
+	if in[0].Title != "Concert" {
+		t.Error("input slice must not be modified")
+	}
+	if client.Calls() != 1 || repo.saved != 2 {
+		t.Errorf("calls = %d, saved = %d, want 1 and 2", client.Calls(), repo.saved)
+	}
+
+	// Second call hits the cache without calling the translator again.
+	got2 := svc.TranslateTestQuestions(context.Background(), "en", in)
+	if got2[0].Title != "[en] Concert" || got2[0].Description != "[en] Música en directe" || client.Calls() != 1 {
+		t.Errorf("cache hit: got = %+v, calls = %d", got2, client.Calls())
+	}
+}
+
+func TestTranslateTestQuestions_ReusesFullEventCacheWithoutOverwriting(t *testing.T) {
+	repo, client := &fakeRepo{}, &translate_client.FakeClient{}
+	svc := NewTranslationService(repo, client)
+	full := fullEvent(42)
+	svc.TranslateEvent(context.Background(), "es", full)
+	callsBefore := client.Calls()
+	savedBefore := repo.saved
+
+	got := svc.TranslateTestQuestions(context.Background(), "es", []preference_model.TestQuestion{
+		{EventID: 42, Title: full.Title, Description: full.Description},
+	})
+	if got[0].Title != "[es] Títol" || got[0].Description != "[es] Descripció" {
+		t.Errorf("got = %+v", got[0])
+	}
+	if client.Calls() != callsBefore || repo.saved != savedBefore {
+		t.Errorf("expected full cache reuse without overwrite: calls %d->%d, saved %d->%d", callsBefore, client.Calls(), savedBefore, repo.saved)
+	}
+	if repo.data[42].Schedule != "[es] De dimarts a diumenge, de 10 a 19 h" {
+		t.Errorf("full event cached fields must remain intact, got %+v", repo.data[42])
+	}
+}
+
+func TestTranslateTestQuestions_TranslatesAll25Questions(t *testing.T) {
+	repo, client := &fakeRepo{}, &translate_client.FakeClient{}
+	svc := NewTranslationService(repo, client)
+	in := make([]preference_model.TestQuestion, 25)
+	for i := range in {
+		in[i] = preference_model.TestQuestion{EventID: i + 1, Title: "Títol", Description: "Descripció"}
+	}
+	got := svc.TranslateTestQuestions(context.Background(), "es", in)
+	for i, q := range got {
+		if q.Title != "[es] Títol" || q.Description != "[es] Descripció" {
+			t.Fatalf("question[%d] = %+v, want translated", i, q)
+		}
+	}
+	if repo.saved != 25 {
+		t.Errorf("saved = %d, want 25", repo.saved)
+	}
+}
+
+func TestTranslateTestQuestions_FallbackToOriginalOnError(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewTranslationService(repo, &translate_client.FakeClient{Err: errors.New("translator down")})
+	in := []preference_model.TestQuestion{{EventID: 1, Title: "Festa", Description: "Desc"}}
+	got := svc.TranslateTestQuestions(context.Background(), "en", in)
+	if got[0].Title != "Festa" || got[0].Description != "Desc" || repo.saved != 0 {
+		t.Errorf("got = %+v, saved = %d", got[0], repo.saved)
+	}
+}
+
+type blankAtIndexClient struct {
+	blankIdx int
+}
+
+func (c blankAtIndexClient) Translate(_ context.Context, texts []string, _, target string) ([]string, error) {
+	out := make([]string, len(texts))
+	for i, text := range texts {
+		if i == c.blankIdx {
+			out[i] = "   "
+			continue
+		}
+		out[i] = "[" + target + "] " + text
+	}
+	return out, nil
+}
+
+func TestBlankUpstreamTranslationKeepsOriginalAndDoesNotPoisonCache(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewTranslationService(repo, blankAtIndexClient{blankIdx: 0})
+	in := fullEvent(1)
+	got := svc.TranslateEvent(context.Background(), "en", in)
+	if got.Title != in.Title {
+		t.Errorf("blank title must keep original, got %q", got.Title)
+	}
+	if got.Description != "[en] Descripció" {
+		t.Errorf("non-blank sibling fields still translated, got %q", got.Description)
+	}
+	if repo.saved != 0 {
+		t.Errorf("saved = %d, want 0 so incomplete translation is not cached", repo.saved)
+	}
+
+	qGot := svc.TranslateTestQuestions(context.Background(), "en", []preference_model.TestQuestion{
+		{EventID: 2, Title: "Festa", Description: "Desc"},
+	})
+	if qGot[0].Title != "Festa" || qGot[0].Description != "[en] Desc" || repo.saved != 0 {
+		t.Errorf("test question blank guard: got = %+v, saved = %d", qGot[0], repo.saved)
+	}
+}
+
+func TestPartialQuestionCachePreservedWhenFullUpgradeFailsOrIsCapped(t *testing.T) {
+	ev := fullEvent(7)
+	repo := &fakeRepo{data: map[int]translation_repository.Translation{
+		7: {
+			Title:       "[en] Títol",
+			Description: "[en] Descripció",
+			SourceHash:  questionSourceHash(ev.Title, ev.Description),
+		},
+	}}
+
+	// When the upstream translator fails, TranslateEvent still reuses the valid 2-field cached title/description.
+	svcFail := NewTranslationService(repo, &translate_client.FakeClient{Err: errors.New("timeout")})
+	got := svcFail.TranslateEvent(context.Background(), "en", ev)
+	if got.Title != "[en] Títol" || got.Description != "[en] Descripció" {
+		t.Errorf("expected cached title/description fallback on error, got %+v", got)
+	}
+	if got.Schedule != ev.Schedule {
+		t.Errorf("uncached field should keep original, got %q", got.Schedule)
+	}
+
+	// When the event falls beyond maxMisses, it also preserves the cached title/description.
+	in := make([]event_model.Event, maxMisses+1)
+	for i := 0; i < maxMisses; i++ {
+		in[i] = event(100+i, "Altre", "")
+	}
+	in[maxMisses] = ev
+	svcCap := NewTranslationService(repo, &translate_client.FakeClient{})
+	gotList := svcCap.TranslateEvents(context.Background(), "en", in)
+	if gotList[maxMisses].Title != "[en] Títol" || gotList[maxMisses].Description != "[en] Descripció" {
+		t.Errorf("expected cached title/description fallback when capped, got %+v", gotList[maxMisses])
+	}
+
+	// When the translator succeeds, the row upgrades cleanly to all 6 fields.
+	gotFull := svcCap.TranslateEvent(context.Background(), "en", ev)
+	if gotFull.Title != "[en] Títol" || gotFull.Schedule != "[en] De dimarts a diumenge, de 10 a 19 h" {
+		t.Errorf("expected full 6-field upgrade, got %+v", gotFull)
 	}
 }

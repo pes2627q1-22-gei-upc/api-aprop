@@ -313,6 +313,13 @@ type Preferencetestchoice struct {
 	Likes     bool
 }
 
+type Preferencetestprogress struct {
+	Userid    pgtype.UUID
+	Event     int32
+	Likes     bool
+	Updatedat pgtype.Timestamp
+}
+
 type Setting struct {
 	ID                 int32
 	Showplans          bool
@@ -335,19 +342,20 @@ type Unofficialevent struct {
 }
 
 type User struct {
-	Firebaseuid    string
-	Username       string
-	Email          pgtype.Text
-	Profilepicture pgtype.Text
-	Biography      pgtype.Text
-	Dateregistered pgtype.Timestamp
-	Accountstate   int32
-	Experience     int32
-	Level          pgtype.Int4
-	Rating         pgtype.Float4
-	Settings       int32
-	Name           pgtype.Text
-	ID             pgtype.UUID
+	Firebaseuid          string
+	Username             string
+	Email                pgtype.Text
+	Profilepicture       pgtype.Text
+	Biography            pgtype.Text
+	Dateregistered       pgtype.Timestamp
+	Accountstate         int32
+	Experience           int32
+	Level                pgtype.Int4
+	Rating               pgtype.Float4
+	Settings             int32
+	Name                 pgtype.Text
+	ID                   pgtype.UUID
+	Interesttestprompted bool
 }
 
 type Userlevel struct {

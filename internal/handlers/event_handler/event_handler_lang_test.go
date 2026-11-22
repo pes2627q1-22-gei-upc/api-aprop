@@ -11,6 +11,7 @@ import (
 	"api-aprop/internal/clients/firebase_client"
 	"api-aprop/internal/middleware/auth_middleware"
 	"api-aprop/internal/models/event_model"
+	"api-aprop/internal/models/preference_model"
 )
 
 // fakeTranslator marks the title with the language so the tests can see what was asked for.
@@ -58,6 +59,10 @@ func (f *fakeTranslator) TranslateMapEvents(_ context.Context, lang string, even
 		}
 	}
 	return out
+}
+
+func (f *fakeTranslator) TranslateTestQuestions(_ context.Context, _ string, questions []preference_model.TestQuestion) []preference_model.TestQuestion {
+	return questions
 }
 
 func serveWithTranslator(s *fakeEventService, tr *fakeTranslator, req *http.Request) *httptest.ResponseRecorder {

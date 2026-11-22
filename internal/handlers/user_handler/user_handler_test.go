@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"api-aprop/internal/models/language_model"
 	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/services/auth_service"
+	"api-aprop/internal/services/translation_service"
 	"api-aprop/internal/services/user_service"
 )
 
@@ -597,23 +599,15 @@ func testID(n byte) pgtype.UUID {
 }
 
 // langTranslator prefixes the title with the language it was asked for.
-type langTranslator struct{}
+type langTranslator struct{ translation_service.Service }
 
 func (langTranslator) UserLanguage(context.Context, string) (string, error) { return "ca", nil }
-func (langTranslator) TranslateEvent(_ context.Context, lang string, e event_model.Event) event_model.Event {
-	e.Title = "[" + lang + "] " + e.Title
-	return e
-}
 func (langTranslator) TranslateEvents(_ context.Context, lang string, events []event_model.Event) []event_model.Event {
-	out := make([]event_model.Event, len(events))
-	for i, e := range events {
-		e.Title = "[" + lang + "] " + e.Title
-		out[i] = e
+	out := slices.Clone(events)
+	for i := range out {
+		out[i].Title = "[" + lang + "] " + out[i].Title
 	}
 	return out
-}
-func (langTranslator) TranslateMapEvents(_ context.Context, _ string, events []event_model.MapEvent) []event_model.MapEvent {
-	return events
 }
 
 func TestUpdateMyProfile_Language(t *testing.T) {
