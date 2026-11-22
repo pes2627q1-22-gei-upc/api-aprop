@@ -40,29 +40,22 @@ JOIN Events e ON e.ID = s.Event
 WHERE s.UserID = sqlc.arg(user_id)::uuid
   AND (e.EndDate < NOW() OR (e.EndDate IS NULL AND e.StartDate < NOW()));
 
--- name: GetUserReliability :one
--- Mean of the ratings of every NoOficial event created by the user; count = 0 means "no ratings".
-SELECT COALESCE(AVG(er.Rating), 0)::real AS reliability, COUNT(er.Rating)::bigint AS ratings_count
-FROM EventRatings er
-JOIN UnofficialEvents ue ON ue.ID = er.Event
-WHERE ue.Creator = sqlc.arg(creator)::uuid;
-
 -- name: ListUserReceivedRatings :many
-SELECT er.Event AS event_id, e.Title AS event_title, er.Rating, er.RatingDate
-FROM EventRatings er
-JOIN UnofficialEvents ue ON ue.ID = er.Event
-JOIN Events e ON e.ID = er.Event
-WHERE ue.Creator = sqlc.arg(creator)::uuid
-ORDER BY er.RatingDate DESC, er.Event DESC;
+SELECT ur.rater, ur.rated, e.ID as event_id, e.title as event_title, ur.Rating, ur.RatingDate
+FROM UserRatings ur
+JOIN Events e ON e.ID = ur.Event
+WHERE ur.rated = sqlc.arg(creator)::uuid
+ORDER BY ur.RatingDate DESC, ur.Event DESC;
 
 -- name: ListUserCreatedEvents :many
 SELECT e.id, e.title, e.subtitle, e.description, e.schedule, e.tickets, e.url, e.ticketsurl,
 e.free, e.permanent, e.modality, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone,
 e.activityurl, e.startdate, e.enddate, e.place, e.latitude, e.longitude, e.postalcode, e.municipality,
-e.region, e.address, ue.creator, ue.datecreated
+e.region, e.address, ue.creator, ue.datecreated, ue.state
 FROM events e
 JOIN unofficialevents ue ON e.id = ue.id
 WHERE ue.creator = sqlc.arg(creator)::uuid
+and ue.state = 'Active'::unofficialeventstate
 ORDER BY e.startdate DESC NULLS LAST, e.id DESC;
 
 -- name: UpdateUserProfile :one
@@ -108,5 +101,17 @@ UPDATE friendrequests SET state='Rejected'::friendrequeststate, dateresolved=now
 -- name: RemoveFriendship :exec
 DELETE from friendships where (user1=$1 and user2=$2) or (user1=$2 and user2=$1);
 
--- name: GetSettings :one
-SELECT * from settings where id=$1;
+-- name: GetSettings :many
+SELECT s.*, COALESCE(an.notificationtype, -1) from settings s left join allowednotifications an on an.settings=s.id where id=$1;
+
+-- name: DeleteAllowedNotificationTypes :exec
+DELETE FROM AllowedNotifications
+WHERE Settings = sqlc.arg(settings_id)::integer;
+
+-- name: UpdateAllowedNotificationTypes :exec
+INSERT INTO AllowedNotifications (Settings, NotificationType)
+SELECT
+    sqlc.arg(settings_id)::integer,
+    n.notification_type
+FROM unnest(sqlc.arg(notification_types)::integer[]) AS n(notification_type)
+ON CONFLICT (Settings, NotificationType) DO NOTHING;

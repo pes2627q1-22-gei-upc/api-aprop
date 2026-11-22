@@ -32,6 +32,8 @@ type fakeUserService struct {
 	deleteErr  error
 	deletedIDs []string
 
+	uploadErr error
+
 	searchResult    user_model.UserSearchResult
 	searchErr       error
 	searchCalls     int
@@ -132,6 +134,9 @@ func (f *fakeUserService) UploadAvatar(_ context.Context, requesterIdentifier st
 	if requesterIdentifier == "" {
 		return user_model.UserProfile{}, user_service.ErrUnauthorized
 	}
+	if f.uploadErr != nil {
+		return user_model.UserProfile{}, f.uploadErr
+	}
 	p, ok := f.profiles[requesterIdentifier]
 	if !ok {
 		return user_model.UserProfile{}, user_service.ErrUserNotFound
@@ -173,6 +178,9 @@ func (f *fakeUserService) ListBlockedUsers(_ context.Context, requesterID string
 }
 func (f *fakeUserService) Unfriend(ctx context.Context, userid string, targetid string) error {
 	return nil
+}
+func (f *fakeUserService) GetSettings(ctx context.Context, userid string) (user_model.Settings, error) {
+	return user_model.Settings{ShowPlans: true, NotificationBefore: "3 days", AllowedNotifTypes: []int{7, 8, 9}}, nil
 }
 
 const (
@@ -456,6 +464,40 @@ func TestUploadAvatar_Success(t *testing.T) {
 	}
 	if res.ProfilePicture != "https://uploaded.example.com/profile.png" {
 		t.Errorf("expected updated avatar, got %s", res.ProfilePicture)
+	}
+}
+
+// #247: storage errors of the avatar upload.
+func TestUploadAvatar_StorageErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"storage not configured", user_service.ErrStorageUnavailable, http.StatusServiceUnavailable},
+		{"storage failed", user_service.ErrStorageFailed, http.StatusBadGateway},
+		{"invalid image", user_service.ErrInvalidInput, http.StatusBadRequest},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &fakeUserService{profiles: map[string]user_model.UserProfile{aliceID: {ID: testID(1)}}, uploadErr: tt.err}
+			mux := setupMux(svc)
+
+			var buf bytes.Buffer
+			writer := multipart.NewWriter(&buf)
+			part, _ := writer.CreateFormFile("avatar", "profile.png")
+			_, _ = part.Write([]byte("fake-image-bytes"))
+			writer.Close()
+			req := httptest.NewRequest(http.MethodPost, "/users/me/avatar", &buf)
+			req.Header.Set("Content-Type", writer.FormDataContentType())
+			req.Header.Set("X-User-ID", aliceID)
+			w := httptest.NewRecorder()
+			mux.ServeHTTP(w, req)
+
+			if w.Code != tt.want {
+				t.Fatalf("status = %d, want %d: %s", w.Code, tt.want, w.Body.String())
+			}
+		})
 	}
 }
 

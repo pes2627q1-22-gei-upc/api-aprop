@@ -48,9 +48,25 @@ func (h *UserHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /users/{id}/friend-requests/{date}/accept", h.AcceptFriendRequest)
 	mux.HandleFunc("POST /users/{id}/friend-requests/{date}/deny", h.DenyFriendRequest)
 	mux.HandleFunc("POST /users/{id}/unfriend", h.Unfriend)
+	mux.HandleFunc("GET /users/me/settings", h.GetSettings)
 	mux.HandleFunc("GET /users/me/blocked", h.ListBlockedUsers)
 	mux.HandleFunc("POST /users/{id}/block", h.BlockUser)
 	mux.HandleFunc("DELETE /users/{id}/block", h.UnblockUser)
+}
+
+func (h *UserHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
+	requesterID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
+		return
+	}
+
+	settings, err := h.userService.GetSettings(r.Context(), requesterID)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, settings)
 }
 
 func (h *UserHandler) GetMyProfile(w http.ResponseWriter, r *http.Request) {
@@ -102,30 +118,14 @@ func (h *UserHandler) UpdateMyProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var body struct {
-		Name           *string `json:"name"`
-		Username       *string `json:"username"`
-		Biography      *string `json:"biography"`
-		ProfilePicture *string `json:"profile-picture"`
-		ShowPlans      *bool   `json:"show-plans"`
-		Language       *string `json:"language"`
-		PushEnabled    *bool   `json:"push-enabled"`
-	}
+	var body user_service.UpdateProfileInput
 
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		response.WriteError(w, http.StatusBadRequest, "invalid json payload: "+err.Error())
 		return
 	}
 
-	profile, err := h.userService.UpdateProfile(r.Context(), requesterID, user_service.UpdateProfileInput{
-		Name:           body.Name,
-		Username:       body.Username,
-		Biography:      body.Biography,
-		ProfilePicture: body.ProfilePicture,
-		ShowPlans:      body.ShowPlans,
-		Language:       body.Language,
-		PushEnabled:    body.PushEnabled,
-	})
+	profile, err := h.userService.UpdateProfile(r.Context(), requesterID, body)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -267,7 +267,7 @@ func (h *UserHandler) SendFriendRequest(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	response.WriteJSON(w, http.StatusOK, friendreq)
+	response.WriteJSON(w, http.StatusCreated, friendreq)
 }
 
 func (h *UserHandler) AcceptFriendRequest(w http.ResponseWriter, r *http.Request) {

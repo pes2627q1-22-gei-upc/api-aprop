@@ -181,7 +181,7 @@ type UpsertDeviceTokenParams struct {
 	Platform string
 }
 
-// Push notifications (Taiga #275, DP-044): device tokens and the outbox of Notifications.
+// Push notifications (Taiga #275, DP-046): device tokens and the outbox of Notifications.
 // A token identifies one app install: registering it again moves it to the current user.
 func (q *Queries) UpsertDeviceToken(ctx context.Context, arg UpsertDeviceTokenParams) error {
 	_, err := q.db.Exec(ctx, upsertDeviceToken, arg.Token, arg.UserID, arg.Platform)

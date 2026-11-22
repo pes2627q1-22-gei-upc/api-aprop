@@ -23,11 +23,11 @@ type EventService struct {
 	eventRepository      event_repository.Repository
 	gencatClient         gencat_client.Client
 	preferenceRepository preference_repository.Repository
-	s3Client             s3_client.Client
+	s3Client             s3_client.EventImageUploader
 	userRepository       user_repository.Repository
 }
 
-func NewEventService(eventRepository event_repository.Repository, preferenceRepository preference_repository.Repository, gencatClient gencat_client.Client, s3Client s3_client.Client) *EventService {
+func NewEventService(eventRepository event_repository.Repository, preferenceRepository preference_repository.Repository, gencatClient gencat_client.Client, s3Client s3_client.EventImageUploader) *EventService {
 	return &EventService{
 		eventRepository:      eventRepository,
 		preferenceRepository: preferenceRepository,
@@ -54,6 +54,20 @@ func (s *EventService) getEvent(id int) (event_model.Event, error) {
 	return e, nil
 }
 
+func (s *EventService) GetReceivedRatings(id int) ([]event_model.ReceivedRating, error) {
+	_, err := s.getEvent(id)
+	if err != nil {
+		return []event_model.ReceivedRating{}, err
+	}
+
+	ratings, err := s.eventRepository.GetReceivedRatings(id)
+	if err != nil {
+		return []event_model.ReceivedRating{}, err
+	}
+
+	return ratings, nil
+}
+
 func (s *EventService) GetEvent(id int) (event_model.Event, error) {
 	e, err := s.getEvent(id)
 	if err != nil {
@@ -74,11 +88,7 @@ func (s *EventService) GetEvent(id int) (event_model.Event, error) {
 				e.CreatorName = &displayName
 			}
 		}
-		if rel, rErr := s.userRepository.GetReliability(ctx, e.Creator); rErr != nil {
-			log.Printf("event %d: creator reliability failed: %v", id, rErr)
-		} else {
-			e.CreatorReliability = rel
-		}
+		e.CreatorReliability = u.Rating
 	}
 	return e, nil
 }

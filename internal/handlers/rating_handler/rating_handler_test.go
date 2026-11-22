@@ -39,6 +39,18 @@ func (f *fakeService) DeleteRating(context.Context, string, int) error {
 	return f.err
 }
 
+func (f *fakeService) RateUser(_ context.Context, userID string, eventID, score int) (rating_model.UserRating, error) {
+	return rating_model.UserRating{}, nil
+}
+
+func (f *fakeService) UpdateUserRating(_ context.Context, userID string, eventID, score int) (rating_model.UserRating, error) {
+	return rating_model.UserRating{}, nil
+}
+
+func (f *fakeService) DeleteUserRating(_ context.Context, userID string, eventID int) error {
+	return nil
+}
+
 func (f *fakeService) HasAttended(_ context.Context, userID string, eventID int) (rating_model.AttendanceStatus, error) {
 	f.attendCalls++
 	return rating_model.AttendanceStatus{UserID: userID, EventID: eventID, HasAttended: f.hasAttended}, f.err

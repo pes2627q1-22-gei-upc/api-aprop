@@ -54,6 +54,7 @@ import (
 	"api-aprop/internal/services/translation_service"
 	"api-aprop/internal/services/user_service"
 	"api-aprop/migrations"
+	"api-aprop/supabase"
 )
 
 const (
@@ -205,11 +206,17 @@ func main() {
 	defer postgresDriver.Close()
 
 	// Migrate database
-	if err := postgresDriver.MigrateFS(migrations.EmbedFS, dbConfig.GetConnectionString()); err != nil {
+	if err := postgresDriver.MigrateFSWithSupabase(migrations.EmbedFS, supabase.MigrationsFS); err != nil {
 		slog.Error("Error migrating database", "error", err)
 		os.Exit(1)
 	}
 	slog.Info("Database schema is up to date.")
+
+	// `api migrate` only migrates and exits: used by CI and, once Render's plan allows it,
+	// as preDeployCommand so a failed migration never replaces the running version.
+	if len(os.Args) > 1 && os.Args[1] == "migrate" {
+		return
+	}
 
 	// Clients
 	httpClient := &http.Client{Timeout: 15 * time.Second}
@@ -228,7 +235,14 @@ func main() {
 		Region:    os.Getenv("S3_REGION"),
 		Endpoint:  os.Getenv("S3_ENDPOINT"),
 		PublicURL: os.Getenv("S3_PUBLIC_URL"),
+		// #247: profile pictures in a private bucket, served with signed URLs
+		SupabaseURL:  os.Getenv("SUPABASE_URL"),
+		SecretKey:    os.Getenv("SUPABASE_SECRET_KEY"),
+		AvatarBucket: os.Getenv("S3_AVATAR_BUCKET"),
 	})
+	if os.Getenv("SUPABASE_URL") == "" || os.Getenv("SUPABASE_SECRET_KEY") == "" {
+		slog.Warn("SUPABASE_URL or SUPABASE_SECRET_KEY not set; avatar uploads answer 503 and stored avatars are hidden")
+	}
 
 	// CORS: it wraps the auth middleware (see router.NewRouter) because browsers send the preflight without the token.
 	// Requests without an Origin header (mobile app, curl) are not affected.
@@ -286,9 +300,9 @@ func main() {
 		func() time.Time { return time.Now().In(location) }, assistant_service.ReplyTimeout,
 	).WithPreferences(preferenceRepository)
 	signUpService := signup_service.NewSignUpService(signUpRepository, eventRepository, notificationRepository)
-	ratingService := rating_service.NewRatingService(ratingRepository, eventRepository)
-	messageService := message_service.NewMessageService(messageRepository, eventRepository)
-	authService := auth_service.NewAuthService(authRepository)
+	ratingService := rating_service.NewRatingService(ratingRepository, eventRepository, userRepository)
+	messageService := message_service.NewMessageService(messageRepository, eventRepository).WithAvatarSigner(s3Client)
+	authService := auth_service.NewAuthService(authRepository).WithAvatarSigner(s3Client)
 	userService := user_service.NewUserService(userRepository, notificationRepository, s3Client, accountDeleter)
 	notificationService := notification_service.NewNotificationService(notificationRepository)
 	preferenceService := preference_service.NewPreferenceService(preferenceRepository)

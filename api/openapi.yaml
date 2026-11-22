@@ -682,13 +682,39 @@ paths:
   /events/{id}/ratings:
     parameters:
       - $ref: '#/components/parameters/EventId'
+    get:
+      tags: [events]
+      operationId: getEventRatings
+      summary: Obté valoracions d'esdeveniment
+      description: Obté les valoracions fetes per usuaris que han assistit a l'esdeveniment.
+      responses:
+        '200':
+          description: Valoracions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/responses/EventRatingResponse'
+        '400':
+          description: Id invàlid, cos invàlid o `score` fora de 1..5
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/EventNotFound'
+    
     post:
       tags: [events]
       operationId: rateEvent
       summary: Valora un esdeveniment
       description: >
-        Desa la valoració (`score` 1..5, R9) de l'usuari. Regla R10: l'usuari ha d'haver assistit
+        Desa la valoració (`score` 1..5, R9) de l'esdeveniment. Regla R10: l'usuari ha d'haver assistit
         (inscripció amb `attendance = true`; R8 només permet fixar-la un cop l'esdeveniment ha començat), si no `403`.
+        Un usuari no pot valorar el seu propi esdeveniment.
         Una sola valoració per usuari i esdeveniment: la repetida dona `409`. Veure DP-033.
       requestBody:
         required: true
@@ -710,7 +736,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Rating'
         '400':
-          description: Id invàlid, cos invàlid o `score` fora de 1..5
+          description: Id invàlid, esdeveniment propi, cos invàlid o `score` fora de 1..5
           content:
             application/json:
               schema:
@@ -743,7 +769,7 @@ paths:
       summary: Modifica la meva valoració d'un esdeveniment
       description: >
         Canvia el `score` (1..5, R9) de la valoració de l'usuari autenticat (cos igual que el de `POST`).
-        La fiabilitat de l'organitzador (`Users.Rating`) es recalcula amb un trigger, així que el canvi s'hi reflecteix de seguida.
+        La valoració de l'esdeveniment (`Events.Rating`) es recalcula amb un trigger, així que el canvi s'hi reflecteix de seguida.
         No es torna a comprovar R10. Veure DP-036.
       requestBody:
         required: true
@@ -784,6 +810,129 @@ paths:
       tags: [events]
       operationId: deleteMyEventRating
       summary: Elimina la meva valoració d'un esdeveniment
+      description: Veure DP-036.
+      responses:
+        '204':
+          description: Valoració eliminada
+        '400':
+          $ref: '#/components/responses/InvalidEventId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: L'esdeveniment no existeix o l'usuari no l'havia valorat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  
+  /events/{id}/creator/ratings:
+    parameters:
+      - $ref: '#/components/parameters/EventId'
+    post:
+      tags: [events]
+      operationId: rateEventCreator
+      summary: Valora l'organitzador d'un esdeveniment
+      description: >
+        Desa la valoració (`score` 1..5, R9) de l'organitzador de l'esdeveniment. Regla R10: l'usuari ha d'haver assistit
+        (inscripció amb `attendance = true`; R8 només permet fixar-la un cop l'esdeveniment ha començat), si no `403`.
+        Un usuari no pot valorar-se a si mateix.
+        Una sola valoració per usuari i esdeveniment: la repetida dona `409`. Veure DP-033.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [score]
+              properties:
+                score:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+      responses:
+        '201':
+          description: Valoració desada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserRating'
+        '400':
+          description: Id invàlid, cos invàlid o `score` fora de 1..5
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: L'usuari no ha assistit a l'esdeveniment (R10)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          $ref: '#/components/responses/EventNotFound'
+        '409':
+          description: L'usuari ja havia valorat l'esdeveniment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /events/{id}/creator/ratings/me:
+    parameters:
+      - $ref: '#/components/parameters/EventId'
+    put:
+      tags: [events]
+      operationId: updateMyUserRating
+      summary: Modifica la meva valoració de l'organitzador d'un esdeveniment
+      description: >
+        Canvia el `score` (1..5, R9) de la valoració de l'usuari autenticat (cos igual que el de `POST`).
+        La valoració de l'organitzador (`Users.Rating`) es recalcula amb un trigger, així que el canvi s'hi reflecteix de seguida.
+        No es torna a comprovar R10. Veure DP-036.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [score]
+              properties:
+                score:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+      responses:
+        '200':
+          description: Valoració actualitzada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserRating'
+        '400':
+          description: Id invàlid, cos invàlid o `score` fora de 1..5
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: L'esdeveniment no existeix o l'usuari no l'havia valorat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [events]
+      operationId: deleteMyUserRating
+      summary: Elimina la meva valoració de l'organitzador d'un esdeveniment
       description: Veure DP-036.
       responses:
         '204':
@@ -1075,7 +1224,9 @@ paths:
       tags: [users]
       operationId: uploadAvatar
       summary: Puja la foto de perfil
-      description: Es desa a S3 i actualitza `profile-picture`. Màxim 5 MB.
+      description: |
+        Es desa al bucket privat `avatars` de Supabase Storage (JPEG, PNG o WebP, màxim 5 MB), actualitza
+        `profile-picture` i esborra la foto anterior. La resposta conté la foto com a URL signada que caduca (#247).
       requestBody:
         required: true
         content:
@@ -1113,6 +1264,22 @@ paths:
           $ref: '#/components/responses/UserNotFound'
         '500':
           $ref: '#/components/responses/InternalError'
+        '502':
+          description: Supabase Storage ha respost amb un error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: could not store the profile picture
+        '503':
+          description: L'emmagatzematge de fotos no està configurat (`SUPABASE_URL`, `SUPABASE_SECRET_KEY`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: avatar storage is not available
 
   /users/{id}:
     get:
@@ -1162,7 +1329,7 @@ paths:
     get:
       tags: [users]
       operationId: listReceivedRatings
-      summary: Valoracions rebudes als esdeveniments no oficials d'un usuari (base de la seva fiabilitat)
+      summary: Valoracions rebudes d'un usuari (base de la seva fiabilitat)
       parameters:
         - $ref: '#/components/parameters/UserIdentifier'
       responses:
@@ -1174,12 +1341,8 @@ paths:
                 type: array
                 items:
                   type: object
-                  required: [event-id, event-title, rating, rating-date]
-                  properties:
-                    event-id: {type: integer}
-                    event-title: {type: string}
-                    rating: {type: integer, minimum: 1, maximum: 5}
-                    rating-date: {type: string, format: date-time}
+                  items:
+                    $ref: '#/components/responses/UserRatingResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -1217,7 +1380,7 @@ paths:
       description: >
         Desa el token FCM (o el Firebase Installation ID) d'un dispositiu de l'usuari autenticat. L'app el crida després
         d'iniciar sessió i cada cop que FCM renova el token. Un token ja registrat passa a l'usuari actual. Totes les
-        notificacions de la bústia s'envien com a push als seus dispositius si `push-enabled` és cert. Veure DP-044.
+        notificacions de la bústia s'envien com a push als seus dispositius si `push-enabled` és cert. Veure DP-046.
       requestBody:
         required: true
         content:
@@ -1382,36 +1545,306 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
-  /notifications:
-    post:
-      tags: [notifications]
-      operationId: createNotification
-      summary: Crea una notificació
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateNotificationRequest'
+  /users/me/friends:
+    get:
+      tags: [friends]
+      operationId: listUserFriends
+      summary: Amics de l'usuari
+      description: Retorna tots els usuaris que són amics amb l'usuari que fa la consulta.
       responses:
-        '201':
-          description: Notificació creada
+        '200':
+          description: Amics (pot ser buida)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Notification'
+                type: array
+                items:
+                  type: string
+                  format: uuid
+              example:
+                - "550e8400-e29b-41d4-a716-446655440000"
+                - "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  
+  /users/me/friend-requests:
+    get:
+      tags: [friends]
+      operationId: listUserFriendRequests
+      summary: Sol·licituds d'amistat de l'usuari
+      description: Retorna totes les sol·licituds d'amistat que ha rebut l'usuari que fa la consulta.
+      responses:
+        '200':
+          description: Sol·licituds d'amistat (pot ser buida)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FriendRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  
+  /users/{id}/friends:
+    get:
+      tags: [friends]
+      operationId: listUserFriends
+      summary: Amics d'un usuari
+      description: Retorna tots els usuaris que són amics amb l'usuari indicat.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID de l'usuari (UUID)
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Amics (pot ser buida)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  format: uuid
+              example:
+                - "550e8400-e29b-41d4-a716-446655440000"
+                - "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
         '400':
-          description: Cos invàlid (també si `user-id` o `friend` no són UUID)
+          $ref: '#/components/responses/InvalidUserId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+  
+  /users/{id}/friend-requests:
+    post:
+      tags: [friends]
+      operationId: createFriendRequest
+      summary: Envia sol·licitud d'amistat
+      description: Crea una sol·licitud d'amistat de l'usuari que fa la consulta cap a l'usuari especificat.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID de l'usuari (UUID)
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '201':
+          description: Sol·licitud d'amistat creada
+          content:
+            application-json:
+              schema:
+                $ref: '#/components/schemas/FriendRequest'
+        '400':
+          description: UUID invàlid o usuari conflictiu
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-              example:
-                error: invalid request body
+              examples:
+                userId:
+                  value:
+                    error: invalid user id
+                requestExists:
+                  value:
+                    error: pending friend request exists between these users
+                blocked:
+                  value:
+                    error: requester has blocked or been blocked by target user
+                alreadyFriends:
+                  value:
+                    error: requester is already friends with target user
+                sameUser:
+                  value:
+                    error: requester and target cannot be the same
+                range:
+                  value:
+                    error: 'invalid date range: from must not be after to'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalError'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+  
+  /users/{id}/friend-requests/{date}/accept:
+    post:
+      tags: [friends]
+      operationId: acceptFriendRequest
+      summary: Accepta sol·licitud d'amistat
+      description: Accepta una sol·licitud d'amistat de l'usuari especificat cap a l'usuari que fa la consulta.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID de l'usuari que va enviar la sol·licitud (UUID)
+          schema:
+            type: string
+            format: uuid
+        - name: date
+          in: path
+          required: true
+          description: Data de la sol·licitud a acceptar
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Sol·licitud d'amistat acceptada
+          content:
+            application-json:
+              schema:
+                $ref: '#/components/schemas/FriendRequest'
+        '400':
+          description: UUID invàlid o usuari conflictiu
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                userId:
+                  value:
+                    error: invalid user id
+                sameUser:
+                  value:
+                    error: requester and target cannot be the same
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Usuari o sol·licitud d'amistat no existeixen
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                user:
+                  value:
+                    error: user not found
+                request:
+                  value:
+                    error: request not found
+  
+  /users/{id}/friend-requests/{date}/deny:
+    post:
+      tags: [friends]
+      operationId: denyFriendRequest
+      summary: Rebutja sol·licitud d'amistat
+      description: Rebutja una sol·licitud d'amistat de l'usuari especificat cap a l'usuari que fa la consulta.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID de l'usuari que va enviar la sol·licitud (UUID)
+          schema:
+            type: string
+            format: uuid
+        - name: date
+          in: path
+          required: true
+          description: Data de la sol·licitud a acceptar
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Sol·licitud d'amistat rebutjada
+          content:
+            application-json:
+              schema:
+                $ref: '#/components/schemas/FriendRequest'
+        '400':
+          description: UUID invàlid o usuari conflictiu
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                userId:
+                  value:
+                    error: invalid user id
+                sameUser:
+                  value:
+                    error: requester and target cannot be the same
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Usuari o sol·licitud d'amistat no existeixen
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                user:
+                  value:
+                    error: user not found
+                request:
+                  value:
+                    error: request not found
+
+  /users/{id}/unfriend:
+    post:
+      tags: [friends]
+      operationId: unfriend
+      summary: Elimina una amistat
+      description: Elimina l'amistat entre l'usuari especificat i l'usuari que fa la consulta.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID de l'usuari
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                  example: "friendship with {id} deleted successfully"
+              example:
+                message: "friendship with 550e8400-e29b-41d4-a716-446655440000 deleted successfully"
+        '400':
+          description: UUID invàlid o usuari conflictiu
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                userId:
+                  value:
+                    error: invalid user id
+                notFriends:
+                  value:
+                    error: requester and target are not friends
+                sameUser:
+                  value:
+                    error: requester and target cannot be the same
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+  
+  /users/me/settings:
+    get:
+      tags: [users]
+      operationId: getSettings
+      summary: Configuració de l'usuari
+      description: Retorna la configuració de l'usuari que fa la consulta.
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Settings'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   /notifications/{id}:
     get:
@@ -1538,6 +1971,10 @@ paths:
       tags: [preferences]
       operationId: getPreferenceTest
       summary: Esdeveniments representatius per al test d'interessos
+      description: |
+        Retorna fins a 25 esdeveniments amb títol i imatges no buits, diversificats per categoria
+        (round-robin per primera categoria) i en ordre aleatori. Les categories mantenen les
+        etiquetes brutes (p. ex. `agenda:categories/dansa`).
       responses:
         '200':
           description: Preguntes del test (com a màxim 25)
@@ -1558,6 +1995,11 @@ paths:
       tags: [preferences]
       operationId: submitPreferenceTest
       summary: Envia les respostes del test i calcula els pesos per categoria
+      description: |
+        Operació idempotent de substitució (regla R1: un sol `TestInteressos` actiu per usuari).
+        Dins una mateixa transacció elimina el test i les respostes anteriors de l'usuari, desa el
+        nou test i recalcula des de zero els pesos de totes les categories a `UserPreferences`.
+        Es pot repetir tantes vegades com calgui.
       requestBody:
         required: true
         content:
@@ -1571,6 +2013,28 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SubmitTestResponse'
+        '400':
+          $ref: '#/components/responses/InvalidPreference'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /preferences/test/status:
+    get:
+      tags: [preferences]
+      operationId: getPreferenceTestStatus
+      summary: Estat del test d'interessos de l'usuari autenticat
+      description: |
+        Indica si l'usuari autenticat ja ha completat el test d'interessos i la data (RFC3339 UTC)
+        de l'última vegada que el va fer, o `null` si encara no l'ha completat.
+      responses:
+        '200':
+          description: Estat del test d'interessos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TestStatus'
         '400':
           $ref: '#/components/responses/InvalidPreference'
         '401':
@@ -2069,6 +2533,30 @@ components:
             eventId:
               value:
                 error: 'invalid event id: 0'
+    EventRatingResponse:
+      content:
+        application/json:
+          type: object
+          properties:
+            rating:
+              type: integer
+            rating-date:
+              type: string
+              format: date-time
+    UserRatingResponse:
+      content:
+        application/json:
+          type: object
+          properties:
+            event-id:
+              type: integer
+            event-title:
+              type: string
+            rating:
+              type: integer
+            ratingdate:
+              type: string
+              format: date-time
 
   schemas:
     Error:
@@ -2394,6 +2882,20 @@ components:
           type: integer
           minimum: 1
           maximum: 5
+    UserRating:
+      type: object
+      required: [user-id, event-id, score]
+      properties:
+        rater:
+          type: string
+        rated:
+          type: string
+        event:
+          type: integer
+        score:
+          type: integer
+          minimum: 1
+          maximum: 5
 
     SyncRequest:
       type: object
@@ -2487,7 +2989,9 @@ components:
           description: Només al perfil propi
         profile-picture:
           type: string
-          description: URL de la foto (una generada si no n'hi ha)
+          description: |
+            URL de la foto (una generada si no n'hi ha). Les fotos pujades són una URL signada que caduca en 1 hora;
+            les URL externes es retornen tal qual (#247).
         biography:
           type: string
         date-registered:
@@ -2545,8 +3049,19 @@ components:
           maxLength: 500
         profile-picture:
           type: string
+          maxLength: 2048
+          description: |
+            Buit (sense foto) o una URL `http(s)` externa. Per pujar una foto, `POST /users/me/avatar` (#247).
         show-plans:
           type: boolean
+        notification-before:
+          type: string
+          pattern: '^[0-9]+ days$'
+        allowed-notif-types:
+          type: array
+          items:
+            type: integer
+            format: int32
         language:
           type: string
           enum: [ca, es, en]
@@ -2696,6 +3211,17 @@ components:
           items:
             $ref: '#/components/schemas/UserPreference'
 
+    TestStatus:
+      type: object
+      required: [completed, date-taken]
+      properties:
+        completed:
+          type: boolean
+        date-taken:
+          type: string
+          format: date-time
+          nullable: true
+
     SendMessageRequest:
       type: object
       required: [text]
@@ -2807,3 +3333,46 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ChatMessage'
+    
+    FriendRequest:
+      type: object
+      required: [sender-id, receiver-id, date-sent, state]
+      properties:
+        sender-id:
+          type: string
+          format: uuid
+        receiver-id:
+          type: string
+          format: uuid
+        date-sent:
+          type: string
+          format: date-time
+        state:
+          type: string
+          enum:
+            - Pending
+            - Accepted
+            - Rejected
+          example: Pending
+        date-resolved:
+          type: string
+          format: date-time
+    
+    Settings:
+      type: object
+      required: [id, show-plans, notification-before, allowed-notif-types]
+      properties:
+        id:
+          type: integer
+        show-plans:
+          type: boolean
+          description: Si els amics de l'usuari poden veure els seus plans
+        notification-before:
+          type: string
+          format: '^[0-9]+ days$'
+          description: Dies d'antelació amb el qual un usuari rep recordatoris.
+        allowed-notif-types:
+          type: array
+          description: Tipus de notificacions que l'usuari vol rebre.
+          items:
+            type: integer

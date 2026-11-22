@@ -17,6 +17,10 @@ active_candidates AS (
           SELECT 1 FROM signup us
           WHERE us.event = e.id AND us.userid = sqlc.arg(user_id)::uuid
       )
+      AND NOT EXISTS (
+          SELECT 1 FROM unofficialevents ue
+          WHERE ue.id = e.id and ue.state != 'Active'::unofficialeventstate
+      )
     GROUP BY e.id, e.enddate
 ),
 paged_events AS (
@@ -50,7 +54,7 @@ SELECT
     e.id, e.title, e.subtitle, e.description, e.schedule, e.url, e.tickets, e.ticketsurl,
     e.free, e.permanent, e.modality, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone,
     e.activityurl, e.startdate, e.enddate, e.place, e.latitude, e.longitude, e.postalcode, e.municipality,
-    e.region, e.address, oe.code, ue.creator, ue.datecreated,
+    e.region, e.address, oe.code, ue.creator, ue.datecreated, ue.state,
     pe.num_signups, pe.score, c.name AS category
 FROM paged_events pe
 JOIN events e ON e.id = pe.id

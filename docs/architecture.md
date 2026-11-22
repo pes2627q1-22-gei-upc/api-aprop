@@ -102,3 +102,9 @@ Base de Dades (Supabase PostgreSQL)
 4. **Resiliència davant serveis externs:** Si un servei com Groq AI o Gencat cau, només es veu afectada la funcionalitat dependent (amb un codi 502/504), mantenint operatiu el catàleg i la navegació d'esdeveniments.
 5. **Transaccions per a operacions compostes:** Quan una operació modifica més d'una taula o requereix consistència transaccional (com inscripcions amb decrement de places o tests de preferències), s'ha d'executar dins d'un bloc de transacció `pgx.Tx`.
 6. **Aïllament de claus i secrets:** Les claus privades (credencials de servei de Firebase, claus de Groq AI, credencials de BD) només resideixen al backend a través de variables d'entorn (`.env`).
+7. **Regles per a les migracions:** una migració pot quedar aplicada però no registrada (caiguda, aplicació manual), així que ha de poder repetir-se sense error.
+   - Escriu-les idempotents: `IF NOT EXISTS` / `IF EXISTS` a tot `CREATE`, `ADD COLUMN` i `DROP` (des de la 000020 ho força `TestNewMigrationsAreIdempotent`).
+   - Una sola cosa per fitxer i sense `BEGIN`/`COMMIT`, `CONCURRENTLY` ni `VACUUM`: així, si falla, Postgres la desfà sencera i l'API es recupera sola de l'estat `dirty`.
+   - Cada migració va a `migrations/` **i** a `supabase/migrations/` amb el mateix SQL (ho comprova la CI).
+   - No apliquis canvis d'esquema a mà fora de `migrations/`.
+   - `api migrate` només migra i surt (la CI l'usa; a Render servirà com a `preDeployCommand` si el pla ho permet).

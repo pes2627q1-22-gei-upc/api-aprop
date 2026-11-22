@@ -53,8 +53,20 @@ func (d *Driver) Close() {
 // It reuses the existing pool instead of connString because golang-migrate would send
 // pgxpool-only options (like pool_max_conns) to Postgres as runtime parameters.
 func (d *Driver) MigrateFS(fsys fs.FS, connString string) error {
+	return d.MigrateFSWithSupabase(fsys, nil)
+}
+
+// MigrateFSWithSupabase applies all pending up migrations found in fsys while
+// keeping public.schema_migrations synchronized with supabase_migrations.schema_migrations
+// when connected to a Supabase database.
+func (d *Driver) MigrateFSWithSupabase(fsys fs.FS, supabaseFS fs.FS) error {
 	if d.pool == nil {
 		return ErrNotConnected
+	}
+
+	embeddedVersions, err := parseEmbeddedUpVersions(fsys)
+	if err != nil {
+		return err
 	}
 
 	source, err := iofs.New(fsys, ".")
@@ -77,8 +89,13 @@ func (d *Driver) MigrateFS(fsys fs.FS, connString string) error {
 	}
 	defer m.Close()
 
+	supaState := syncFromSupabase(d.pool, m, embeddedVersions)
+	recoverDirty(m, fsys, embeddedVersions)
+
 	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		return fmt.Errorf("apply migrations: %w", err)
 	}
+
+	syncToSupabase(d.pool, m, supaState, supabaseFS)
 	return nil
 }

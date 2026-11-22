@@ -12,7 +12,7 @@ import (
 )
 
 const listEventsByIDs = `-- name: ListEventsByIDs :many
-SELECT id, title, subtitle, description, schedule, url, tickets, ticketsurl, free, permanent, relatedurls, urlnames, images, videos, email, phone, activityurl, startdate, enddate, modality, place, latitude, longitude, postalcode, municipality, region, address FROM Events
+SELECT id, title, subtitle, description, schedule, url, tickets, ticketsurl, free, permanent, relatedurls, urlnames, images, videos, email, phone, activityurl, startdate, enddate, modality, place, latitude, longitude, postalcode, municipality, region, address, rating FROM Events
 WHERE ID = ANY($1::integer[])
 `
 
@@ -53,6 +53,7 @@ func (q *Queries) ListEventsByIDs(ctx context.Context, ids []int32) ([]Event, er
 			&i.Municipality,
 			&i.Region,
 			&i.Address,
+			&i.Rating,
 		); err != nil {
 			return nil, err
 		}
@@ -65,7 +66,7 @@ func (q *Queries) ListEventsByIDs(ctx context.Context, ids []int32) ([]Event, er
 }
 
 const searchEvents = `-- name: SearchEvents :many
-SELECT e.id, e.title, e.subtitle, e.description, e.schedule, e.url, e.tickets, e.ticketsurl, e.free, e.permanent, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone, e.activityurl, e.startdate, e.enddate, e.modality, e.place, e.latitude, e.longitude, e.postalcode, e.municipality, e.region, e.address FROM Events e
+SELECT e.id, e.title, e.subtitle, e.description, e.schedule, e.url, e.tickets, e.ticketsurl, e.free, e.permanent, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone, e.activityurl, e.startdate, e.enddate, e.modality, e.place, e.latitude, e.longitude, e.postalcode, e.municipality, e.region, e.address, e.rating FROM Events e
 WHERE ($1::text IS NULL OR unaccent(e.Municipality) ILIKE '%' || unaccent($1::text) || '%')
 AND (
     $2::text IS NULL
@@ -156,6 +157,7 @@ func (q *Queries) SearchEvents(ctx context.Context, arg SearchEventsParams) ([]E
 			&i.Municipality,
 			&i.Region,
 			&i.Address,
+			&i.Rating,
 		); err != nil {
 			return nil, err
 		}

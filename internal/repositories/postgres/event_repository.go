@@ -729,6 +729,7 @@ func getPopularToGetEventRow(row sqlc.GetPopularEventsRow) sqlc.GetEventRow {
 		Creator:      row.Creator,
 		Datecreated:  row.Datecreated,
 		Category:     row.Category,
+		State:        row.State,
 	}
 }
 
@@ -791,6 +792,7 @@ func recommendedRowToGetEventRow(row sqlc.ListRecommendedEventsRow) sqlc.GetEven
 		Creator:      row.Creator,
 		Datecreated:  row.Datecreated,
 		Category:     row.Category,
+		State:        row.State,
 	}
 }
 
@@ -834,6 +836,19 @@ func (r *EventRepository) EventExists(eventID int) (bool, error) {
 	return exists, nil
 }
 
+func (r *EventRepository) GetReceivedRatings(id int) ([]event_model.ReceivedRating, error) {
+	rows, err := r.queries.GetEventRatings(context.Background(), int32(id))
+	if err != nil {
+		return []event_model.ReceivedRating{}, err
+	}
+	ratings := []event_model.ReceivedRating{}
+	for _, row := range rows {
+		ratings = append(ratings, event_model.ReceivedRating{Rating: int(row.Rating), RatingDate: row.Ratingdate.Time})
+	}
+
+	return ratings, nil
+}
+
 func mapEventRowToModel(row sqlc.ListMapEventsRow, cats []string) event_model.MapEvent {
 	return event_model.MapEvent{
 		Event: toModelExtended(sqlc.GetEventRow{
@@ -864,6 +879,7 @@ func mapEventRowToModel(row sqlc.ListMapEventsRow, cats []string) event_model.Ma
 			Activityurl:  row.Activityurl,
 			Startdate:    row.Startdate,
 			Enddate:      row.Enddate,
+			State:        row.State,
 		}, cats),
 		IsOfficial: row.IsOfficial,
 		HasFriends: row.HasFriends,
@@ -873,6 +889,13 @@ func mapEventRowToModel(row sqlc.ListMapEventsRow, cats []string) event_model.Ma
 // toModel converts a database row to the domain model.
 // The code is not stored in the events table, so it is passed separately.
 func toModel(row sqlc.Event, code int64) event_model.Event {
+	var rating *float32
+
+	if row.Rating.Valid {
+		r := row.Rating.Float32
+		rating = &r
+	}
+
 	return event_model.Event{
 		ID:           int(row.ID),
 		Code:         code,
@@ -903,10 +926,24 @@ func toModel(row sqlc.Event, code int64) event_model.Event {
 		ActivityURL:  row.Activityurl.String,
 		StartDate:    row.Startdate.Time,
 		EndDate:      row.Enddate.Time,
+		Rating:       rating,
 	}
 }
 
 func toModelExtended(row sqlc.GetEventRow, cats []string) event_model.Event {
+	var rating *float32
+
+	if row.Rating.Valid {
+		r := row.Rating.Float32
+		rating = &r
+	}
+
+	var state *string
+	if row.State.Valid {
+		s := string(row.State.Unofficialeventstate)
+		state = &s
+	}
+
 	return event_model.Event{
 		ID:           int(row.ID),
 		Code:         row.Code.Int64,
@@ -940,6 +977,8 @@ func toModelExtended(row sqlc.GetEventRow, cats []string) event_model.Event {
 		Creator:      row.Creator,
 		DateCreated:  row.Datecreated.Time,
 		Categories:   cats,
+		Rating:       rating,
+		State:        state,
 	}
 }
 

@@ -537,10 +537,43 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Qui decideix:** frontend + backend
 - **Resolució:**
 
-### DP-044 · Notificacions push amb FCM (#275): contracte, outbox i preferència global
+### DP-044 · Repetir el test d'interessos (#30/#154): substitució R1, estat i selecció de preguntes
+- **Estat:** oberta
+- **Obert per:** 2026-11-21 · Antigravity (Gemini 4 Neon) · branca `feature/interest-test-retake-30` (Taiga #30 / #154)
+- **Context:** `internal/repositories/postgres/queries/preferences.sql`, `internal/repositories/postgres/sqlc/preferences.sql.go`, `internal/repositories/postgres/preference_repository.go` (`GetQuestions`, `GetTestStatus`, `SaveTestAndPreferences`), `internal/services/preference_service/`, `internal/handlers/preference_handler/`, `api/openapi.yaml`.
+- **Dubte / supòsits:**
+  1. **Unicitat R1 sense migració:** `PreferenceTests` té PK `(UserID, DateTaken)` i no té restricció `UNIQUE (UserID)` a la BD. R1 (un sol `TestInteressos` actiu per usuari) s'aplica dins la transacció de `SaveTestAndPreferences` amb `LockUserPreferenceTest` (`pg_advisory_xact_lock`) i esborrant primer `PreferenceTestChoices` i `PreferenceTests` de l'usuari abans d'inserir el nou test (`TODO(DP-044)`). `GetTestStatus` llegeix `ORDER BY DateTaken DESC LIMIT 1`.
+  2. **Selecció de preguntes (`GET /preferences/test`):** `GetPreferenceTestQuestions` a `queries/preferences.sql` filtra `btrim(e.title) != ''` i `e.images IS NOT NULL AND btrim(e.images) != ''`, agrupa per `COALESCE(MIN(ec.category), 0)`, fa round-robin aleatori (`ROW_NUMBER() OVER (PARTITION BY primary_category ORDER BY random())`) prioritzant esdeveniments amb categoria (`primary_category > 0`) i barrejant el resultat final. No s'exclouen esdeveniments acabats (`enddate`) ni no oficials cancel·lats/retirats (`UnofficialEvents.State`).
+  3. **Recàlcul de pesos:** en repetir el test, els pesos de totes les categories es recalculen des de zero (`1.0` per defecte, ± `0.2` per resposta, rang `[0.1, 3.0]`); les categories absents al nou test tornen a `1.0`.
+  4. **Proves d'integració contra BD:** totes les consultes s'han mogut a `queries/preferences.sql` i generat amb `sqlc generate` v1.31.1 (amb `sqlc_schema_compat.sql` per al `CREATE TYPE UnofficialEventState` del bloc `DO $$` de la migració 000018), però no hi ha tests d'integració automatitzats contra una BD PostgreSQL/Supabase local (verificat per compilació `sqlc`, revisió i proves unitàries amb fakes).
+- **Opcions:** A) mantenir la substitució transaccional amb lock i la selecció actual a `preferences.sql` · B) afegir una migració amb `UNIQUE (UserID)` a `PreferenceTests` i filtrar per estat `Active` / dates futures.
+- **Provisionalment:** A (`TODO(DP-044)` a `internal/repositories/postgres/preference_repository.go`).
+- **Qui decideix:** backend + frontend
+- **Resolució:**
+
+### DP-045 · Fotos de perfil en un bucket privat amb URLs signades (#247)
+- **Estat:** oberta
+- **Obert per:** 2026-11-20 · Claude Code (Opus 5.5) · branca `feature/restringir-fotos-perfil` (Taiga #247)
+- **Context:** `s3_client/avatar_storage.go`, `s3_client/resolve.go`, `user_service`, `message_service`, `auth_service`, `user_handler/error_mapper.go`, migració 000025. Abans no hi havia cap bucket ni variables `S3_*`: sense `S3_ENDPOINT`, `POST /users/me/avatar` no pujava res i desava una URL inventada (`https://media.s3.eu-west-1.amazonaws.com/avatars/...`). L'usuari (Arnau) ha creat el bucket privat `avatars` sense policies i una *secret key* nova.
+- **Dubte / supòsits:**
+  1. **Accés:** el bucket és privat i només hi accedeix el backend amb `SUPABASE_SECRET_KEY` (capçalera `apikey`; les claus `service_role` antigues, que són JWT, també van a `Authorization`). S'usa l'API REST de Storage (`/storage/v1/object/...`) en lloc del protocol S3 per no afegir l'SDK d'AWS ni signar amb SigV4.
+  2. **Què es desa:** `Users.ProfilePicture` guarda la ruta `<uuid>/avatar-<unix ms>.<jpg|png|webp>` (extensió segons el `Content-Type`, no el nom del fitxer). Només es signen les rutes que encaixen amb aquest format **i** pertanyen a l'usuari de la fila; la resta de valors que no són URL `http(s)` s'amaguen.
+  3. **Lectura:** cada resposta amb `profile-picture` (perfil, cerca, bloquejats, xat, `POST /auth/sync`) signa les rutes en una sola petició (`POST /object/sign/avatars`). TTL **1 h**; la URL es cacheja en memòria i es reutilitza mentre li queda ≥ 30 min, perquè el frontend pugui fer servir la cau d'imatges. Qualsevol usuari autenticat que vegi un altre usuari rep la URL (com abans); un bloqueig no invalida les URLs ja lliurades fins que caduquen.
+  4. **Errors:** si no es pot signar (Storage caigut o sense configurar) la foto surt buida (al perfil, l'avatar generat de ui-avatars) i es registra; la petició no falla. Pujada: `503` sense configuració, `502` si Storage falla, `400` tipus invàlid.
+  5. **`PATCH /users/me`:** `profile-picture` només accepta buit o una URL `http(s)` externa (màx. 2048). Les rutes del bucket es rebutgen perquè ningú no pugui apuntar a l'avatar d'un altre. Encara s'accepten URL externes arbitràries: cal decidir si es tanquen.
+  6. **Esborrat:** en pujar una foto nova o canviar-la amb `PATCH` s'esborra l'anterior del bucket (best-effort), igual que a la baixa del compte (DP-031), ara amb una petició autenticada (ja no queda l'esborrat sense signar de la DP-031). Si l'`UPDATE` falla després de pujar, s'esborra l'objecte pujat.
+  7. **Migració 000025:** posa a `NULL` les URLs inventades `https://*.s3.*.amazonaws.com/avatars/...`. No crea el bucket: les migracions incrustades també s'executen contra PostgreSQL local, sense l'esquema `storage`.
+  8. **Fora d'abast:** els cartells d'esdeveniments (`UploadEventImage`) segueixen amb el codi antic i tampoc es pugen sense `S3_ENDPOINT`.
+  9. **No provat contra Supabase real:** pujada, signatura i esborrat només estan provats amb tests unitaris (servidor HTTP fals); falta verificar el format de resposta de `/object/sign` i que la *secret key* nova només a `apikey` funciona. Frontend: la URL caduca, cal un `cacheKey` estable (p. ex. l'id de l'usuari) si es fa servir `CachedNetworkImage`.
+- **Opcions:** —
+- **Provisionalment:** els supòsits anteriors.
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
+### DP-046 · Notificacions push amb FCM (#275): contracte, outbox i preferència global
 - **Estat:** oberta
 - **Obert per:** 2026-11-20 · Claude Code (Opus 5.5) amb confirmació de l'usuari · branca `feature/push-notifications` (Taiga #275)
-- **Context:** `push_handler`, `push_service`, `push_repository`, `firebase_client/push.go`, `queries/push_notifications.sql`, migració 000024, `cmd/app/main.go`. Decisions ja preses per l'usuari: totes les notificacions de la bústia (`Notifications`) s'envien també com a push; interruptor global `Settings.PushEnabled`; outbox cada 30 s amb caducitat de 24 h; títol segons el tipus. La part Flutter és d'un altre equip.
+- **Context:** `push_handler`, `push_service`, `push_repository`, `firebase_client/push.go`, `queries/push_notifications.sql`, migració 000026, `cmd/app/main.go`. Decisions ja preses per l'usuari: totes les notificacions de la bústia (`Notifications`) s'envien també com a push; interruptor global `Settings.PushEnabled`; outbox cada 30 s amb caducitat de 24 h; títol segons el tipus. La part Flutter és d'un altre equip.
 - **Dubte / supòsits:**
   1. **Contracte (pendent de validar amb el frontend):** `PUT /users/me/devices` amb `{"token", "platform": "android"|"ios"|"web"}` → `204` (upsert: un token ja registrat passa a l'usuari actual, p. ex. un mòbil compartit); `DELETE /users/me/devices/{token}` → `204` sempre (idempotent, per al tancament de sessió). Push: `notification.title`/`body` i `data` (tot cadenes) amb `notification-id`, `type` (nom del `NotificationType`), `event-id` i `friend-id` quan n'hi ha. `PATCH /users/me` accepta `push-enabled` i `GET /users/me` el retorna només al perfil propi.
   2. **Outbox:** `Notifications.PushedAt` marca el que ja s'ha enviat; un ticker (`PUSH_DISPATCH_INTERVAL`, per defecte 30 s) reclama lots de 100 amb `FOR UPDATE SKIP LOCKED` dins d'una transacció, envia i marca. No s'ha tocat cap servei que crea notificacions. La migració marca l'històric com a enviat. Es marquen sense enviar: usuaris amb `PushEnabled=false`, usuaris sense dispositius i les pendents de més de 24 h (`MaxPushAge`). Una fallada general de FCM o només errors transitoris deixen la notificació pendent per al següent tic (lliurament *at-least-once*: si falla el `MarkPushed` després d'enviar, es pot repetir un push).
@@ -548,11 +581,11 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
   4. **Token o FID:** el SDK v4.22.0 declara obsolets els *registration tokens* en favor dels *Firebase Installation IDs*. Flutter encara obté tokens (`getToken()`) i FCM els accepta, així que el backend accepta tots dos: els que contenen `:` s'envien com a token (amb `//nolint:staticcheck`) i la resta com a FID. Quan l'app registri FIDs, es pot treure el camí dels tokens.
   5. **Títols:** Social → «Social», Recordatori → «Recordatori», Recomanacio → «Recomanació», Cancelacio → «Esdeveniment cancel·lat», altres → «AProp!». El cos és el `Text` de la notificació, que es desa en català: no es tradueix segons `Settings.Language` (relacionat amb DP-043).
   6. **Relació amb la PR #73 (US #19 Configurar les notificacions):** aquella PR filtra en crear les notificacions segons `AllowedNotifications`; com que el push replica la bústia, el filtre s'hi aplica sol. `PushEnabled` és independent (la notificació arriba a la bústia però sense push). Totes dues toquen `UpdateProfile`, `user_repository.UpdateSettings` i `openapi.yaml`: caldrà resoldre conflictes, i el `GET` de configuració de la #73 hauria d'incloure `push-enabled`.
-  7. **Numeració de la migració:** s'usa **000024** perquè la PR #76 (`feature/restringir-fotos-perfil`) ja porta la 000023. `golang-migrate` no aplica una versió inferior a l'actual: cal fusionar la #76 abans que aquesta (o renumerar). Les PR #73 i #75 porten una 000020 que també caldrà renumerar.
+  7. **Numeració de la migració:** inicialment era la 000024, però `develop` ja té la 000023 (`allowed_notifications`), la 000024 (`correct_ratings`) i la 000025 (`private_avatars`, PR #76); s'ha renumerat a **000026** (`supabase/migrations/20261122000026_push_notifications.sql`) en fusionar `develop`.
   8. **`sqlc`:** `sqlc generate` falla al repositori (la 000020 fa `ALTER TYPE UnofficialEventState`, que sqlc no coneix) i `models.go` té ajustos manuals; s'ha generat en una còpia temporal i només s'ha copiat `sqlc/push_notifications.sql.go`. `PushEnabled` es llegeix i es desa amb consultes pròpies (com `Language`), i `UpdateSettings` ara fa les seves sentències en una transacció.
   9. **ADR:** si l'equip valida l'outbox, cal un ADR-0006.
 - **Opcions:** —
-- **Provisionalment:** els supòsits anteriors, amb `TODO(DP-044)` a `push_service.go`, `firebase_client/push.go` i `user_repository.go`.
+- **Provisionalment:** els supòsits anteriors, amb `TODO(DP-046)` a `push_service.go`, `firebase_client/push.go` i `user_repository.go`.
 - **Qui decideix:** frontend (contracte i token/FID) + backend + equip (outbox, ADR)
 - **Resolució:**
 

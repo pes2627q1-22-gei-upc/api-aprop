@@ -89,9 +89,46 @@ func (q *Queries) ListEventTranslations(ctx context.Context, arg ListEventTransl
 	return items, nil
 }
 
+const updateSettings = `-- name: UpdateSettings :exec
+UPDATE Settings SET
+    ShowPlans = $1::boolean,
+    NotificationBefore = ($2::varchar)::interval,
+    Language = $3::varchar
+WHERE ID = $4::integer
+`
+
+type UpdateSettingsParams struct {
+	ShowPlans          bool
+	NotificationBefore string
+	Language           string
+	ID                 int32
+}
+
+// Settings and language in a single statement (the generated Setting model does not have Language).
+func (q *Queries) UpdateSettings(ctx context.Context, arg UpdateSettingsParams) error {
+	_, err := q.db.Exec(ctx, updateSettings,
+		arg.ShowPlans,
+		arg.NotificationBefore,
+		arg.Language,
+		arg.ID,
+	)
+	return err
+}
+
 const upsertEventTranslation = `-- name: UpsertEventTranslation :exec
 INSERT INTO EventTranslations (Event, Lang, Title, Subtitle, Description, Schedule, Tickets, URLNames, SourceHash, UpdatedAt)
-VALUES ($1::integer, $2::varchar, $3::varchar, $4::varchar, $5::varchar, $6::varchar, $7::varchar, $8::varchar, $9::varchar, now())
+VALUES (
+    $1::integer,
+    $2::varchar,
+    $3::varchar,
+    $4::varchar,
+    $5::varchar,
+    $6::varchar,
+    $7::varchar,
+    $8::varchar,
+    $9::varchar,
+    now()
+)
 ON CONFLICT (Event, Lang) DO UPDATE
 SET Title = EXCLUDED.Title,
     Subtitle = EXCLUDED.Subtitle,
@@ -127,25 +164,5 @@ func (q *Queries) UpsertEventTranslation(ctx context.Context, arg UpsertEventTra
 		arg.UrlNames,
 		arg.SourceHash,
 	)
-	return err
-}
-
-const updateSettings = `-- name: UpdateSettings :exec
-UPDATE Settings SET
-    ShowPlans = $1::boolean,
-    NotificationBefore = ($2::varchar)::interval,
-    Language = $3::varchar
-WHERE ID = $4::integer
-`
-
-type UpdateSettingsParams struct {
-	ShowPlans          bool
-	NotificationBefore string
-	Language           string
-	ID                 int32
-}
-
-func (q *Queries) UpdateSettings(ctx context.Context, arg UpdateSettingsParams) error {
-	_, err := q.db.Exec(ctx, updateSettings, arg.ShowPlans, arg.NotificationBefore, arg.Language, arg.ID)
 	return err
 }
