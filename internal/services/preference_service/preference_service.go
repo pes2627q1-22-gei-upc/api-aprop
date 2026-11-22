@@ -82,7 +82,18 @@ func (s *PreferenceService) MarkTestPrompted(ctx context.Context, userID string)
 	return s.repo.MarkTestPrompted(ctx, normalizedUID)
 }
 
-func (s *PreferenceService) SavePartialTest(ctx context.Context, userID string, answers []preference_model.TestAnswer) (preference_model.SubmitTestResponse, error) {
+type preparedAnswers struct {
+	userID  string
+	deduped []preference_model.TestAnswer
+	merged  []preference_model.TestAnswer
+}
+
+func (s *PreferenceService) withPreparedAnswers(
+	ctx context.Context,
+	userID string,
+	answers []preference_model.TestAnswer,
+	fn func(preparedAnswers) (preference_model.SubmitTestResponse, error),
+) (preference_model.SubmitTestResponse, error) {
 	normalizedUID, err := user_model.NormalizeID(userID)
 	if err != nil {
 		return preference_model.SubmitTestResponse{}, err
@@ -105,111 +116,101 @@ func (s *PreferenceService) SavePartialTest(ctx context.Context, userID string, 
 		return preference_model.SubmitTestResponse{}, ErrTooManyAnswers
 	}
 
-	updatedAt := s.now().UTC()
-	// TODO(DP-047): Partial progress is persisted in PreferenceTestProgress without touching
-	// PreferenceTests / UserPreferences so prior completed answers stay intact during a paused retake.
-	if err := s.repo.SavePartialProgress(ctx, normalizedUID, updatedAt, deduped); err != nil {
-		return preference_model.SubmitTestResponse{}, err
-	}
+	return fn(preparedAnswers{
+		userID:  normalizedUID,
+		deduped: deduped,
+		merged:  merged,
+	})
+}
 
-	return preference_model.SubmitTestResponse{
-		UserID:        normalizedUID,
-		DateTaken:     updatedAt,
-		Preferences:   []preference_model.UserPreference{},
-		Partial:       true,
-		AnsweredCount: len(merged),
-	}, nil
+func (s *PreferenceService) SavePartialTest(ctx context.Context, userID string, answers []preference_model.TestAnswer) (preference_model.SubmitTestResponse, error) {
+	return s.withPreparedAnswers(ctx, userID, answers, func(p preparedAnswers) (preference_model.SubmitTestResponse, error) {
+		updatedAt := s.now().UTC()
+		// TODO(DP-047): Partial progress is persisted in PreferenceTestProgress without touching
+		// PreferenceTests / UserPreferences so prior completed answers stay intact during a paused retake.
+		if err := s.repo.SavePartialProgress(ctx, p.userID, updatedAt, p.deduped); err != nil {
+			return preference_model.SubmitTestResponse{}, err
+		}
+
+		return preference_model.SubmitTestResponse{
+			UserID:        p.userID,
+			DateTaken:     updatedAt,
+			Preferences:   []preference_model.UserPreference{},
+			Partial:       true,
+			AnsweredCount: len(p.merged),
+		}, nil
+	})
 }
 
 func (s *PreferenceService) SubmitTest(ctx context.Context, userID string, answers []preference_model.TestAnswer) (preference_model.SubmitTestResponse, error) {
-	normalizedUID, err := user_model.NormalizeID(userID)
-	if err != nil {
-		return preference_model.SubmitTestResponse{}, err
-	}
-
-	defer lockUser(normalizedUID)()
-
-	deduped, err := validateAndDeduplicateAnswers(answers)
-	if err != nil {
-		return preference_model.SubmitTestResponse{}, err
-	}
-
-	existing, err := s.repo.GetTestProgress(ctx, normalizedUID)
-	if err != nil {
-		return preference_model.SubmitTestResponse{}, err
-	}
-
-	merged := mergeAnswers(existing, deduped)
-	if len(merged) > defaultTestLimit {
-		return preference_model.SubmitTestResponse{}, ErrTooManyAnswers
-	}
-
-	eventIDs := make([]int, 0, len(merged))
-	for _, a := range merged {
-		eventIDs = append(eventIDs, a.EventID)
-	}
-
-	// 1. Fetch categories for these events
-	eventCategories, err := s.repo.GetEventCategories(ctx, eventIDs)
-	if err != nil {
-		return preference_model.SubmitTestResponse{}, err
-	}
-
-	// 2. Fetch all system categories so every category gets a weight
-	allCats, err := s.repo.ListAllCategories(ctx)
-	if err != nil {
-		return preference_model.SubmitTestResponse{}, err
-	}
-
-	// 3. Count likes and dislikes per category across all accumulated answers
-	likesCount := make(map[int]int)
-	dislikesCount := make(map[int]int)
-
-	for _, a := range merged {
-		cats := eventCategories[a.EventID]
-		for _, cat := range cats {
-			if a.Likes {
-				likesCount[cat]++
-			} else {
-				dislikesCount[cat]++
-			}
+	return s.withPreparedAnswers(ctx, userID, answers, func(p preparedAnswers) (preference_model.SubmitTestResponse, error) {
+		eventIDs := make([]int, 0, len(p.merged))
+		for _, a := range p.merged {
+			eventIDs = append(eventIDs, a.EventID)
 		}
-	}
 
-	// 4. Calculate weight for each category
-	preferences := make([]preference_model.UserPreference, 0, len(allCats))
-	for _, c := range allCats {
-		likes := likesCount[c.ID]
-		dislikes := dislikesCount[c.ID]
+		// 1. Fetch categories for these events
+		eventCategories, err := s.repo.GetEventCategories(ctx, eventIDs)
+		if err != nil {
+			return preference_model.SubmitTestResponse{}, err
+		}
 
-		weight := defaultWeight
-		if likes+dislikes > 0 {
-			weight = defaultWeight + float32(likes-dislikes)*weightStep
-			if weight < minWeight {
-				weight = minWeight
-			}
-			if weight > maxWeight {
-				weight = maxWeight
+		// 2. Fetch all system categories so every category gets a weight
+		allCats, err := s.repo.ListAllCategories(ctx)
+		if err != nil {
+			return preference_model.SubmitTestResponse{}, err
+		}
+
+		// 3. Count likes and dislikes per category across all accumulated answers
+		likesCount := make(map[int]int)
+		dislikesCount := make(map[int]int)
+
+		for _, a := range p.merged {
+			cats := eventCategories[a.EventID]
+			for _, cat := range cats {
+				if a.Likes {
+					likesCount[cat]++
+				} else {
+					dislikesCount[cat]++
+				}
 			}
 		}
 
-		preferences = append(preferences, preference_model.UserPreference{
-			CategoryID:   c.ID,
-			CategoryName: c.Name,
-			Weight:       weight,
-		})
-	}
+		// 4. Calculate weight for each category
+		preferences := make([]preference_model.UserPreference, 0, len(allCats))
+		for _, c := range allCats {
+			likes := likesCount[c.ID]
+			dislikes := dislikesCount[c.ID]
 
-	dateTaken := s.now().UTC()
-	if err := s.repo.SaveTestAndPreferences(ctx, normalizedUID, dateTaken, merged, preferences); err != nil {
-		return preference_model.SubmitTestResponse{}, err
-	}
+			weight := defaultWeight
+			if likes+dislikes > 0 {
+				weight = defaultWeight + float32(likes-dislikes)*weightStep
+				if weight < minWeight {
+					weight = minWeight
+				}
+				if weight > maxWeight {
+					weight = maxWeight
+				}
+			}
 
-	return preference_model.SubmitTestResponse{
-		UserID:      normalizedUID,
-		DateTaken:   dateTaken,
-		Preferences: preferences,
-	}, nil
+			preferences = append(preferences, preference_model.UserPreference{
+				CategoryID:   c.ID,
+				CategoryName: c.Name,
+				Weight:       weight,
+			})
+		}
+
+		dateTaken := s.now().UTC()
+		if err := s.repo.SaveTestAndPreferences(ctx, p.userID, dateTaken, p.merged, preferences); err != nil {
+			return preference_model.SubmitTestResponse{}, err
+		}
+
+		return preference_model.SubmitTestResponse{
+			UserID:      p.userID,
+			DateTaken:   dateTaken,
+			Preferences: preferences,
+		}, nil
+	})
 }
 
 func validateAndDeduplicateAnswers(answers []preference_model.TestAnswer) ([]preference_model.TestAnswer, error) {
@@ -219,41 +220,29 @@ func validateAndDeduplicateAnswers(answers []preference_model.TestAnswer) ([]pre
 	if len(answers) > defaultTestLimit {
 		return nil, ErrTooManyAnswers
 	}
-
-	deduped := make([]preference_model.TestAnswer, 0, len(answers))
-	indexByEvent := make(map[int]int, len(answers))
 	for _, a := range answers {
 		if a.EventID <= 0 {
 			return nil, fmt.Errorf("%w: %d", ErrInvalidEventID, a.EventID)
 		}
-		if idx, exists := indexByEvent[a.EventID]; exists {
-			deduped[idx].Likes = a.Likes
-			continue
-		}
-		indexByEvent[a.EventID] = len(deduped)
-		deduped = append(deduped, a)
 	}
-	return deduped, nil
+	return mergeAnswers(nil, answers), nil
 }
 
 func mergeAnswers(existing, incoming []preference_model.TestAnswer) []preference_model.TestAnswer {
-	if len(existing) == 0 {
-		return incoming
-	}
 	merged := make([]preference_model.TestAnswer, 0, len(existing)+len(incoming))
 	indexByEvent := make(map[int]int, len(existing)+len(incoming))
-	for _, a := range existing {
-		indexByEvent[a.EventID] = len(merged)
-		merged = append(merged, a)
-	}
-	for _, a := range incoming {
-		if idx, exists := indexByEvent[a.EventID]; exists {
-			merged[idx].Likes = a.Likes
-			continue
+	appendUnique := func(batch []preference_model.TestAnswer) {
+		for _, a := range batch {
+			if idx, exists := indexByEvent[a.EventID]; exists {
+				merged[idx].Likes = a.Likes
+				continue
+			}
+			indexByEvent[a.EventID] = len(merged)
+			merged = append(merged, a)
 		}
-		indexByEvent[a.EventID] = len(merged)
-		merged = append(merged, a)
 	}
+	appendUnique(existing)
+	appendUnique(incoming)
 	return merged
 }
 

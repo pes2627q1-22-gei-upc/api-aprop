@@ -13,10 +13,10 @@ import (
 	"api-aprop/internal/clients/firebase_client"
 	"api-aprop/internal/handlers/requester"
 	"api-aprop/internal/middleware/auth_middleware"
-	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/models/preference_model"
 	"api-aprop/internal/services/auth_service"
 	"api-aprop/internal/services/preference_service"
+	"api-aprop/internal/services/translation_service"
 )
 
 const validUserID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
@@ -333,13 +333,30 @@ func TestGetUserPreferences(t *testing.T) {
 
 // getAndCheck serves a GET request and verifies status, service calls and error
 // message; ok is false when the case expected an error and nothing more must be checked.
-func getAndCheck(t *testing.T, path, userHeader string, svc fakePreferenceService, wantStatus, wantCalls int, wantError string) (rec *httptest.ResponseRecorder, ok bool) {
+func getAndCheck(t *testing.T, path, userHeader string, svc fakePreferenceService, wantStatus, wantCalls int, wantError string) (*httptest.ResponseRecorder, bool) {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, path, nil)
+	rec, _, ok := serveAndCheck(t, http.MethodGet, path, "", userHeader, svc, wantStatus, wantCalls, wantError)
+	return rec, ok
+}
+
+func serveAndCheck(
+	t *testing.T,
+	method, path, body, userHeader string,
+	svc fakePreferenceService,
+	wantStatus, wantCalls int,
+	wantError string,
+) (*httptest.ResponseRecorder, *fakePreferenceService, bool) {
+	t.Helper()
+	var req *http.Request
+	if body != "" {
+		req = httptest.NewRequest(method, path, bytes.NewBufferString(body))
+	} else {
+		req = httptest.NewRequest(method, path, nil)
+	}
 	if userHeader != "" {
 		req.Header.Set(requester.UserIDHeader, userHeader)
 	}
-	rec = serve(&svc, req)
+	rec := serve(&svc, req)
 	if rec.Code != wantStatus {
 		t.Fatalf("status = %d, want %d (body %s)", rec.Code, wantStatus, rec.Body.String())
 	}
@@ -350,9 +367,9 @@ func getAndCheck(t *testing.T, path, userHeader string, svc fakePreferenceServic
 		if got := errorMessage(t, rec); got != wantError {
 			t.Errorf("error = %q, want %q", got, wantError)
 		}
-		return rec, false
+		return rec, &svc, false
 	}
-	return rec, true
+	return rec, &svc, true
 }
 
 type fakeResolver struct {
@@ -367,34 +384,34 @@ func withFirebaseUser(req *http.Request) *http.Request {
 }
 
 // A Firebase user is translated to its database UUID before the service is called.
-func assertTranslatesFirebaseUID(t *testing.T, path string, call func(*PreferenceHandler, http.ResponseWriter, *http.Request)) {
+func assertTranslatesFirebaseUID(t *testing.T, method, path string, wantStatus int, call func(*PreferenceHandler, http.ResponseWriter, *http.Request)) {
 	t.Helper()
 	s := &fakePreferenceService{}
 	rec := httptest.NewRecorder()
-	call(NewPreferenceHandler(s, fakeResolver{id: validUserID}), rec, withFirebaseUser(httptest.NewRequest(http.MethodGet, path, nil)))
-	if rec.Code != http.StatusOK || s.gotUserID != validUserID {
-		t.Fatalf("status = %d, user passed to service = %q; want 200 and %q", rec.Code, s.gotUserID, validUserID)
+	call(NewPreferenceHandler(s, fakeResolver{id: validUserID}), rec, withFirebaseUser(httptest.NewRequest(method, path, nil)))
+	if rec.Code != wantStatus || s.gotUserID != validUserID {
+		t.Fatalf("status = %d, user passed to service = %q; want %d and %q", rec.Code, s.gotUserID, wantStatus, validUserID)
 	}
 
 	rec = httptest.NewRecorder()
-	call(NewPreferenceHandler(s, fakeResolver{err: auth_service.ErrUserNotRegistered}), rec, withFirebaseUser(httptest.NewRequest(http.MethodGet, path, nil)))
+	call(NewPreferenceHandler(s, fakeResolver{err: auth_service.ErrUserNotRegistered}), rec, withFirebaseUser(httptest.NewRequest(method, path, nil)))
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("not registered: status = %d, want 401", rec.Code)
 	}
 }
 
 func TestGetUserPreferences_TranslatesFirebaseUID(t *testing.T) {
-	assertTranslatesFirebaseUID(t, "/preferences", (*PreferenceHandler).GetUserPreferences)
+	assertTranslatesFirebaseUID(t, http.MethodGet, "/preferences", http.StatusOK, (*PreferenceHandler).GetUserPreferences)
 }
 
 func TestGetTestStatus_TranslatesFirebaseUID(t *testing.T) {
-	assertTranslatesFirebaseUID(t, "/preferences/test/status", (*PreferenceHandler).GetTestStatus)
+	assertTranslatesFirebaseUID(t, http.MethodGet, "/preferences/test/status", http.StatusOK, (*PreferenceHandler).GetTestStatus)
 }
 
 func TestGetTestStatus(t *testing.T) {
 	fixedTime := time.Date(2026, 10, 24, 18, 0, 0, 0, time.UTC)
 
-	tests := []struct {
+	type statusCase struct {
 		name       string
 		userHeader string
 		service    fakePreferenceService
@@ -402,95 +419,43 @@ func TestGetTestStatus(t *testing.T) {
 		wantCalls  int
 		wantError  string
 		wantJSON   map[string]any
-	}{
-		{
-			name:       "completed test returns completed true, prompted true and RFC3339 date-taken",
+	}
+	okCase := func(name string, st preference_model.TestStatus, wantDate any) statusCase {
+		return statusCase{
+			name:       name,
 			userHeader: validUserID,
-			service: fakePreferenceService{
-				status: preference_model.TestStatus{
-					Completed:     true,
-					Prompted:      true,
-					InProgress:    false,
-					AnsweredCount: 0,
-					DateTaken:     &fixedTime,
-				},
-			},
+			service:    fakePreferenceService{status: st},
 			wantStatus: http.StatusOK,
 			wantCalls:  1,
 			wantJSON: map[string]any{
-				"completed":      true,
-				"prompted":       true,
-				"in-progress":    false,
-				"answered-count": float64(0),
-				"date-taken":     "2026-10-24T18:00:00Z",
+				"completed":      st.Completed,
+				"prompted":       st.Prompted,
+				"in-progress":    st.InProgress,
+				"answered-count": float64(st.AnsweredCount),
+				"date-taken":     wantDate,
 			},
-		},
-		{
-			name:       "uncompleted new user returns completed false, prompted false and explicit null date-taken",
-			userHeader: validUserID,
-			service: fakePreferenceService{
-				status: preference_model.TestStatus{
-					Completed:     false,
-					Prompted:      false,
-					InProgress:    false,
-					AnsweredCount: 0,
-					DateTaken:     nil,
-				},
-			},
-			wantStatus: http.StatusOK,
-			wantCalls:  1,
-			wantJSON: map[string]any{
-				"completed":      false,
-				"prompted":       false,
-				"in-progress":    false,
-				"answered-count": float64(0),
-				"date-taken":     nil,
-			},
-		},
-		{
-			name:       "paused test returns in-progress true and answered-count",
-			userHeader: validUserID,
-			service: fakePreferenceService{
-				status: preference_model.TestStatus{
-					Completed:     false,
-					Prompted:      true,
-					InProgress:    true,
-					AnsweredCount: 6,
-					DateTaken:     nil,
-				},
-			},
-			wantStatus: http.StatusOK,
-			wantCalls:  1,
-			wantJSON: map[string]any{
-				"completed":      false,
-				"prompted":       true,
-				"in-progress":    true,
-				"answered-count": float64(6),
-				"date-taken":     nil,
-			},
-		},
-		{
-			name:       "missing X-User-ID header returns 401",
-			wantStatus: http.StatusUnauthorized,
-			wantCalls:  0,
-			wantError:  "missing X-User-ID header",
-		},
-		{
-			name:       "invalid user id returns 400",
-			userHeader: "bad-uuid",
-			service:    fakePreferenceService{statusErr: preference_service.ErrInvalidUserID},
-			wantStatus: http.StatusBadRequest,
-			wantCalls:  1,
-			wantError:  "invalid user id",
-		},
-		{
-			name:       "service error returns 500",
-			userHeader: validUserID,
-			service:    fakePreferenceService{statusErr: errors.New("db error")},
-			wantStatus: http.StatusInternalServerError,
-			wantCalls:  1,
-			wantError:  "internal server error",
-		},
+		}
+	}
+
+	tests := []statusCase{
+		okCase(
+			"completed test returns completed true, prompted true and RFC3339 date-taken",
+			preference_model.TestStatus{Completed: true, Prompted: true, DateTaken: &fixedTime},
+			"2026-10-24T18:00:00Z",
+		),
+		okCase(
+			"uncompleted new user returns completed false, prompted false and explicit null date-taken",
+			preference_model.TestStatus{},
+			nil,
+		),
+		okCase(
+			"paused test returns in-progress true and answered-count",
+			preference_model.TestStatus{Prompted: true, InProgress: true, AnsweredCount: 6},
+			nil,
+		),
+		{name: "missing X-User-ID header returns 401", wantStatus: http.StatusUnauthorized, wantError: "missing X-User-ID header"},
+		{name: "invalid user id returns 400", userHeader: "bad-uuid", service: fakePreferenceService{statusErr: preference_service.ErrInvalidUserID}, wantStatus: http.StatusBadRequest, wantCalls: 1, wantError: "invalid user id"},
+		{name: "service error returns 500", userHeader: validUserID, service: fakePreferenceService{statusErr: errors.New("db error")}, wantStatus: http.StatusInternalServerError, wantCalls: 1, wantError: "internal server error"},
 	}
 
 	for _, tt := range tests {
@@ -523,7 +488,7 @@ func TestGetTestStatus(t *testing.T) {
 
 func TestSubmitTest_Partial(t *testing.T) {
 	fixedTime := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
-	s := fakePreferenceService{
+	svc := fakePreferenceService{
 		partialResponse: preference_model.SubmitTestResponse{
 			UserID:        validUserID,
 			DateTaken:     fixedTime,
@@ -533,17 +498,17 @@ func TestSubmitTest_Partial(t *testing.T) {
 		},
 	}
 
-	req := httptest.NewRequest(
+	rec, s, _ := serveAndCheck(
+		t,
 		http.MethodPost,
 		"/preferences/test",
-		bytes.NewBufferString(`{"answers":[{"event-id":1,"likes":true},{"event-id":2,"likes":false}],"partial":true}`),
+		`{"answers":[{"event-id":1,"likes":true},{"event-id":2,"likes":false}],"partial":true}`,
+		validUserID,
+		svc,
+		http.StatusOK,
+		1,
+		"",
 	)
-	req.Header.Set(requester.UserIDHeader, validUserID)
-
-	rec := serve(&s, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
-	}
 	if s.partialCalls != 1 {
 		t.Fatalf("partialCalls = %d, want 1", s.partialCalls)
 	}
@@ -568,44 +533,15 @@ func TestMarkTestPrompted(t *testing.T) {
 		wantStatus int
 		wantCalls  int
 	}{
-		{
-			name:       "success returns 204",
-			userHeader: validUserID,
-			wantStatus: http.StatusNoContent,
-			wantCalls:  1,
-		},
-		{
-			name:       "missing header returns 401",
-			wantStatus: http.StatusUnauthorized,
-			wantCalls:  0,
-		},
-		{
-			name:       "invalid user id returns 400",
-			userHeader: "bad-uuid",
-			service:    fakePreferenceService{markPromptedErr: preference_service.ErrInvalidUserID},
-			wantStatus: http.StatusBadRequest,
-			wantCalls:  1,
-		},
-		{
-			name:       "service error returns 500",
-			userHeader: validUserID,
-			service:    fakePreferenceService{markPromptedErr: errors.New("db error")},
-			wantStatus: http.StatusInternalServerError,
-			wantCalls:  1,
-		},
+		{"success returns 204", validUserID, fakePreferenceService{}, http.StatusNoContent, 1},
+		{"missing header returns 401", "", fakePreferenceService{}, http.StatusUnauthorized, 0},
+		{"invalid user id returns 400", "bad-uuid", fakePreferenceService{markPromptedErr: preference_service.ErrInvalidUserID}, http.StatusBadRequest, 1},
+		{"service error returns 500", validUserID, fakePreferenceService{markPromptedErr: errors.New("db error")}, http.StatusInternalServerError, 1},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := tt.service
-			req := httptest.NewRequest(http.MethodPost, "/preferences/test/prompted", nil)
-			if tt.userHeader != "" {
-				req.Header.Set(requester.UserIDHeader, tt.userHeader)
-			}
-			rec := serve(&s, req)
-			if rec.Code != tt.wantStatus {
-				t.Fatalf("status = %d, want %d (body %s)", rec.Code, tt.wantStatus, rec.Body.String())
-			}
+			_, s, _ := serveAndCheck(t, http.MethodPost, "/preferences/test/prompted", "", tt.userHeader, tt.service, tt.wantStatus, tt.wantCalls, "")
 			if s.promptCalls != tt.wantCalls {
 				t.Errorf("promptCalls = %d, want %d", s.promptCalls, tt.wantCalls)
 			}
@@ -614,16 +550,11 @@ func TestMarkTestPrompted(t *testing.T) {
 }
 
 func TestMarkTestPrompted_TranslatesFirebaseUID(t *testing.T) {
-	s := &fakePreferenceService{}
-	rec := httptest.NewRecorder()
-	req := withFirebaseUser(httptest.NewRequest(http.MethodPost, "/preferences/test/prompted", nil))
-	NewPreferenceHandler(s, fakeResolver{id: validUserID}).MarkTestPrompted(rec, req)
-	if rec.Code != http.StatusNoContent || s.gotUserID != validUserID {
-		t.Fatalf("status = %d, user = %q; want 204 and %q", rec.Code, s.gotUserID, validUserID)
-	}
+	assertTranslatesFirebaseUID(t, http.MethodPost, "/preferences/test/prompted", http.StatusNoContent, (*PreferenceHandler).MarkTestPrompted)
 }
 
 type fakeTranslator struct {
+	translation_service.Service
 	userLang string
 	langErr  error
 	calls    int
@@ -632,18 +563,6 @@ type fakeTranslator struct {
 
 func (f *fakeTranslator) UserLanguage(_ context.Context, _ string) (string, error) {
 	return f.userLang, f.langErr
-}
-
-func (f *fakeTranslator) TranslateEvent(_ context.Context, _ string, e event_model.Event) event_model.Event {
-	return e
-}
-
-func (f *fakeTranslator) TranslateEvents(_ context.Context, _ string, events []event_model.Event) []event_model.Event {
-	return events
-}
-
-func (f *fakeTranslator) TranslateMapEvents(_ context.Context, _ string, events []event_model.MapEvent) []event_model.MapEvent {
-	return events
 }
 
 func (f *fakeTranslator) TranslateTestQuestions(_ context.Context, lang string, questions []preference_model.TestQuestion) []preference_model.TestQuestion {
@@ -668,66 +587,21 @@ func TestGetQuestions_Language(t *testing.T) {
 	}
 
 	tests := []struct {
-		name       string
-		target     string
-		translator *fakeTranslator
-		wantCode   int
-		wantCalls  int
-		wantTitle  string
-		wantDesc   string
+		name      string
+		target    string
+		userLang  string
+		langErr   error
+		wantCode  int
+		wantCalls int
+		wantTitle string
+		wantDesc  string
 	}{
-		{
-			name:       "lang query parameter translates title and description",
-			target:     "/preferences/test?lang=es",
-			translator: &fakeTranslator{},
-			wantCode:   http.StatusOK,
-			wantCalls:  1,
-			wantTitle:  "[es] Concert",
-			wantDesc:   "[es] Música en directe",
-		},
-		{
-			name:       "lang query parameter wins over user language",
-			target:     "/preferences/test?lang=en",
-			translator: &fakeTranslator{userLang: "es"},
-			wantCode:   http.StatusOK,
-			wantCalls:  1,
-			wantTitle:  "[en] Concert",
-			wantDesc:   "[en] Música en directe",
-		},
-		{
-			name:       "without lang parameter uses user settings language",
-			target:     "/preferences/test",
-			translator: &fakeTranslator{userLang: "es"},
-			wantCode:   http.StatusOK,
-			wantCalls:  1,
-			wantTitle:  "[es] Concert",
-			wantDesc:   "[es] Música en directe",
-		},
-		{
-			name:       "catalan keeps original text",
-			target:     "/preferences/test?lang=ca",
-			translator: &fakeTranslator{userLang: "en"},
-			wantCode:   http.StatusOK,
-			wantCalls:  1,
-			wantTitle:  "Concert",
-			wantDesc:   "Música en directe",
-		},
-		{
-			name:       "user language lookup error falls back to catalan",
-			target:     "/preferences/test",
-			translator: &fakeTranslator{langErr: errors.New("db down")},
-			wantCode:   http.StatusOK,
-			wantCalls:  1,
-			wantTitle:  "Concert",
-			wantDesc:   "Música en directe",
-		},
-		{
-			name:       "invalid lang returns 400 without calling service",
-			target:     "/preferences/test?lang=fr",
-			translator: &fakeTranslator{},
-			wantCode:   http.StatusBadRequest,
-			wantCalls:  0,
-		},
+		{"lang query parameter translates title and description", "/preferences/test?lang=es", "", nil, http.StatusOK, 1, "[es] Concert", "[es] Música en directe"},
+		{"lang query parameter wins over user language", "/preferences/test?lang=en", "es", nil, http.StatusOK, 1, "[en] Concert", "[en] Música en directe"},
+		{"without lang parameter uses user settings language", "/preferences/test", "es", nil, http.StatusOK, 1, "[es] Concert", "[es] Música en directe"},
+		{"catalan keeps original text", "/preferences/test?lang=ca", "en", nil, http.StatusOK, 1, "Concert", "Música en directe"},
+		{"user language lookup error falls back to catalan", "/preferences/test", "", errors.New("db down"), http.StatusOK, 1, "Concert", "Música en directe"},
+		{"invalid lang returns 400 without calling service", "/preferences/test?lang=fr", "", nil, http.StatusBadRequest, 0, "", ""},
 	}
 
 	for _, tt := range tests {
@@ -735,12 +609,11 @@ func TestGetQuestions_Language(t *testing.T) {
 			svc := &fakePreferenceService{questions: baseQuestions}
 			mux := http.NewServeMux()
 			NewPreferenceHandler(svc, fakeResolver{id: validUserID}).
-				WithTranslator(tt.translator).
+				WithTranslator(&fakeTranslator{userLang: tt.userLang, langErr: tt.langErr}).
 				RegisterRoutes(mux)
 
-			req := withFirebaseUser(httptest.NewRequest(http.MethodGet, tt.target, nil))
 			rec := httptest.NewRecorder()
-			mux.ServeHTTP(rec, req)
+			mux.ServeHTTP(rec, withFirebaseUser(httptest.NewRequest(http.MethodGet, tt.target, nil)))
 
 			if rec.Code != tt.wantCode {
 				t.Fatalf("status = %d, want %d (body %s)", rec.Code, tt.wantCode, rec.Body.String())

@@ -106,11 +106,7 @@ func (s *TranslationService) TranslateTestQuestions(ctx context.Context, lang st
 	for i, q := range out {
 		ids[i] = q.EventID
 	}
-	cached, err := s.repository.GetTranslations(ctx, lang, ids)
-	if err != nil {
-		slog.Warn("could not read the cached translations for test questions", "lang", lang, "error", err)
-		cached = nil
-	}
+	cached := s.loadCachedTranslations(ctx, lang, ids, "could not read the cached translations for test questions")
 
 	var misses []*preference_model.TestQuestion
 	for i := range out {
@@ -134,7 +130,9 @@ func (s *TranslationService) TranslateTestQuestions(ctx context.Context, lang st
 		misses = misses[:maxQuestionMisses]
 	}
 	if len(misses) > 0 {
-		s.translateQuestionMisses(ctx, lang, misses)
+		runTranslationBatches(ctx, len(misses), questionBatchSize, func(tctx context.Context, start, end int) {
+			s.translateQuestionBatch(tctx, ctx, lang, misses[start:end])
+		})
 	}
 	return out
 }
@@ -149,75 +147,17 @@ func hasQuestionTranslation(q *preference_model.TestQuestion, t translation_repo
 	return true
 }
 
-func (s *TranslationService) translateQuestionMisses(ctx context.Context, lang string, misses []*preference_model.TestQuestion) {
-	tctx, cancel := context.WithTimeout(ctx, translateTimeout)
-	defer cancel()
-
-	if len(misses) <= questionBatchSize {
-		s.translateQuestionBatch(tctx, ctx, lang, misses)
-		return
-	}
-
-	sem := make(chan struct{}, maxConcurrentBatches)
-	var wg sync.WaitGroup
-	for start := 0; start < len(misses); start += questionBatchSize {
-		end := min(start+questionBatchSize, len(misses))
-		batch := misses[start:end]
-		wg.Add(1)
-		sem <- struct{}{}
-		go func() {
-			defer wg.Done()
-			defer func() { <-sem }()
-			s.translateQuestionBatch(tctx, ctx, lang, batch)
-		}()
-	}
-	wg.Wait()
-}
-
 func (s *TranslationService) translateQuestionBatch(tctx, saveCtx context.Context, lang string, batch []*preference_model.TestQuestion) {
-	var texts []string
-	index := make(map[string]int)
-	add := func(raw string) {
-		trimmed := strings.TrimSpace(raw)
-		if trimmed == "" {
-			return
-		}
-		if _, ok := index[trimmed]; ok {
-			return
-		}
-		index[trimmed] = len(texts)
-		texts = append(texts, trimmed)
-	}
+	texts := newTextBatch()
 	for _, q := range batch {
-		add(q.Title)
-		add(q.Description)
+		texts.add(q.Title)
+		texts.add(q.Description)
 	}
-	if len(texts) == 0 {
+	lookup := s.translateTexts(tctx, lang, texts, "test questions", "questions", len(batch))
+	if lookup == nil {
 		return
 	}
 
-	out, err := s.client.Translate(tctx, texts, language_model.Default, lang)
-	if err == nil && len(out) != len(texts) {
-		err = fmt.Errorf("expected %d translations, got %d", len(texts), len(out))
-	}
-	if err != nil {
-		if !errors.Is(err, translate_client.ErrDisabled) {
-			slog.Warn("could not translate test questions; using the original text", "questions", len(batch), "lang", lang, "error", err)
-		}
-		return
-	}
-
-	lookup := func(raw string) (string, bool) {
-		trimmed := strings.TrimSpace(raw)
-		if trimmed == "" {
-			return raw, true
-		}
-		translated := out[index[trimmed]]
-		if strings.TrimSpace(translated) == "" {
-			return raw, false
-		}
-		return translated, true
-	}
 	for _, q := range batch {
 		hash := questionSourceHash(q.Title, q.Description)
 		title, okTitle := lookup(q.Title)
@@ -242,6 +182,103 @@ func needsTranslation(lang string) bool {
 	return lang != language_model.Default && language_model.Valid(lang)
 }
 
+func (s *TranslationService) loadCachedTranslations(
+	ctx context.Context,
+	lang string,
+	ids []int,
+	warnMsg string,
+) map[int]translation_repository.Translation {
+	cached, err := s.repository.GetTranslations(ctx, lang, ids)
+	if err != nil {
+		slog.Warn(warnMsg, "lang", lang, "error", err)
+		return nil
+	}
+	return cached
+}
+
+// runTranslationBatches splits total uncached items into bounded concurrent batches under a shared timeout.
+func runTranslationBatches(ctx context.Context, total, size int, fn func(tctx context.Context, start, end int)) {
+	tctx, cancel := context.WithTimeout(ctx, translateTimeout)
+	defer cancel()
+
+	if total <= size {
+		fn(tctx, 0, total)
+		return
+	}
+
+	sem := make(chan struct{}, maxConcurrentBatches)
+	var wg sync.WaitGroup
+	for start := 0; start < total; start += size {
+		end := min(start+size, total)
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(start, end int) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			fn(tctx, start, end)
+		}(start, end)
+	}
+	wg.Wait()
+}
+
+type textBatch struct {
+	texts []string
+	index map[string]int
+}
+
+func newTextBatch() *textBatch {
+	return &textBatch{index: make(map[string]int)}
+}
+
+func (b *textBatch) add(raw string) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return
+	}
+	if _, ok := b.index[trimmed]; ok {
+		return
+	}
+	b.index[trimmed] = len(b.texts)
+	b.texts = append(b.texts, trimmed)
+}
+
+// translateTexts calls the upstream translator for the unique texts in b and returns a lookup
+// function mapping each raw input to its translation (reporting ok=false if the upstream returned
+// blank text for a non-empty input). Returns nil when nothing needs translation or the call fails.
+func (s *TranslationService) translateTexts(
+	tctx context.Context,
+	lang string,
+	b *textBatch,
+	label string,
+	countKey string,
+	count int,
+) func(string) (string, bool) {
+	if len(b.texts) == 0 {
+		return nil
+	}
+	out, err := s.client.Translate(tctx, b.texts, language_model.Default, lang)
+	if err == nil && len(out) != len(b.texts) {
+		err = fmt.Errorf("expected %d translations, got %d", len(b.texts), len(out))
+	}
+	if err != nil {
+		if !errors.Is(err, translate_client.ErrDisabled) {
+			slog.Warn("could not translate "+label+"; using the original text", countKey, count, "lang", lang, "error", err)
+		}
+		return nil
+	}
+	return func(raw string) (string, bool) {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			return raw, true
+		}
+		translated := out[b.index[trimmed]]
+		if strings.TrimSpace(translated) == "" {
+			return raw, false
+		}
+		return translated, true
+	}
+}
+
 // translate replaces the free-text fields of the events with their translation into lang: from the cache when
 // the Catalan texts have not changed, otherwise asking the translation server and caching the result.
 // TODO(DP-048): preserves valid 2-field cached translations (from TranslateTestQuestions) as fallback if the
@@ -256,11 +293,7 @@ func (s *TranslationService) translate(ctx context.Context, lang string, events 
 	for i, e := range events {
 		ids[i] = e.ID
 	}
-	cached, err := s.repository.GetTranslations(ctx, lang, ids)
-	if err != nil {
-		slog.Warn("could not read the cached translations", "lang", lang, "error", err)
-		cached = nil
-	}
+	cached := s.loadCachedTranslations(ctx, lang, ids, "could not read the cached translations")
 
 	var misses []*event_model.Event
 	partialCached := make(map[int]translation_repository.Translation)
@@ -289,7 +322,9 @@ func (s *TranslationService) translate(ctx context.Context, lang string, events 
 	}
 	upgraded := make([]bool, len(toTranslate))
 	if len(toTranslate) > 0 {
-		s.translateMisses(ctx, lang, toTranslate, upgraded)
+		runTranslationBatches(ctx, len(toTranslate), batchSize, func(tctx context.Context, start, end int) {
+			s.translateBatch(tctx, ctx, lang, toTranslate[start:end], upgraded[start:end])
+		})
 	}
 	if len(partialCached) > 0 {
 		for i, e := range misses {
@@ -308,78 +343,19 @@ func (s *TranslationService) translate(ctx context.Context, lang string, events 
 	}
 }
 
-// translateMisses translates uncached events in small concurrent batches under a shared timeout and caches each
-// batch as soon as it succeeds. On failure or timeout, only the affected batch keeps its original text.
-func (s *TranslationService) translateMisses(ctx context.Context, lang string, misses []*event_model.Event, upgraded []bool) {
-	tctx, cancel := context.WithTimeout(ctx, translateTimeout)
-	defer cancel()
-
-	if len(misses) <= batchSize {
-		s.translateBatch(tctx, ctx, lang, misses, upgraded)
-		return
-	}
-
-	sem := make(chan struct{}, maxConcurrentBatches)
-	var wg sync.WaitGroup
-	for start := 0; start < len(misses); start += batchSize {
-		end := min(start+batchSize, len(misses))
-		batch := misses[start:end]
-		batchUpgraded := upgraded[start:end]
-		wg.Add(1)
-		sem <- struct{}{}
-		go func() {
-			defer wg.Done()
-			defer func() { <-sem }()
-			s.translateBatch(tctx, ctx, lang, batch, batchUpgraded)
-		}()
-	}
-	wg.Wait()
-}
-
 func (s *TranslationService) translateBatch(tctx, saveCtx context.Context, lang string, batch []*event_model.Event, upgraded []bool) {
-	texts, index := collectTexts(batch)
-	if len(texts) == 0 {
+	lookup := s.translateTexts(tctx, lang, collectTexts(batch), "the events", "events", len(batch))
+	if lookup == nil {
 		return
-	}
-	out, err := s.client.Translate(tctx, texts, language_model.Default, lang)
-	if err == nil && len(out) != len(texts) {
-		err = fmt.Errorf("expected %d translations, got %d", len(texts), len(out))
-	}
-	if err != nil {
-		if !errors.Is(err, translate_client.ErrDisabled) {
-			slog.Warn("could not translate the events; using the original text", "events", len(batch), "lang", lang, "error", err)
-		}
-		return
-	}
-	lookup := func(raw string) (string, bool) {
-		trimmed := strings.TrimSpace(raw)
-		if trimmed == "" {
-			return raw, true
-		}
-		translated := out[index[trimmed]]
-		if strings.TrimSpace(translated) == "" {
-			return raw, false
-		}
-		return translated, true
 	}
 	for i, e := range batch {
 		hash := sourceHash(e)
 		complete := true
 		var ok bool
-		if e.Title, ok = lookup(e.Title); !ok {
-			complete = false
-		}
-		if e.Subtitle, ok = lookup(e.Subtitle); !ok {
-			complete = false
-		}
-		if e.Description, ok = lookup(e.Description); !ok {
-			complete = false
-		}
-		if e.Schedule, ok = lookup(e.Schedule); !ok {
-			complete = false
-		}
-		if e.Tickets, ok = lookup(e.Tickets); !ok {
-			complete = false
+		for _, field := range []*string{&e.Title, &e.Subtitle, &e.Description, &e.Schedule, &e.Tickets} {
+			if *field, ok = lookup(*field); !ok {
+				complete = false
+			}
 		}
 		if strings.TrimSpace(e.URLnames) != "" {
 			parts := strings.Split(e.URLnames, ",")
@@ -412,33 +388,19 @@ func (s *TranslationService) translateBatch(tctx, saveCtx context.Context, lang 
 // collectTexts gathers the unique non-empty trimmed texts to translate in a batch.
 // URLnames is split by commas so each link label is translated independently without losing the comma alignment
 // with related-urls.
-func collectTexts(batch []*event_model.Event) ([]string, map[string]int) {
-	var texts []string
-	index := make(map[string]int)
-	add := func(raw string) {
-		trimmed := strings.TrimSpace(raw)
-		if trimmed == "" {
-			return
-		}
-		if _, ok := index[trimmed]; ok {
-			return
-		}
-		index[trimmed] = len(texts)
-		texts = append(texts, trimmed)
-	}
+func collectTexts(batch []*event_model.Event) *textBatch {
+	b := newTextBatch()
 	for _, e := range batch {
-		add(e.Title)
-		add(e.Subtitle)
-		add(e.Description)
-		add(e.Schedule)
-		add(e.Tickets)
+		for _, field := range []string{e.Title, e.Subtitle, e.Description, e.Schedule, e.Tickets} {
+			b.add(field)
+		}
 		if strings.TrimSpace(e.URLnames) != "" {
 			for _, part := range strings.Split(e.URLnames, ",") {
-				add(part)
+				b.add(part)
 			}
 		}
 	}
-	return texts, index
+	return b
 }
 
 // questionSourceHash identifies the 2 fields translated by TranslateTestQuestions.

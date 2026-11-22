@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -15,10 +16,10 @@ import (
 	"api-aprop/internal/handlers/requester"
 	"api-aprop/internal/middleware/auth_middleware"
 	"api-aprop/internal/models/event_model"
-	"api-aprop/internal/models/preference_model"
 	"api-aprop/internal/models/signup_model"
 	"api-aprop/internal/services/auth_service"
 	"api-aprop/internal/services/signup_service"
+	"api-aprop/internal/services/translation_service"
 )
 
 const validUserID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
@@ -589,26 +590,14 @@ func TestSetAttendance(t *testing.T) {
 }
 
 // langTranslator prefixes the title with the language it was asked for.
-type langTranslator struct{}
+type langTranslator struct{ translation_service.Service }
 
-func (langTranslator) UserLanguage(context.Context, string) (string, error) { return "ca", nil }
-func (langTranslator) TranslateEvent(_ context.Context, lang string, e event_model.Event) event_model.Event {
-	e.Title = "[" + lang + "] " + e.Title
-	return e
-}
 func (langTranslator) TranslateEvents(_ context.Context, lang string, events []event_model.Event) []event_model.Event {
-	out := make([]event_model.Event, len(events))
-	for i, e := range events {
-		e.Title = "[" + lang + "] " + e.Title
-		out[i] = e
+	out := slices.Clone(events)
+	for i := range out {
+		out[i].Title = "[" + lang + "] " + out[i].Title
 	}
 	return out
-}
-func (langTranslator) TranslateMapEvents(_ context.Context, _ string, events []event_model.MapEvent) []event_model.MapEvent {
-	return events
-}
-func (langTranslator) TranslateTestQuestions(_ context.Context, _ string, questions []preference_model.TestQuestion) []preference_model.TestQuestion {
-	return questions
 }
 
 func TestListUserEvents_Lang(t *testing.T) {
