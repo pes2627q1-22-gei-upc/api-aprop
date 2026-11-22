@@ -624,6 +624,25 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Qui decideix:** backend + equip
 - **Resolució:**
 
+### DP-050 · Notificacions push amb FCM (#275): contracte, outbox i preferència global
+- **Estat:** oberta
+- **Obert per:** 2026-11-20 · Claude Code (Opus 5.5) amb confirmació de l'usuari · branca `feature/push-notifications` (Taiga #275)
+- **Context:** `push_handler`, `push_service`, `push_repository`, `firebase_client/push.go`, `queries/push_notifications.sql`, migració 000027, `cmd/app/main.go`. Decisions ja preses per l'usuari: totes les notificacions de la bústia (`Notifications`) s'envien també com a push; interruptor global `Settings.PushEnabled`; outbox cada 30 s amb caducitat de 24 h; títol segons el tipus. La part Flutter és d'un altre equip.
+- **Dubte / supòsits:**
+  1. **Contracte (pendent de validar amb el frontend):** `PUT /users/me/devices` amb `{"token", "platform": "android"|"ios"|"web"}` → `204` (upsert: un token ja registrat passa a l'usuari actual, p. ex. un mòbil compartit); `DELETE /users/me/devices/{token}` → `204` sempre (idempotent, per al tancament de sessió). Push: `notification.title`/`body` i `data` (tot cadenes) amb `notification-id`, `type` (nom del `NotificationType`), `event-id` i `friend-id` quan n'hi ha. `PATCH /users/me` accepta `push-enabled` i `GET /users/me` el retorna només al perfil propi.
+  2. **Outbox:** `Notifications.PushedAt` marca el que ja s'ha enviat; un ticker (`PUSH_DISPATCH_INTERVAL`, per defecte 30 s) reclama lots de 100 amb `FOR UPDATE SKIP LOCKED` dins d'una transacció, envia i marca. No s'ha tocat cap servei que crea notificacions. La migració marca l'històric com a enviat. Es marquen sense enviar: usuaris amb `PushEnabled=false`, usuaris sense dispositius i les pendents de més de 24 h (`MaxPushAge`). Una fallada general de FCM o només errors transitoris deixen la notificació pendent per al següent tic (lliurament *at-least-once*: si falla el `MarkPushed` després d'enviar, es pot repetir un push).
+  3. **Tokens no vàlids:** `UNREGISTERED`, `INVALID_ARGUMENT` i `SENDER_ID_MISMATCH` esborren el token. Per evitar que un payload invàlid esborri tokens bons, el cos es retalla a 1000 caràcters (`MaxBodyLength`).
+  4. **Token o FID:** el SDK v4.22.0 declara obsolets els *registration tokens* en favor dels *Firebase Installation IDs*. Flutter encara obté tokens (`getToken()`) i FCM els accepta, així que el backend accepta tots dos: els que contenen `:` s'envien com a token (amb `//nolint:staticcheck`) i la resta com a FID. Quan l'app registri FIDs, es pot treure el camí dels tokens.
+  5. **Títols:** Social → «Social», Recordatori → «Recordatori», Recomanacio → «Recomanació», Cancelacio → «Esdeveniment cancel·lat», altres → «AProp!». El cos és el `Text` de la notificació, que es desa en català: no es tradueix segons `Settings.Language` (relacionat amb DP-043).
+  6. **Relació amb la PR #73 (US #19 Configurar les notificacions):** aquella PR filtra en crear les notificacions segons `AllowedNotifications`; com que el push replica la bústia, el filtre s'hi aplica sol. `PushEnabled` és independent (la notificació arriba a la bústia però sense push). Totes dues toquen `UpdateProfile`, `user_repository.UpdateSettings` i `openapi.yaml`: caldrà resoldre conflictes, i el `GET` de configuració de la #73 hauria d'incloure `push-enabled`.
+  7. **Numeració de la migració:** inicialment era la 000024, però `develop` ja té de la 000023 a la 000026 (`allowed_notifications`, `correct_ratings`, `private_avatars` i `interest_test_progress`); s'ha renumerat a **000027** (`supabase/migrations/20261122000027_push_notifications.sql`) en fusionar `develop`.
+  8. **`sqlc`:** `sqlc generate` falla al repositori (la 000020 fa `ALTER TYPE UnofficialEventState`, que sqlc no coneix) i `models.go` té ajustos manuals; s'ha generat en una còpia temporal i només s'ha copiat `sqlc/push_notifications.sql.go`. `PushEnabled` es llegeix i es desa amb consultes pròpies (com `Language`), i `UpdateSettings` ara fa les seves sentències en una transacció.
+  9. **ADR:** si l'equip valida l'outbox, cal un ADR-0006.
+- **Opcions:** —
+- **Provisionalment:** els supòsits anteriors, amb `TODO(DP-050)` a `push_service.go`, `firebase_client/push.go` i `user_repository.go`.
+- **Qui decideix:** frontend (contracte i token/FID) + backend + equip (outbox, ADR)
+- **Resolució:**
+
 ## Resoltes
 
 (cap)

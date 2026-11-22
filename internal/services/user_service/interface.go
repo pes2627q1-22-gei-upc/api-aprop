@@ -18,6 +18,7 @@ type UpdateProfileInput struct {
 	NotificationBefore *string `json:"notification-before"`
 	AllowedNotifTypes  *[]int  `json:"allowed-notif-types"`
 	Language           *string `json:"language"` // ca, es or en
+	PushEnabled        *bool   `json:"push-enabled"`
 }
 
 type Service interface {

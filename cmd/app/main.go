@@ -31,6 +31,7 @@ import (
 	"api-aprop/internal/handlers/notification_handler"
 	"api-aprop/internal/handlers/password_reset_handler"
 	"api-aprop/internal/handlers/preference_handler"
+	"api-aprop/internal/handlers/push_handler"
 	"api-aprop/internal/handlers/rating_handler"
 	"api-aprop/internal/handlers/requester"
 	"api-aprop/internal/handlers/signup_handler"
@@ -47,6 +48,7 @@ import (
 	"api-aprop/internal/services/notification_service"
 	"api-aprop/internal/services/password_reset_service"
 	"api-aprop/internal/services/preference_service"
+	"api-aprop/internal/services/push_service"
 	"api-aprop/internal/services/rating_service"
 	"api-aprop/internal/services/signup_service"
 	"api-aprop/internal/services/translation_service"
@@ -85,6 +87,10 @@ const (
 
 	// Firebase Web API key (Firebase console > Project settings > General): Firebase Auth REST API
 	firebaseEnvWebAPIKey = "FIREBASE_WEB_API_KEY" // optional: without it the password reset endpoint answers 503
+
+	// Push notifications (Taiga #275): how often the outbox of Notifications is pushed through FCM
+	pushEnvDispatchInterval     = "PUSH_DISPATCH_INTERVAL" // optional, a Go duration, defaults to defaultPushDispatchInterval
+	defaultPushDispatchInterval = 30 * time.Second
 )
 
 func runDaily(task func()) {
@@ -123,6 +129,18 @@ func checkForReminders(minute_interval int, handle_notifs func()) {
 			<-timer.C
 			log.Printf("loading reminders")
 			handle_notifs()
+		}
+	}()
+}
+
+// runEvery runs task now and then every interval, in the background.
+func runEvery(interval time.Duration, task func()) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			task()
+			<-ticker.C
 		}
 	}()
 }
@@ -245,6 +263,7 @@ func main() {
 
 	var authMiddleware func(http.Handler) http.Handler
 	var accountDeleter firebase_client.AccountDeleter // nil without Firebase: accounts are only deleted from the database
+	var pushSender firebase_client.PushSender         // nil without Firebase: notifications only reach the inbox
 	if _, err := os.Stat(firebaseCredentialsFile); err == nil {
 		firebaseClient, err := firebase_client.NewFirebaseClient(context.Background(), firebaseCredentialsFile)
 		if err != nil {
@@ -253,6 +272,7 @@ func main() {
 		}
 		authMiddleware = auth_middleware.NewAuthMiddleware(firebaseClient)
 		accountDeleter = firebaseClient
+		pushSender = firebaseClient
 	} else {
 		slog.Warn("Firebase credentials file not found; running without auth middleware for local development", "file", firebaseCredentialsFile)
 		authMiddleware = func(next http.Handler) http.Handler { return next }
@@ -271,6 +291,7 @@ func main() {
 	preferenceRepository := postgres_repository.NewPreferenceRepository(postgresDriver.Pool())
 	congestionRepository := postgres_repository.NewCongestionRepository(postgresDriver.Pool())
 	translationRepository := postgres_repository.NewTranslationRepository(postgresDriver.Pool())
+	pushRepository := postgres_repository.NewPushRepository(postgresDriver.Pool())
 
 	// Services
 	eventService := event_service.NewEventService(eventRepository, preferenceRepository, gencatClient, s3Client).WithUserRepository(userRepository)
@@ -289,6 +310,7 @@ func main() {
 	passwordResetService := password_reset_service.NewPasswordResetService(userRepository, passwordResetSender(), time.Now)
 
 	translationService := translation_service.NewTranslationService(translationRepository, translateClient())
+	pushService := push_service.NewPushService(pushRepository, pushSender)
 
 	// Handlers
 	eventHandler := event_handler.NewEventHandler(eventService, authService).WithTranslator(translationService)
@@ -302,6 +324,7 @@ func main() {
 	preferenceHandler := preference_handler.NewPreferenceHandler(preferenceService, authService).WithTranslator(translationService)
 	congestionHandler := congestion_handler.NewCongestionHandler(congestionService)
 	passwordResetHandler := password_reset_handler.NewPasswordResetHandler(passwordResetService)
+	pushHandler := push_handler.NewPushHandler(pushService, authService)
 
 	// Initial data
 	go func() {
@@ -322,6 +345,21 @@ func main() {
 			log.Printf("loaded %d new reminders", len(nots))
 		}
 	})
+	if pushSender != nil {
+		interval := pushDispatchInterval()
+		slog.Info("Pushing notifications through FCM", "interval", interval)
+		runEvery(interval, func() {
+			ctx, cancel := context.WithTimeout(context.Background(), interval)
+			defer cancel()
+			if delivered, err := pushService.DispatchPending(ctx); err != nil {
+				slog.Error("could not push notifications", "error", err)
+			} else if delivered > 0 {
+				slog.Info("pushed notifications", "delivered", delivered)
+			}
+		})
+	} else {
+		slog.Warn("Firebase credentials file not found; notifications are not pushed, they only reach the inbox")
+	}
 
 	mux := http.NewServeMux()
 	// Endpoints for Mobilicat: protected by an API key instead of a Firebase token, so they are not in the router
@@ -332,7 +370,7 @@ func main() {
 	mux.Handle(congestion_handler.EstimatePattern, apikey_middleware.New(mobilicatAPIKey)(http.HandlerFunc(congestionHandler.Estimate)))
 	// Public endpoint: whoever forgot the password has no Firebase token. The CORS preflight goes through the router
 	mux.Handle(password_reset_handler.ResetPattern, corsMiddleware(http.HandlerFunc(passwordResetHandler.Reset)))
-	mux.Handle("/", router.NewRouter(corsMiddleware, authMiddleware, eventHandler, assistantHandler, signUpHandler, ratingHandler, messageHandler, authHandler, notificationHandler, userHandler, preferenceHandler))
+	mux.Handle("/", router.NewRouter(corsMiddleware, authMiddleware, eventHandler, assistantHandler, signUpHandler, ratingHandler, messageHandler, authHandler, notificationHandler, userHandler, preferenceHandler, pushHandler))
 
 	// Server: HTTP/1.1 and HTTP/2 without TLS (h2c)
 	protocols := new(http.Protocols)
@@ -367,6 +405,20 @@ func congestionK() float64 {
 		return congestion_service.DefaultK
 	}
 	return k
+}
+
+// pushDispatchInterval reads how often the push outbox is dispatched; invalid values use the default.
+func pushDispatchInterval() time.Duration {
+	value := os.Getenv(pushEnvDispatchInterval)
+	if value == "" {
+		return defaultPushDispatchInterval
+	}
+	interval, err := time.ParseDuration(value)
+	if err != nil || interval < time.Second {
+		slog.Warn("Invalid push dispatch interval; using the default", "env", pushEnvDispatchInterval, "value", value, "default", defaultPushDispatchInterval)
+		return defaultPushDispatchInterval
+	}
+	return interval
 }
 
 // translateClient returns the translator client; without TRANSLATOR_URL it is disabled and events keep their original text.

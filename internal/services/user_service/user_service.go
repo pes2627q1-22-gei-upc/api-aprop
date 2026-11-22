@@ -222,6 +222,8 @@ func (s *userService) GetUserProfile(ctx context.Context, targetIdentifier strin
 	if isSelf {
 		profile.Email = target.Email
 		profile.Language = settings.Language
+		pushEnabled := settings.PushEnabled
+		profile.PushEnabled = &pushEnabled
 	}
 
 	return profile, nil
@@ -328,6 +330,11 @@ func (s *userService) UpdateProfile(ctx context.Context, requesterIdentifier str
 
 	if input.AllowedNotifTypes != nil {
 		settings.AllowedNotifTypes = *(input.AllowedNotifTypes)
+		settingsChanged = true
+	}
+
+	if input.PushEnabled != nil {
+		settings.PushEnabled = *(input.PushEnabled)
 		settingsChanged = true
 	}
 
