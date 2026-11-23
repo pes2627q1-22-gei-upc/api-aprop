@@ -150,6 +150,11 @@ type Allowednotification struct {
 	Notificationtype int32
 }
 
+type Astronomicalevent struct {
+	Eventid        int32
+	Astronomicalid string
+}
+
 type Blocked struct {
 	Blockinguser pgtype.UUID
 	Blockeduser  pgtype.UUID

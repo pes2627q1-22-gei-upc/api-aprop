@@ -34,4 +34,5 @@ type Repository interface {
 	// in a single transaction. It returns the number of notified users, ErrEventNotFound if the event does not exist
 	// or is official, and ErrEventNotActive if it is no longer Active.
 	Cancel(ctx context.Context, id int) (int64, error)
+	CreateAstronomical(id string, e event_model.Event) error
 }

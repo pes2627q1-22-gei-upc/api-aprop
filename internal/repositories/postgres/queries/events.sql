@@ -164,3 +164,59 @@ SELECT State::text AS state FROM UnofficialEvents WHERE ID = $1;
 
 -- name: GetEventRatings :many
 SELECT Rating, RatingDate from EventRatings where event=$1;
+
+-- name: UpsertAstronomicalEvent :one
+WITH existing AS MATERIALIZED (
+    SELECT ae.eventid
+    FROM astronomicalevents ae
+    WHERE ae.astronomicalid = sqlc.arg(astronomical_id)
+),
+
+updated_event AS (
+    UPDATE events
+    SET
+        title = sqlc.arg(title),
+        description = sqlc.arg(description),
+        startdate = sqlc.arg(start_date),
+        enddate = sqlc.arg(end_date),
+        schedule = sqlc.arg(schedule),
+        place = sqlc.arg(place),
+        latitude = sqlc.arg(latitude),
+        longitude = sqlc.arg(longitude)
+    WHERE id = (SELECT eventid FROM existing)
+    RETURNING id
+),
+
+new_event AS (
+    INSERT INTO events (
+        title, description, startdate, enddate,
+        schedule, place, latitude, longitude
+    )
+    SELECT
+        sqlc.arg(title),
+        sqlc.arg(description),
+        sqlc.arg(start_date),
+        sqlc.arg(end_date),
+        sqlc.arg(schedule),
+        sqlc.arg(place),
+        sqlc.arg(latitude),
+        sqlc.arg(longitude)
+    WHERE NOT EXISTS (SELECT 1 FROM existing)
+    RETURNING id
+),
+
+new_astronomical_event AS (
+    INSERT INTO astronomicalevents (astronomicalid, eventid)
+    SELECT sqlc.arg(astronomical_id), id
+    FROM new_event
+),
+
+new_official_event AS (
+    INSERT INTO officialevents (id)
+    SELECT id FROM new_event
+)
+
+SELECT COALESCE(
+    (SELECT id FROM new_event),
+    0
+);

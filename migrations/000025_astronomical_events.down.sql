@@ -1,0 +1,1 @@
+drop table if exists astronomical_events;

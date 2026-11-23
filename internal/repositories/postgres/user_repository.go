@@ -230,7 +230,7 @@ func (r *UserRepository) UpdateSettings(ctx context.Context, settings user_model
 
 	// TODO(DP-043): with a language, a hand-written query updates everything in one statement (the generated Setting model does not have Language).
 	if settings.Language != "" {
-		err := r.queries.UpdateSettings(ctx, sqlc.UpdateSettingsParams{
+		err := qtx.UpdateSettings(ctx, sqlc.UpdateSettingsParams{
 			ID:                 int32(settings.ID),
 			ShowPlans:          settings.ShowPlans,
 			NotificationBefore: settings.NotificationBefore,
@@ -241,7 +241,7 @@ func (r *UserRepository) UpdateSettings(ctx context.Context, settings user_model
 		}
 		return nil
 	}
-	_, err = r.queries.UpdateUserSettings(ctx, sqlc.UpdateUserSettingsParams{
+	_, err = qtx.UpdateUserSettings(ctx, sqlc.UpdateUserSettingsParams{
 		ID:                 int32(settings.ID),
 		ShowPlans:          settings.ShowPlans,
 		NotificationBefore: settings.NotificationBefore,

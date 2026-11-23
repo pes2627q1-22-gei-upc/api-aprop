@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"log"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -212,6 +213,54 @@ func (r *EventRepository) CreateOrReplace(e event_model.Event) (event_model.Even
 		return event_model.Event{}, fmt.Errorf("check event %d: %w", e.ID, err)
 	}
 	return r.Update(int(id), e, true)
+}
+
+func checkNull(field, value string) {
+    if strings.ContainsRune(value, '\x00') {
+        log.Printf("NULL byte found in field %s: %q", field, value)
+    }
+}
+
+func (r *EventRepository) CreateAstronomical(id string, e event_model.Event) (error){
+	ctx := context.Background()
+	
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	qtx := r.queries.WithTx(tx)
+	
+	eid, err := qtx.UpsertAstronomicalEvent(ctx, sqlc.UpsertAstronomicalEventParams{
+		AstronomicalID: id,
+		Title: 			e.Title,
+		Description: 	toText(e.Description),
+		StartDate: 		toDate(e.StartDate),
+		EndDate: 		toDate(e.EndDate),
+		Schedule: 		toText(e.Schedule),
+		Place: 			toText(e.Place),
+		Latitude: 		toPGXFloat(e.Latitude),
+		Longitude: 		toPGXFloat(e.Longitude),
+	})
+	if err!=nil{
+		return err
+	}
+	eventid, ok := eid.(int32)
+	if !ok{
+		panic("lol, comma, lmao")
+	}
+
+	if eventid!=0{
+		err = setCategories(ctx, qtx, int(eventid), e.Categories)
+		if err!=nil{
+			return err
+		}
+	}
+
+	return tx.Commit(ctx)
 }
 
 // Delete removes the event together with its sign-ups, ratings, messages, notifications, categories,
