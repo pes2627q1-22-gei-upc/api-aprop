@@ -1,1 +1,1 @@
-drop table if exists astronomical_events;
+drop table if exists astronomicalevents;

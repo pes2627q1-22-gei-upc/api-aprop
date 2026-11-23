@@ -248,10 +248,7 @@ func (r *EventRepository) CreateAstronomical(id string, e event_model.Event) (er
 	if err!=nil{
 		return err
 	}
-	eventid, ok := eid.(int32)
-	if !ok{
-		panic("lol, comma, lmao")
-	}
+	eventid, _ := eid.(int32)
 
 	if eventid!=0{
 		err = setCategories(ctx, qtx, int(eventid), e.Categories)
