@@ -993,7 +993,7 @@ func toModelExtended(row sqlc.GetEventRow, cats []string) event_model.Event {
 	return event_model.Event{
 		ID:           int(row.ID),
 		Code:         row.Code.Int64,
-		IsOfficial:   (row.Code.Valid && row.Code.Int64 > 0) && !row.Creator.Valid,
+		IsOfficial:   (row.Code.Valid && row.Code.Int64 > 0) || !row.Creator.Valid,
 		Title:        row.Title,
 		Subtitle:     row.Subtitle.String,
 		Schedule:     row.Schedule.String,
