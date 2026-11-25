@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"api-aprop/internal/clients/gencat_client"
-	"api-aprop/internal/clients/talaia_client"
 	"api-aprop/internal/clients/s3_client"
+	"api-aprop/internal/clients/talaia_client"
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/repositories/event_repository"
@@ -23,7 +23,7 @@ import (
 type EventService struct {
 	eventRepository      event_repository.Repository
 	gencatClient         gencat_client.Client
-	talaiaClient		 talaia_client.Client
+	talaiaClient         talaia_client.Client
 	preferenceRepository preference_repository.Repository
 	s3Client             s3_client.Client
 	userRepository       user_repository.Repository
@@ -34,7 +34,7 @@ func NewEventService(eventRepository event_repository.Repository, preferenceRepo
 		eventRepository:      eventRepository,
 		preferenceRepository: preferenceRepository,
 		gencatClient:         gencatClient,
-		talaiaClient:		  talaiaClient,
+		talaiaClient:         talaiaClient,
 		s3Client:             s3Client,
 	}
 }
@@ -207,7 +207,7 @@ func (s *EventService) CreateUnofficialEvent(ctx context.Context, userID string,
 	e.DateCreated = now
 
 	ret, err := s.eventRepository.Create(e, false)
-	if errors.Is(err, event_repository.ErrCategoryNotAllowed){
+	if errors.Is(err, event_repository.ErrCategoryNotAllowed) {
 		return event_model.Event{}, ErrCategoryNotAllowed
 	}
 	return ret, err
@@ -395,10 +395,10 @@ func (s *EventService) LoadOfficialEvents(ctx context.Context, pageSize int) err
 func (s *EventService) LoadAstronomicalEvents(ctx context.Context) error {
 	log.Printf("loading talaia events")
 	events, err := s.talaiaClient.FetchEvents(ctx, time.Now(), time.Now().AddDate(0, 0, 30))
-	if err!=nil{
+	if err != nil {
 		return fmt.Errorf("error loading talaia events: %v", err)
 	}
-	for id, event := range(events){
+	for id, event := range events {
 		if err := s.eventRepository.CreateAstronomical(id, event); err != nil {
 			log.Printf("store official event %s: %v", id, err)
 		}

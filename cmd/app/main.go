@@ -19,9 +19,9 @@ import (
 
 	"api-aprop/internal/clients/firebase_client"
 	"api-aprop/internal/clients/gencat_client"
-	"api-aprop/internal/clients/talaia_client"
 	"api-aprop/internal/clients/groq_client"
 	"api-aprop/internal/clients/s3_client"
+	"api-aprop/internal/clients/talaia_client"
 	"api-aprop/internal/clients/translate_client"
 	"api-aprop/internal/drivers/postgres_driver"
 	"api-aprop/internal/handlers/assistant_handler"
@@ -305,7 +305,7 @@ func main() {
 		if err := eventService.LoadOfficialEvents(context.Background(), gencatPageSize); err != nil {
 			log.Printf("could not load official events: %v", err)
 		}
-		if err := eventService.LoadAstronomicalEvents(context.Background()); err!=nil{
+		if err := eventService.LoadAstronomicalEvents(context.Background()); err != nil {
 			log.Printf("could not load astronomical events: %v", err)
 		}
 	}

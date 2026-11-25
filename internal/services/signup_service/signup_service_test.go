@@ -102,6 +102,7 @@ func (f *fakeEventRepository) ListMapEvents(ctx context.Context, filter event_mo
 func (f *fakeEventRepository) GetReceivedRatings(id int) ([]event_model.ReceivedRating, error) {
 	return []event_model.ReceivedRating{}, nil
 }
+func (r *fakeEventRepository) CreateAstronomical(id string, e event_model.Event) error { return nil }
 
 type fakeNotificationRepository struct {
 	created_on_signup   int

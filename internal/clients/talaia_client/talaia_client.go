@@ -54,7 +54,7 @@ func (c *TalaiaClient) FetchEvents(ctx context.Context, from time.Time, until ti
 		return nil, fmt.Errorf("fetch astronomical events: %w: %d", ErrUnexpectedStatus, resp.StatusCode)
 	}
 
-	var response struct{
+	var response struct {
 		Data []map[string]any `json:"data"`
 	}
 
@@ -66,7 +66,7 @@ func (c *TalaiaClient) FetchEvents(ctx context.Context, from time.Time, until ti
 	events := make(map[string]event_model.Event)
 	for _, val := range body {
 		k, v := mapEvent(val)
-		events[k]=v
+		events[k] = v
 	}
 	return events, nil
 }
@@ -85,11 +85,11 @@ func mapEvent(val map[string]any) (string, event_model.Event) {
 	e.EndDate, _ = time.Parse("2006-01-02T15:04:05.000Z", tmp)
 	e.Description, _ = val["descripcio"].(string)
 
-	ubicacio, _ := val["ubicacio"].(map[string]any)	
+	ubicacio, _ := val["ubicacio"].(map[string]any)
 	e.Place, _ = ubicacio["nom"].(string)
-	tmpfloat, _ =  ubicacio["latitud"].(float64)
+	tmpfloat, _ = ubicacio["latitud"].(float64)
 	e.Latitude = float32(tmpfloat)
-	tmpfloat, _ =  ubicacio["longitude"].(float64)
+	tmpfloat, _ = ubicacio["longitude"].(float64)
 	e.Longitude = float32(tmpfloat)
 
 	tmp, _ = val["tipus"].(string)
@@ -104,36 +104,36 @@ func mapEvent(val map[string]any) (string, event_model.Event) {
 	return id, e
 }
 
-func toMonth(m int) string{
-	switch m{
-		case 1:
-			return "Gener"
-		case 2:
-			return "Febrer"
-		case 3:
-			return "Març"
-		case 4:
-			return "Abril"
-		case 5:
-			return "Maig"
-		case 6:
-			return "Juny"
-		case 7:
-			return "Juliol"
-		case 8:
-			return "Agost"
-		case 9:
-			return "Setembre"
-		case 10:
-			return "Octubre"
-		case 11:
-			return "Novembre"
-		case 12:
-			return "Desembre"
+func toMonth(m int) string {
+	switch m {
+	case 1:
+		return "Gener"
+	case 2:
+		return "Febrer"
+	case 3:
+		return "Març"
+	case 4:
+		return "Abril"
+	case 5:
+		return "Maig"
+	case 6:
+		return "Juny"
+	case 7:
+		return "Juliol"
+	case 8:
+		return "Agost"
+	case 9:
+		return "Setembre"
+	case 10:
+		return "Octubre"
+	case 11:
+		return "Novembre"
+	case 12:
+		return "Desembre"
 	}
 	return "Error"
 }
 
-func toTime(h int, m int) string{
+func toTime(h int, m int) string {
 	return fmt.Sprintf("%02d:%02d", h, m)
 }

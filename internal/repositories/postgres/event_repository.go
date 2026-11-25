@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"time"
-	"log"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -216,14 +216,14 @@ func (r *EventRepository) CreateOrReplace(e event_model.Event) (event_model.Even
 }
 
 func checkNull(field, value string) {
-    if strings.ContainsRune(value, '\x00') {
-        log.Printf("NULL byte found in field %s: %q", field, value)
-    }
+	if strings.ContainsRune(value, '\x00') {
+		log.Printf("NULL byte found in field %s: %q", field, value)
+	}
 }
 
-func (r *EventRepository) CreateAstronomical(id string, e event_model.Event) (error){
+func (r *EventRepository) CreateAstronomical(id string, e event_model.Event) error {
 	ctx := context.Background()
-	
+
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -233,26 +233,26 @@ func (r *EventRepository) CreateAstronomical(id string, e event_model.Event) (er
 	}()
 
 	qtx := r.queries.WithTx(tx)
-	
+
 	eid, err := qtx.UpsertAstronomicalEvent(ctx, sqlc.UpsertAstronomicalEventParams{
 		AstronomicalID: id,
-		Title: 			e.Title,
-		Description: 	toText(e.Description),
-		StartDate: 		toDate(e.StartDate),
-		EndDate: 		toDate(e.EndDate),
-		Schedule: 		toText(e.Schedule),
-		Place: 			toText(e.Place),
-		Latitude: 		toPGXFloat(e.Latitude),
-		Longitude: 		toPGXFloat(e.Longitude),
+		Title:          e.Title,
+		Description:    toText(e.Description),
+		StartDate:      toDate(e.StartDate),
+		EndDate:        toDate(e.EndDate),
+		Schedule:       toText(e.Schedule),
+		Place:          toText(e.Place),
+		Latitude:       toPGXFloat(e.Latitude),
+		Longitude:      toPGXFloat(e.Longitude),
 	})
-	if err!=nil{
+	if err != nil {
 		return err
 	}
 	eventid, _ := eid.(int32)
 
-	if eventid!=0{
+	if eventid != 0 {
 		err = setCategories(ctx, qtx, int(eventid), e.Categories)
-		if err!=nil{
+		if err != nil {
 			return err
 		}
 	}
@@ -373,7 +373,7 @@ func setCategories(ctx context.Context, q *sqlc.Queries, id int, cats []string) 
 		exists, err := q.CategoryExists(ctx, v)
 		if err != nil {
 			return fmt.Errorf("add categories to event %d: %w", id, err)
-		} else if v[0:6]=="talaia" {
+		} else if v[0:6] == "talaia" {
 			return event_repository.ErrCategoryNotAllowed
 		}
 		var catid int32
@@ -684,7 +684,7 @@ func (r *EventRepository) GetCategories() ([]event_model.Category, error) {
 	cats := []event_model.Category{}
 	for _, row := range rows {
 		cat := toCategory(row)
-		if cat.Name[0:6]!="talaia"{
+		if cat.Name[0:6] != "talaia" {
 			cats = append(cats, cat)
 		}
 	}

@@ -153,7 +153,7 @@ func TestGroupRecommendedEventRows(t *testing.T) {
 	rows := []sqlc.ListRecommendedEventsRow{
 		{ID: 1, Title: "Concert", NumSignups: 12, Score: 2.5, Category: toText("Música"), Code: pgtype.Int8{Int64: 100, Valid: true}},
 		{ID: 1, Title: "Concert", NumSignups: 12, Score: 2.5, Category: toText("Cultura"), Code: pgtype.Int8{Int64: 100, Valid: true}},
-		{ID: 2, Title: "Teatre al carrer", NumSignups: 3, Score: 1.4, Category: toText("Teatre")},
+		{ID: 2, Title: "Teatre al carrer", NumSignups: 3, Score: 1.4, Category: toText("Teatre"), Creator: pgtype.UUID{Valid: true}},
 	}
 	got := groupRecommendedEventRows(rows)
 	if len(got) != 2 {

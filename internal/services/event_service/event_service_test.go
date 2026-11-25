@@ -58,6 +58,8 @@ type fakeEventRepository struct {
 
 func (f *fakeEventRepository) EventExists(id int) (bool, error) { return false, nil }
 
+func (r *fakeEventRepository) CreateAstronomical(id string, e event_model.Event) error { return nil }
+
 func (f *fakeEventRepository) Cancel(_ context.Context, _ int) (int64, error) {
 	f.cancelCalls++
 	return f.notified, f.cancelErr
@@ -204,7 +206,7 @@ func TestListMapEvents(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := tt.repo
-			svc := NewEventService(&repo, nil, nil, &mockS3Client{})
+			svc := NewEventService(&repo, nil, nil, &mockS3Client{}, nil)
 			got, err := svc.ListMapEvents(context.Background(), tt.filter)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("error = %v, want %v", err, tt.wantErr)
@@ -308,7 +310,7 @@ func TestCreateUnofficialEvent(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := fakeEventRepository{}
-			svc := NewEventService(&repo, nil, nil, &mockS3Client{})
+			svc := NewEventService(&repo, nil, nil, &mockS3Client{}, nil)
 			created, err := svc.CreateUnofficialEvent(context.Background(), tt.userID, tt.event)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("error = %v, want %v", err, tt.wantErr)
@@ -372,7 +374,7 @@ func TestUploadEventImage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := tt.repo
 			s3 := tt.s3Client
-			svc := NewEventService(&repo, nil, nil, &s3)
+			svc := NewEventService(&repo, nil, nil, &s3, nil)
 
 			url, err := svc.UploadEventImage(context.Background(), tt.eventID, tt.filename, tt.contentType, strings.NewReader("image-bytes"))
 			if !errors.Is(err, tt.wantErr) {
@@ -393,7 +395,7 @@ func TestUploadEventImage(t *testing.T) {
 
 func TestSearchEvents(t *testing.T) {
 	repo := &fakeEventRepository{}
-	svc := NewEventService(repo, nil, nil, nil)
+	svc := NewEventService(repo, nil, nil, nil, nil)
 
 	// Empty query returns 0 total
 	res, err := svc.SearchEvents(context.Background(), "", 0, 20)
@@ -542,7 +544,7 @@ func TestUpdateUnofficialEvent(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := fakeEventRepository{getEvent: tt.stored, getErr: tt.getErr, updateErr: tt.updateErr, state: tt.state, stateErr: tt.stateErr}
-			svc := NewEventService(&repo, nil, nil, nil)
+			svc := NewEventService(&repo, nil, nil, nil, nil)
 			updated, err := svc.UpdateUnofficialEvent(context.Background(), 7, tt.changes)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("error = %v, want %v", err, tt.wantErr)
@@ -565,7 +567,7 @@ func TestUpdateUnofficialEvent(t *testing.T) {
 
 func TestUpdateOfficialEventDoesNotReadTheState(t *testing.T) {
 	repo := fakeEventRepository{getEvent: event_model.Event{ID: 7, Title: "Festa Major", Code: 1, IsOfficial: true}}
-	svc := NewEventService(&repo, nil, nil, nil)
+	svc := NewEventService(&repo, nil, nil, nil, nil)
 
 	_, err := svc.UpdateUnofficialEvent(context.Background(), 7, event_model.Event{Title: "x"})
 	if !errors.Is(err, ErrInvalidEvent) {
@@ -598,7 +600,7 @@ func TestUpdateUnofficialEventImage(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := fakeEventRepository{getEvent: stored}
-			svc := NewEventService(&repo, nil, nil, nil)
+			svc := NewEventService(&repo, nil, nil, nil, nil)
 			changes := event_model.Event{
 				Title: "Taller", Description: "Desc", Categories: []string{"C"},
 				StartDate: time.Now().UTC().Add(24 * time.Hour), Images: tt.images,
@@ -655,7 +657,7 @@ func TestDeleteUnofficialEvent(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := fakeEventRepository{getEvent: tt.stored, getErr: tt.getErr, deleteErr: tt.deleteErr}
-			svc := NewEventService(&repo, nil, nil, nil)
+			svc := NewEventService(&repo, nil, nil, nil, nil)
 			err := svc.DeleteUnofficialEvent(context.Background(), 7)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("error = %v, want %v", err, tt.wantErr)
@@ -674,7 +676,7 @@ func TestListErrorsAreTranslated(t *testing.T) {
 		popularErr:  invalid,
 		categoryErr: fmt.Errorf("get category 9: %w", event_repository.ErrCategoryNotFound),
 	}
-	svc := NewEventService(&repo, nil, nil, nil)
+	svc := NewEventService(&repo, nil, nil, nil, nil)
 
 	if _, err := svc.ListEvents(map[string]any{}); !errors.Is(err, ErrInvalidFilter) {
 		t.Errorf("ListEvents error = %v, want %v", err, ErrInvalidFilter)
@@ -694,7 +696,7 @@ func TestGetRecommendedEvents(t *testing.T) {
 			{ID: 10, Title: "Exposició", Categories: []string{"Exposicions"}},
 		}
 		repo := fakeEventRepository{recommendedEvents: want}
-		svc := NewEventService(&repo, nil, nil, nil)
+		svc := NewEventService(&repo, nil, nil, nil, nil)
 
 		got, err := svc.GetRecommendedEvents(context.Background(), strings.ToUpper(validUserID), 15, 2)
 		if err != nil {
@@ -720,7 +722,7 @@ func TestGetRecommendedEvents(t *testing.T) {
 
 	t.Run("nil repository slice returns non-nil empty slice", func(t *testing.T) {
 		repo := fakeEventRepository{recommendedEvents: nil}
-		svc := NewEventService(&repo, nil, nil, nil)
+		svc := NewEventService(&repo, nil, nil, nil, nil)
 
 		got, err := svc.GetRecommendedEvents(context.Background(), validUserID, 20, 0)
 		if err != nil {
@@ -733,7 +735,7 @@ func TestGetRecommendedEvents(t *testing.T) {
 
 	t.Run("int32 offset overflow returns empty slice without calling repository", func(t *testing.T) {
 		repo := fakeEventRepository{}
-		svc := NewEventService(&repo, nil, nil, nil)
+		svc := NewEventService(&repo, nil, nil, nil, nil)
 
 		got, err := svc.GetRecommendedEvents(context.Background(), validUserID, 1000, 3000000)
 		if err != nil {
@@ -749,7 +751,7 @@ func TestGetRecommendedEvents(t *testing.T) {
 
 	t.Run("invalid parameters", func(t *testing.T) {
 		repo := fakeEventRepository{}
-		svc := NewEventService(&repo, nil, nil, nil)
+		svc := NewEventService(&repo, nil, nil, nil, nil)
 		cases := []struct {
 			name     string
 			userID   string
@@ -778,7 +780,7 @@ func TestGetRecommendedEvents(t *testing.T) {
 	t.Run("repository error propagation", func(t *testing.T) {
 		dbErr := errors.New("db error")
 		repo := fakeEventRepository{recommendedErr: dbErr}
-		svc := NewEventService(&repo, nil, nil, nil)
+		svc := NewEventService(&repo, nil, nil, nil, nil)
 
 		if _, err := svc.GetRecommendedEvents(context.Background(), validUserID, 10, 0); !errors.Is(err, dbErr) {
 			t.Fatalf("error = %v, want %v", err, dbErr)
@@ -879,7 +881,7 @@ func TestGetEvent_CreatorReliability(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := fakeEventRepository{getEvent: tt.event}
-			svc := NewEventService(&repo, nil, nil, nil).WithUserRepository(tt.userRepo)
+			svc := NewEventService(&repo, nil, nil, nil, nil).WithUserRepository(tt.userRepo)
 			got, err := svc.GetEvent(tt.event.ID)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
@@ -932,7 +934,7 @@ func TestCancelUnofficialEvent(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := fakeEventRepository{getEvent: tt.stored, getErr: tt.getErr, state: tt.state, stateErr: tt.stateErr, notified: tt.notified, cancelErr: tt.cancelErr}
-			svc := NewEventService(&repo, nil, nil, nil)
+			svc := NewEventService(&repo, nil, nil, nil, nil)
 			got, err := svc.CancelUnofficialEvent(context.Background(), 7)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("error = %v, want %v", err, tt.wantErr)
@@ -957,7 +959,7 @@ func TestCancelledEventCannotBeUpdated(t *testing.T) {
 		t.Fatal(err)
 	}
 	repo := fakeEventRepository{getEvent: event_model.Event{ID: 7, Creator: creator}, state: event_model.UnofficialStateCancelled}
-	svc := NewEventService(&repo, nil, nil, nil)
+	svc := NewEventService(&repo, nil, nil, nil, nil)
 	if _, err := svc.UpdateUnofficialEvent(context.Background(), 7, event_model.Event{Title: "Nou títol"}); !errors.Is(err, ErrEventNotActive) {
 		t.Fatalf("error = %v, want ErrEventNotActive", err)
 	}
