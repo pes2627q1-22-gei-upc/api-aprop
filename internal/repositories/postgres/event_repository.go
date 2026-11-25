@@ -373,6 +373,8 @@ func setCategories(ctx context.Context, q *sqlc.Queries, id int, cats []string) 
 		exists, err := q.CategoryExists(ctx, v)
 		if err != nil {
 			return fmt.Errorf("add categories to event %d: %w", id, err)
+		} else if v[0:6]=="talaia" {
+			return event_repository.ErrCategoryNotAllowed
 		}
 		var catid int32
 		if exists {
@@ -682,7 +684,9 @@ func (r *EventRepository) GetCategories() ([]event_model.Category, error) {
 	cats := []event_model.Category{}
 	for _, row := range rows {
 		cat := toCategory(row)
-		cats = append(cats, cat)
+		if cat.Name[0:6]!="talaia"{
+			cats = append(cats, cat)
+		}
 	}
 	return cats, nil
 }

@@ -206,7 +206,11 @@ func (s *EventService) CreateUnofficialEvent(ctx context.Context, userID string,
 	e.Creator = creatorUUID
 	e.DateCreated = now
 
-	return s.eventRepository.Create(e, false)
+	ret, err := s.eventRepository.Create(e, false)
+	if errors.Is(err, event_repository.ErrCategoryNotAllowed){
+		return event_model.Event{}, ErrCategoryNotAllowed
+	}
+	return ret, err
 }
 
 // UpdateUnofficialEvent replaces the fields of an unofficial event. Only Active events can be modified. The creator
@@ -250,6 +254,9 @@ func (s *EventService) UpdateUnofficialEvent(ctx context.Context, id int, e even
 	updated, err := s.eventRepository.Update(id, e, false)
 	if errors.Is(err, event_repository.ErrEventNotFound) {
 		return event_model.Event{}, fmt.Errorf("%w: %w", ErrEventNotFound, err)
+	}
+	if errors.Is(err, event_repository.ErrCategoryNotAllowed) {
+		return event_model.Event{}, fmt.Errorf("%w: %w", ErrCategoryNotAllowed, err)
 	}
 	if err != nil {
 		return event_model.Event{}, err
