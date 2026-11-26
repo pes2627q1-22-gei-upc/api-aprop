@@ -89,7 +89,7 @@ func mapEvent(val map[string]any) (string, event_model.Event) {
 	e.Place, _ = ubicacio["nom"].(string)
 	tmpfloat, _ = ubicacio["latitud"].(float64)
 	e.Latitude = float32(tmpfloat)
-	tmpfloat, _ = ubicacio["longitude"].(float64)
+	tmpfloat, _ = ubicacio["longitud"].(float64)
 	e.Longitude = float32(tmpfloat)
 
 	tmp, _ = val["tipus"].(string)

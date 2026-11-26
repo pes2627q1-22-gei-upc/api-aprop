@@ -310,7 +310,7 @@ func main() {
 		}
 	}
 
-	load()
+	go load()
 
 	// Start goroutines
 	runDaily(load)

@@ -16,7 +16,6 @@ type Repository interface {
 	UpdateImage(ctx context.Context, id int, imageURL string) error
 	// Delete removes the event and every row that references it.
 	Delete(ctx context.Context, id int) error
-	SetCategories(id int, cats []string, official bool) error
 	Get(id int) (event_model.Event, error)
 	List(params map[string]any) ([]event_model.Event, error)
 	ListRecommended(ctx context.Context, userID pgtype.UUID, pageSize, pageOffset int) ([]event_model.Event, error)

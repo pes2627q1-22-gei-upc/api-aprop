@@ -209,6 +209,8 @@ func (s *EventService) CreateUnofficialEvent(ctx context.Context, userID string,
 	ret, err := s.eventRepository.Create(e, false)
 	if errors.Is(err, event_repository.ErrCategoryNotAllowed) {
 		return event_model.Event{}, ErrCategoryNotAllowed
+	} else if errors.Is(err, event_repository.ErrCategoryNotFound) {
+		return event_model.Event{}, ErrCategoryNotFound
 	}
 	return ret, err
 }

@@ -73,8 +73,7 @@ func (f *fakeEventRepository) Update(id int, e event_model.Event, official bool)
 func (f *fakeEventRepository) UpdateImage(ctx context.Context, id int, imageURL string) error {
 	return nil
 }
-func (f *fakeEventRepository) Delete(ctx context.Context, id int) error                 { return nil }
-func (f *fakeEventRepository) SetCategories(id int, cats []string, official bool) error { return nil }
+func (f *fakeEventRepository) Delete(ctx context.Context, id int) error { return nil }
 func (f *fakeEventRepository) Get(id int) (event_model.Event, error) {
 	return event_model.Event{EndDate: time.Now().Add(time.Hour * time.Duration(24))}, nil
 }

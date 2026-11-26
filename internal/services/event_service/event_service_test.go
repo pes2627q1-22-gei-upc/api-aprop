@@ -101,10 +101,6 @@ func (f *fakeEventRepository) UpdateImage(_ context.Context, _ int, img string) 
 	return f.updateImgErr
 }
 
-func (f *fakeEventRepository) SetCategories(_ int, _ []string, _ bool) error {
-	return nil
-}
-
 func (f *fakeEventRepository) Get(_ int) (event_model.Event, error) {
 	return f.getEvent, f.getErr
 }

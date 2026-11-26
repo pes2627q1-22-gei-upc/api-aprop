@@ -42,7 +42,7 @@ func (r *EventRepository) Create(e event_model.Event, official bool) (event_mode
 		if err != nil {
 			return err
 		}
-		return setCategories(ctx, q, int(row.ID), e.Categories)
+		return setCategories(ctx, q, int(row.ID), e.Categories, official, false)
 	})
 	if err != nil {
 		return event_model.Event{}, err
@@ -123,7 +123,7 @@ func (r *EventRepository) Update(id int, e event_model.Event, official bool) (ev
 		if err != nil {
 			return err
 		}
-		return setCategories(ctx, q, id, e.Categories)
+		return setCategories(ctx, q, id, e.Categories, official, false)
 	})
 	if err != nil {
 		return event_model.Event{}, err
@@ -251,7 +251,7 @@ func (r *EventRepository) CreateAstronomical(id string, e event_model.Event) err
 	eventid, _ := eid.(int32)
 
 	if eventid != 0 {
-		err = setCategories(ctx, qtx, int(eventid), e.Categories)
+		err = setCategories(ctx, qtx, int(eventid), e.Categories, true, true)
 		if err != nil {
 			return err
 		}
@@ -355,12 +355,8 @@ func (r *EventRepository) Cancel(ctx context.Context, id int) (int64, error) {
 	return notified, nil
 }
 
-func (r *EventRepository) SetCategories(id int, cats []string, _ bool) error {
-	return setCategories(context.Background(), r.queries, id, cats)
-}
-
 // setCategories replaces the categories of the event, creating the ones that do not exist yet.
-func setCategories(ctx context.Context, q *sqlc.Queries, id int, cats []string) error {
+func setCategories(ctx context.Context, q *sqlc.Queries, id int, cats []string, isOfficial bool, isAstronomical bool) error {
 	if len(cats) == 0 {
 		return nil
 	}
@@ -373,14 +369,19 @@ func setCategories(ctx context.Context, q *sqlc.Queries, id int, cats []string) 
 		exists, err := q.CategoryExists(ctx, v)
 		if err != nil {
 			return fmt.Errorf("add categories to event %d: %w", id, err)
-		} else if v[0:6] == "talaia" {
+		}
+		if !isAstronomical && strings.HasPrefix(v, "talaia") {
 			return event_repository.ErrCategoryNotAllowed
 		}
 		var catid int32
 		if exists {
 			catid, err = q.GetCategoryID(ctx, v)
 		} else {
-			catid, err = q.NewCategory(ctx, v)
+			if isOfficial {
+				catid, err = q.NewCategory(ctx, v)
+			} else {
+				return event_repository.ErrCategoryNotFound
+			}
 		}
 		if err != nil {
 			return fmt.Errorf("add categories to event %d: %w", id, err)
@@ -684,9 +685,7 @@ func (r *EventRepository) GetCategories() ([]event_model.Category, error) {
 	cats := []event_model.Category{}
 	for _, row := range rows {
 		cat := toCategory(row)
-		if cat.Name[0:6] != "talaia" {
-			cats = append(cats, cat)
-		}
+		cats = append(cats, cat)
 	}
 	return cats, nil
 }
