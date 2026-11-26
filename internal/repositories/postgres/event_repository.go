@@ -41,7 +41,7 @@ func (r *EventRepository) Create(e event_model.Event, official bool) (event_mode
 		if err != nil {
 			return err
 		}
-		return setCategories(ctx, q, int(row.ID), e.Categories)
+		return setCategories(ctx, q, int(row.ID), e.Categories, official, false)
 	})
 	if err != nil {
 		return event_model.Event{}, err
@@ -122,7 +122,7 @@ func (r *EventRepository) Update(id int, e event_model.Event, official bool) (ev
 		if err != nil {
 			return err
 		}
-		return setCategories(ctx, q, id, e.Categories)
+		return setCategories(ctx, q, id, e.Categories, official, false)
 	})
 	if err != nil {
 		return event_model.Event{}, err
@@ -212,6 +212,45 @@ func (r *EventRepository) CreateOrReplace(e event_model.Event) (event_model.Even
 		return event_model.Event{}, fmt.Errorf("check event %d: %w", e.ID, err)
 	}
 	return r.Update(int(id), e, true)
+}
+
+func (r *EventRepository) CreateAstronomical(id string, e event_model.Event) error {
+	ctx := context.Background()
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	qtx := r.queries.WithTx(tx)
+
+	eid, err := qtx.UpsertAstronomicalEvent(ctx, sqlc.UpsertAstronomicalEventParams{
+		AstronomicalID: id,
+		Title:          e.Title,
+		Description:    toText(e.Description),
+		StartDate:      toDate(e.StartDate),
+		EndDate:        toDate(e.EndDate),
+		Schedule:       toText(e.Schedule),
+		Place:          toText(e.Place),
+		Latitude:       toPGXFloat(e.Latitude),
+		Longitude:      toPGXFloat(e.Longitude),
+	})
+	if err != nil {
+		return err
+	}
+	eventid, _ := eid.(int32)
+
+	if eventid != 0 {
+		err = setCategories(ctx, qtx, int(eventid), e.Categories, true, true)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit(ctx)
 }
 
 // Delete removes the event together with its sign-ups, ratings, messages, notifications, categories,
@@ -309,12 +348,8 @@ func (r *EventRepository) Cancel(ctx context.Context, id int) (int64, error) {
 	return notified, nil
 }
 
-func (r *EventRepository) SetCategories(id int, cats []string, _ bool) error {
-	return setCategories(context.Background(), r.queries, id, cats)
-}
-
 // setCategories replaces the categories of the event, creating the ones that do not exist yet.
-func setCategories(ctx context.Context, q *sqlc.Queries, id int, cats []string) error {
+func setCategories(ctx context.Context, q *sqlc.Queries, id int, cats []string, isOfficial bool, isAstronomical bool) error {
 	if len(cats) == 0 {
 		return nil
 	}
@@ -328,11 +363,18 @@ func setCategories(ctx context.Context, q *sqlc.Queries, id int, cats []string) 
 		if err != nil {
 			return fmt.Errorf("add categories to event %d: %w", id, err)
 		}
+		if !isAstronomical && strings.HasPrefix(v, "talaia") {
+			return event_repository.ErrCategoryNotAllowed
+		}
 		var catid int32
 		if exists {
 			catid, err = q.GetCategoryID(ctx, v)
 		} else {
-			catid, err = q.NewCategory(ctx, v)
+			if isOfficial {
+				catid, err = q.NewCategory(ctx, v)
+			} else {
+				return event_repository.ErrCategoryNotFound
+			}
 		}
 		if err != nil {
 			return fmt.Errorf("add categories to event %d: %w", id, err)
@@ -947,7 +989,7 @@ func toModelExtended(row sqlc.GetEventRow, cats []string) event_model.Event {
 	return event_model.Event{
 		ID:           int(row.ID),
 		Code:         row.Code.Int64,
-		IsOfficial:   (row.Code.Valid && row.Code.Int64 > 0) && !row.Creator.Valid,
+		IsOfficial:   (row.Code.Valid && row.Code.Int64 > 0) || !row.Creator.Valid,
 		Title:        row.Title,
 		Subtitle:     row.Subtitle.String,
 		Schedule:     row.Schedule.String,

@@ -87,6 +87,9 @@ func (s *stubEventService) SearchEvents(_ context.Context, query string, pageNum
 func (s *stubEventService) CreateUnofficialEvent(_ context.Context, _ string, e event_model.Event) (event_model.Event, error) {
 	return e, nil
 }
+func (s *stubEventService) LoadAstronomicalEvents(_ context.Context) error {
+	return nil
+}
 
 func (s *stubEventService) UploadEventImage(_ context.Context, _ int, _ string, _ string, _ io.Reader) (string, error) {
 	return "https://s3/events/1/poster.jpg", nil

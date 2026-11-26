@@ -16,7 +16,6 @@ type Repository interface {
 	UpdateImage(ctx context.Context, id int, imageURL string) error
 	// Delete removes the event and every row that references it.
 	Delete(ctx context.Context, id int) error
-	SetCategories(id int, cats []string, official bool) error
 	Get(id int) (event_model.Event, error)
 	List(params map[string]any) ([]event_model.Event, error)
 	ListRecommended(ctx context.Context, userID pgtype.UUID, pageSize, pageOffset int) ([]event_model.Event, error)
@@ -34,4 +33,5 @@ type Repository interface {
 	// in a single transaction. It returns the number of notified users, ErrEventNotFound if the event does not exist
 	// or is official, and ErrEventNotActive if it is no longer Active.
 	Cancel(ctx context.Context, id int) (int64, error)
+	CreateAstronomical(id string, e event_model.Event) error
 }

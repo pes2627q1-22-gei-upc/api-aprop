@@ -21,6 +21,7 @@ import (
 	"api-aprop/internal/clients/gencat_client"
 	"api-aprop/internal/clients/groq_client"
 	"api-aprop/internal/clients/s3_client"
+	"api-aprop/internal/clients/talaia_client"
 	"api-aprop/internal/clients/translate_client"
 	"api-aprop/internal/drivers/postgres_driver"
 	"api-aprop/internal/handlers/assistant_handler"
@@ -157,6 +158,8 @@ func main() {
 	firebaseCredentialsFile := getEnv("FIREBASE_CREDENTIALS_FILE")
 	gencatEventsURL := getEnv("GENCAT_EVENTS_URL")
 	gencatPageSize, err := strconv.Atoi(getEnv("GENCAT_PAGE_SIZE"))
+	talaiaEventsURL := getEnv("TALAIA_EVENTS_URL")
+	talaiaAPIKey := getEnv("TALAIA_API_KEY")
 	if err != nil {
 		log.Fatalf("invalid GENCAT_PAGE_SIZE: %v", err)
 	}
@@ -243,6 +246,7 @@ func main() {
 	if os.Getenv("SUPABASE_URL") == "" || os.Getenv("SUPABASE_SECRET_KEY") == "" {
 		slog.Warn("SUPABASE_URL or SUPABASE_SECRET_KEY not set; avatar uploads answer 503 and stored avatars are hidden")
 	}
+  talaiaClient := talaia_client.NewTalaiaClient(httpClient, talaiaEventsURL, talaiaAPIKey)
 
 	// CORS: it wraps the auth middleware (see router.NewRouter) because browsers send the preflight without the token.
 	// Requests without an Origin header (mobile app, curl) are not affected.
@@ -294,7 +298,7 @@ func main() {
 	pushRepository := postgres_repository.NewPushRepository(postgresDriver.Pool())
 
 	// Services
-	eventService := event_service.NewEventService(eventRepository, preferenceRepository, gencatClient, s3Client).WithUserRepository(userRepository)
+	eventService := event_service.NewEventService(eventRepository, preferenceRepository, gencatClient, s3Client, talaiaClient).WithUserRepository(userRepository)
 	assistantService := assistant_service.NewAssistantService(
 		chatbotRepository, catalogueRepository, chatClient,
 		func() time.Time { return time.Now().In(location) }, assistant_service.ReplyTimeout,
@@ -327,17 +331,19 @@ func main() {
 	pushHandler := push_handler.NewPushHandler(pushService, authService)
 
 	// Initial data
-	go func() {
+	load := func() {
 		if err := eventService.LoadOfficialEvents(context.Background(), gencatPageSize); err != nil {
 			log.Printf("could not load official events: %v", err)
 		}
-	}()
+		if err := eventService.LoadAstronomicalEvents(context.Background()); err != nil {
+			log.Printf("could not load astronomical events: %v", err)
+		}
+	}
+
+	go load()
+
 	// Start goroutines
-	runDaily(func() {
-		if err := eventService.LoadOfficialEvents(context.Background(), gencatPageSize); err != nil {
-			log.Printf("could not load official events: %v", err)
-		}
-	})
+	runDaily(load)
 	checkForReminders(5, func() {
 		if nots, err := notificationService.CreateReminders(); err != nil {
 			log.Printf("could not load reminders: %v", err)

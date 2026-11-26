@@ -952,3 +952,89 @@ func (q *Queries) UpdateEventImage(ctx context.Context, arg UpdateEventImagePara
 	_, err := q.db.Exec(ctx, updateEventImage, arg.ID, arg.Images)
 	return err
 }
+
+const upsertAstronomicalEvent = `-- name: UpsertAstronomicalEvent :one
+WITH existing AS MATERIALIZED (
+    SELECT ae.eventid
+    FROM astronomicalevents ae
+    WHERE ae.astronomicalid = $1
+),
+
+updated_event AS (
+    UPDATE events
+    SET
+        title = $2,
+        description = $3,
+        startdate = $4,
+        enddate = $5,
+        schedule = $6,
+        place = $7,
+        latitude = $8,
+        longitude = $9
+    WHERE id = (SELECT eventid FROM existing)
+    RETURNING id
+),
+
+new_event AS (
+    INSERT INTO events (
+        title, description, startdate, enddate,
+        schedule, place, latitude, longitude
+    )
+    SELECT
+        $2,
+        $3,
+        $4,
+        $5,
+        $6,
+        $7,
+        $8,
+        $9
+    WHERE NOT EXISTS (SELECT 1 FROM existing)
+    RETURNING id
+),
+
+new_astronomical_event AS (
+    INSERT INTO astronomicalevents (astronomicalid, eventid)
+    SELECT $1, id
+    FROM new_event
+),
+
+new_official_event AS (
+    INSERT INTO officialevents (id)
+    SELECT id FROM new_event
+)
+
+SELECT COALESCE(
+    (SELECT id FROM new_event),
+    0
+)
+`
+
+type UpsertAstronomicalEventParams struct {
+	AstronomicalID string
+	Title          string
+	Description    pgtype.Text
+	StartDate      pgtype.Date
+	EndDate        pgtype.Date
+	Schedule       pgtype.Text
+	Place          pgtype.Text
+	Latitude       pgtype.Float4
+	Longitude      pgtype.Float4
+}
+
+func (q *Queries) UpsertAstronomicalEvent(ctx context.Context, arg UpsertAstronomicalEventParams) (interface{}, error) {
+	row := q.db.QueryRow(ctx, upsertAstronomicalEvent,
+		arg.AstronomicalID,
+		arg.Title,
+		arg.Description,
+		arg.StartDate,
+		arg.EndDate,
+		arg.Schedule,
+		arg.Place,
+		arg.Latitude,
+		arg.Longitude,
+	)
+	var coalesce interface{}
+	err := row.Scan(&coalesce)
+	return coalesce, err
+}

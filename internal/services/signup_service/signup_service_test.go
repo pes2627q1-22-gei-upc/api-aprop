@@ -73,8 +73,7 @@ func (f *fakeEventRepository) Update(id int, e event_model.Event, official bool)
 func (f *fakeEventRepository) UpdateImage(ctx context.Context, id int, imageURL string) error {
 	return nil
 }
-func (f *fakeEventRepository) Delete(ctx context.Context, id int) error                 { return nil }
-func (f *fakeEventRepository) SetCategories(id int, cats []string, official bool) error { return nil }
+func (f *fakeEventRepository) Delete(ctx context.Context, id int) error { return nil }
 func (f *fakeEventRepository) Get(id int) (event_model.Event, error) {
 	return event_model.Event{EndDate: time.Now().Add(time.Hour * time.Duration(24))}, nil
 }
@@ -102,6 +101,7 @@ func (f *fakeEventRepository) ListMapEvents(ctx context.Context, filter event_mo
 func (f *fakeEventRepository) GetReceivedRatings(id int) ([]event_model.ReceivedRating, error) {
 	return []event_model.ReceivedRating{}, nil
 }
+func (r *fakeEventRepository) CreateAstronomical(id string, e event_model.Event) error { return nil }
 
 type fakeNotificationRepository struct {
 	created_on_signup   int

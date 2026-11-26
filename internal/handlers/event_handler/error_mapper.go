@@ -43,6 +43,8 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		response.WriteError(w, http.StatusBadRequest, "invalid bounding box")
 	case errors.Is(err, event_service.ErrInvalidUserID):
 		response.WriteError(w, http.StatusBadRequest, "invalid user id")
+	case errors.Is(err, event_service.ErrCategoryNotAllowed):
+		response.WriteError(w, http.StatusBadRequest, "you are not allowed to add this category")
 	default:
 		log.Printf("internal error: %v", err)
 		response.WriteError(w, http.StatusInternalServerError, "internal server error")

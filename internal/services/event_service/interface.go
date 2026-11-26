@@ -23,6 +23,7 @@ type Service interface {
 	CancelUnofficialEvent(ctx context.Context, id int) (event_model.Cancellation, error)
 	UploadEventImage(ctx context.Context, eventID int, filename string, contentType string, reader io.Reader) (string, error)
 	LoadOfficialEvents(ctx context.Context, pageSize int) error
+	LoadAstronomicalEvents(ctx context.Context) error
 	GetCategories() ([]event_model.Category, error)
 	GetCategory(id int) (event_model.Category, error)
 }

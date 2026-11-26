@@ -125,6 +125,8 @@ func (f *fakeEventService) ListMapEvents(_ context.Context, filter event_model.M
 	return f.mapEvents, f.mapErr
 }
 
+func (f *fakeEventService) LoadAstronomicalEvents(ctx context.Context) error { return nil }
+
 // fakeResolver translates the Firebase UID of the test user and accepts the test UUIDs as they are,
 // like auth_service does.
 type fakeResolver struct{}

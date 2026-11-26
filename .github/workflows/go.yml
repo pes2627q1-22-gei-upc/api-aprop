@@ -80,6 +80,8 @@ jobs:
       GENCAT_PAGE_SIZE: '1'
       GROQ_API_KEYS: ci
       GROQ_MODEL: ci
+      TALAIA_API_KEY: ci
+      TALAIA_EVENTS_URL: http://localhost
     steps:
       - uses: actions/checkout@v4
 

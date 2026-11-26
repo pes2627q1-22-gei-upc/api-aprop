@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"strconv"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"api-aprop/internal/clients"
 	"api-aprop/internal/models/event_model"
 )
 
@@ -57,31 +57,11 @@ func (c *GencatClient) FetchEvents(ctx context.Context, pageNumber int, pageSize
 		return nil, fmt.Errorf("encode gencat query: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL, bytes.NewReader(jsonBody))
+	resp, err := clients.MakeRequest(ctx, c.httpClient, http.MethodPost, c.baseURL, "X-App-Token", c.appToken, bytes.NewReader(jsonBody), "gencat")
 	if err != nil {
-		return nil, fmt.Errorf("build gencat request: %w", err)
-	}
-	req.Header.Set("X-App-Token", c.appToken)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("call gencat api: %w", err)
+		return []event_model.Event{}, err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			body, _ := io.ReadAll(resp.Body)
-			fmt.Printf(
-				"fetch events: %v: status=%d, body=%s",
-				ErrUnexpectedStatus,
-				resp.StatusCode,
-				string(body),
-			)
-		}
-		return nil, fmt.Errorf("fetch events: %w: %d", ErrUnexpectedStatus, resp.StatusCode)
-	}
 
 	var body []map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
