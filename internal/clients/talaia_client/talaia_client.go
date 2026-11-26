@@ -11,7 +11,7 @@ import (
 	"api-aprop/internal/models/event_model"
 )
 
-const talaiaDateLayout = "2006-01-02T15:04:05.000"
+const talaiaDateLayout = "2006-01-02T15:04:05.000Z"
 
 type TalaiaClient struct {
 	httpClient *http.Client
@@ -29,30 +29,6 @@ func NewTalaiaClient(httpClient *http.Client, baseURL string, appToken string) *
 
 func (c *TalaiaClient) FetchEvents(ctx context.Context, from time.Time, until time.Time) (map[string]event_model.Event, error) {
 	url := fmt.Sprintf("%s/esdeveniments?des_de=%s&fins_a=%s", c.baseURL, from.Format("2006-01-02"), until.Format("2006-01-02"))
-
-	/*req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("build talaia request: %w", err)
-	}
-	req.Header.Set("X-API-Key", c.appToken)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("call talaia api: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
-		fmt.Printf(
-			"fetch astronomical events: %v: status=%d, body=%s",
-			ErrUnexpectedStatus,
-			resp.StatusCode,
-			string(body),
-		)
-		return nil, fmt.Errorf("fetch astronomical events: %w: %d", ErrUnexpectedStatus, resp.StatusCode)
-	}*/
 
 	resp, err := clients.MakeRequest(ctx, c.httpClient, http.MethodGet, url, "X-API-Key", c.appToken, nil, "talaia")
 	if err != nil {
@@ -86,9 +62,9 @@ func mapEvent(val map[string]any) (string, event_model.Event) {
 
 	e.Title, _ = val["nom"].(string)
 	tmp, _ = val["inici"].(string)
-	e.StartDate, _ = time.Parse("2006-01-02T15:04:05.000Z", tmp)
+	e.StartDate, _ = time.Parse(talaiaDateLayout, tmp)
 	tmp, _ = val["fi"].(string)
-	e.EndDate, _ = time.Parse("2006-01-02T15:04:05.000Z", tmp)
+	e.EndDate, _ = time.Parse(talaiaDateLayout, tmp)
 	e.Description, _ = val["descripcio"].(string)
 
 	ubicacio, _ := val["ubicacio"].(map[string]any)
@@ -103,7 +79,7 @@ func mapEvent(val map[string]any) (string, event_model.Event) {
 
 	tmp, ok := val["maxim"].(string)
 	if ok {
-		maxim, _ := time.Parse("2006-01-02T15:04:05.000Z", tmp)
+		maxim, _ := time.Parse(talaiaDateLayout, tmp)
 		e.Schedule = fmt.Sprintf("Moment màxim: %d de %s %d, %s UTC", maxim.Day(), toMonth(int(maxim.Month())), maxim.Year(), toTime(maxim.Hour(), maxim.Minute()))
 	}
 

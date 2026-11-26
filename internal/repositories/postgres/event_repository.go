@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -213,12 +212,6 @@ func (r *EventRepository) CreateOrReplace(e event_model.Event) (event_model.Even
 		return event_model.Event{}, fmt.Errorf("check event %d: %w", e.ID, err)
 	}
 	return r.Update(int(id), e, true)
-}
-
-func checkNull(field, value string) {
-	if strings.ContainsRune(value, '\x00') {
-		log.Printf("NULL byte found in field %s: %q", field, value)
-	}
 }
 
 func (r *EventRepository) CreateAstronomical(id string, e event_model.Event) error {
