@@ -6,11 +6,13 @@ import (
 
 	firebase "firebase.google.com/go/v4"
 	"firebase.google.com/go/v4/auth"
+	"firebase.google.com/go/v4/messaging"
 	"google.golang.org/api/option"
 )
 
 type FirebaseClient struct {
 	authClient *auth.Client
+	messaging  *messaging.Client
 }
 
 // NewFirebaseClient creates a client authenticated with the service account JSON file at credentialsFile.
@@ -25,7 +27,12 @@ func NewFirebaseClient(ctx context.Context, credentialsFile string) (*FirebaseCl
 		return nil, fmt.Errorf("init firebase auth: %w", err)
 	}
 
-	return &FirebaseClient{authClient: authClient}, nil
+	messagingClient, err := app.Messaging(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("init firebase messaging: %w", err)
+	}
+
+	return &FirebaseClient{authClient: authClient, messaging: messagingClient}, nil
 }
 
 // VerifyUser checks that the ID token is valid (signature, expiration and project) and that its user

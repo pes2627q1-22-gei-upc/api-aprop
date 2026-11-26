@@ -207,6 +207,7 @@ func isInvalidInterval(err error) bool {
 	return false
 }
 
+// UpdateSettings stores every field of settings, so it must come from GetSettings with the changes applied.
 func (r *UserRepository) UpdateSettings(ctx context.Context, settings user_model.Settings) error {
 	nottypes, err := r.queries.GetNotificationTypes(ctx)
 	if err != nil {
@@ -218,56 +219,49 @@ func (r *UserRepository) UpdateSettings(ctx context.Context, settings user_model
 		}
 	}
 
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = tx.Rollback(ctx)
-	}()
+	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+		q := r.queries.WithTx(tx)
+		// TODO(DP-043): with a language, a hand-written query updates everything in one statement (the generated Setting model does not have Language).
+		var err error
+		if settings.Language != "" {
+			err = q.UpdateSettings(ctx, sqlc.UpdateSettingsParams{
+				ID:                 int32(settings.ID),
+				ShowPlans:          settings.ShowPlans,
+				NotificationBefore: settings.NotificationBefore,
+				Language:           settings.Language,
+			})
+		} else {
+			_, err = q.UpdateUserSettings(ctx, sqlc.UpdateUserSettingsParams{
+				ID:                 int32(settings.ID),
+				ShowPlans:          settings.ShowPlans,
+				NotificationBefore: settings.NotificationBefore,
+			})
+		}
+		if isInvalidInterval(err) {
+			return user_repository.ErrInvalidInterval
+		} else if err != nil {
+			return fmt.Errorf("update settings %d: %w", settings.ID, err)
+		}
 
-	qtx := r.queries.WithTx(tx)
+		// TODO(DP-050): PushEnabled has its own query, like Language, to leave the generated Setting model untouched.
+		err = q.UpdateSettingsPushEnabled(ctx, sqlc.UpdateSettingsPushEnabledParams{ID: int32(settings.ID), PushEnabled: settings.PushEnabled})
+		if err != nil {
+			return fmt.Errorf("update push setting %d: %w", settings.ID, err)
+		}
 
-	// TODO(DP-043): with a language, a hand-written query updates everything in one statement (the generated Setting model does not have Language).
-	if settings.Language != "" {
-		err := qtx.UpdateSettings(ctx, sqlc.UpdateSettingsParams{
-			ID:                 int32(settings.ID),
-			ShowPlans:          settings.ShowPlans,
-			NotificationBefore: settings.NotificationBefore,
-			Language:           settings.Language,
-		})
+		int32types := []int32{}
+		for _, v := range settings.AllowedNotifTypes {
+			int32types = append(int32types, int32(v))
+		}
+		if err := q.DeleteAllowedNotificationTypes(ctx, int32(settings.ID)); err != nil {
+			return fmt.Errorf("update settings %d: %w", settings.ID, err)
+		}
+		err = q.UpdateAllowedNotificationTypes(ctx, sqlc.UpdateAllowedNotificationTypesParams{SettingsID: int32(settings.ID), NotificationTypes: int32types})
 		if err != nil {
 			return fmt.Errorf("update settings %d: %w", settings.ID, err)
 		}
 		return nil
-	}
-	_, err = qtx.UpdateUserSettings(ctx, sqlc.UpdateUserSettingsParams{
-		ID:                 int32(settings.ID),
-		ShowPlans:          settings.ShowPlans,
-		NotificationBefore: settings.NotificationBefore,
 	})
-	if isInvalidInterval(err) {
-		return user_repository.ErrInvalidInterval
-	} else if err != nil {
-		return fmt.Errorf("update settings %d: %w", settings.ID, err)
-	}
-
-	int32types := []int32{}
-	for _, v := range settings.AllowedNotifTypes {
-		int32types = append(int32types, int32(v))
-	}
-
-	err = qtx.DeleteAllowedNotificationTypes(ctx, int32(settings.ID))
-	if err != nil {
-		return fmt.Errorf("update settings %d: %w", settings.ID, err)
-	}
-
-	err = qtx.UpdateAllowedNotificationTypes(ctx, sqlc.UpdateAllowedNotificationTypesParams{SettingsID: int32(settings.ID), NotificationTypes: int32types})
-	if err != nil {
-		return fmt.Errorf("update settings %d: %w", settings.ID, err)
-	}
-
-	return tx.Commit(ctx)
 }
 
 func (r *UserRepository) GetUserFriends(ctx context.Context, userid pgtype.UUID) ([]string, error) {
@@ -450,7 +444,12 @@ func (r *UserRepository) GetSettings(ctx context.Context, id int) (user_model.Se
 		return user_model.Settings{}, err
 	}
 
-	return user_model.Settings{ID: int(rows[0].ID), NotificationBefore: intervalToString(rows[0].Notificationbefore), ShowPlans: rows[0].Showplans, AllowedNotifTypes: allowed, Language: language}, nil
+	pushEnabled, err := r.queries.GetSettingsPushEnabled(ctx, int32(id))
+	if err != nil {
+		return user_model.Settings{}, err
+	}
+
+	return user_model.Settings{ID: int(rows[0].ID), NotificationBefore: intervalToString(rows[0].Notificationbefore), ShowPlans: rows[0].Showplans, AllowedNotifTypes: allowed, Language: language, PushEnabled: pushEnabled}, nil
 }
 
 func toTimestamp(t time.Time) pgtype.Timestamp {

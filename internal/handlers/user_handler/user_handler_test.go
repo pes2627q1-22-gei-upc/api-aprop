@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"api-aprop/internal/models/language_model"
 	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/services/auth_service"
+	"api-aprop/internal/services/translation_service"
 	"api-aprop/internal/services/user_service"
 )
 
@@ -31,6 +33,8 @@ type fakeUserService struct {
 
 	deleteErr  error
 	deletedIDs []string
+
+	uploadErr error
 
 	searchResult    user_model.UserSearchResult
 	searchErr       error
@@ -131,6 +135,9 @@ func (f *fakeUserService) UpdateProfile(_ context.Context, requesterIdentifier s
 func (f *fakeUserService) UploadAvatar(_ context.Context, requesterIdentifier string, filename string, contentType string, _ io.Reader) (user_model.UserProfile, error) {
 	if requesterIdentifier == "" {
 		return user_model.UserProfile{}, user_service.ErrUnauthorized
+	}
+	if f.uploadErr != nil {
+		return user_model.UserProfile{}, f.uploadErr
 	}
 	p, ok := f.profiles[requesterIdentifier]
 	if !ok {
@@ -462,6 +469,40 @@ func TestUploadAvatar_Success(t *testing.T) {
 	}
 }
 
+// #247: storage errors of the avatar upload.
+func TestUploadAvatar_StorageErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"storage not configured", user_service.ErrStorageUnavailable, http.StatusServiceUnavailable},
+		{"storage failed", user_service.ErrStorageFailed, http.StatusBadGateway},
+		{"invalid image", user_service.ErrInvalidInput, http.StatusBadRequest},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &fakeUserService{profiles: map[string]user_model.UserProfile{aliceID: {ID: testID(1)}}, uploadErr: tt.err}
+			mux := setupMux(svc)
+
+			var buf bytes.Buffer
+			writer := multipart.NewWriter(&buf)
+			part, _ := writer.CreateFormFile("avatar", "profile.png")
+			_, _ = part.Write([]byte("fake-image-bytes"))
+			writer.Close()
+			req := httptest.NewRequest(http.MethodPost, "/users/me/avatar", &buf)
+			req.Header.Set("Content-Type", writer.FormDataContentType())
+			req.Header.Set("X-User-ID", aliceID)
+			w := httptest.NewRecorder()
+			mux.ServeHTTP(w, req)
+
+			if w.Code != tt.want {
+				t.Fatalf("status = %d, want %d: %s", w.Code, tt.want, w.Body.String())
+			}
+		})
+	}
+}
+
 func TestUploadAvatar_Unauthorized(t *testing.T) {
 	svc := &fakeUserService{profiles: make(map[string]user_model.UserProfile)}
 	mux := setupMux(svc)
@@ -558,23 +599,15 @@ func testID(n byte) pgtype.UUID {
 }
 
 // langTranslator prefixes the title with the language it was asked for.
-type langTranslator struct{}
+type langTranslator struct{ translation_service.Service }
 
 func (langTranslator) UserLanguage(context.Context, string) (string, error) { return "ca", nil }
-func (langTranslator) TranslateEvent(_ context.Context, lang string, e event_model.Event) event_model.Event {
-	e.Title = "[" + lang + "] " + e.Title
-	return e
-}
 func (langTranslator) TranslateEvents(_ context.Context, lang string, events []event_model.Event) []event_model.Event {
-	out := make([]event_model.Event, len(events))
-	for i, e := range events {
-		e.Title = "[" + lang + "] " + e.Title
-		out[i] = e
+	out := slices.Clone(events)
+	for i := range out {
+		out[i].Title = "[" + lang + "] " + out[i].Title
 	}
 	return out
-}
-func (langTranslator) TranslateMapEvents(_ context.Context, _ string, events []event_model.MapEvent) []event_model.MapEvent {
-	return events
 }
 
 func TestUpdateMyProfile_Language(t *testing.T) {

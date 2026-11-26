@@ -70,11 +70,34 @@ Totes les respostes i cossos de petició utilitzen claus JSON en **kebab-case**.
 | `POST /users/{id}/block` | `UserHandler.BlockUser` | Bloqueja l'usuari (`{id}`: UUID, Firebase UID o nom d'usuari). En una transacció elimina l'amistat i passa a `Rejected` les sol·licituds pendents o acceptades entre tots dos (R3). `201` amb `{id, username, name, profile-picture, date-blocked}`; `400` si és un mateix (R2); `404` si no existeix; `409` si ja estava bloquejat. No es notifica el bloquejat | Implementat (Tasca #108, DP-042) |
 | `DELETE /users/{id}/block` | `UserHandler.UnblockUser` | Desbloqueja l'usuari (`204`; `404` si no existeix o no estava bloquejat). L'amistat no es recupera | Implementat (Tasca #108, DP-042) |
 | `GET /users/me/blocked` | `UserHandler.ListBlockedUsers` | Usuaris que he bloquejat, del més recent al més antic (pantalla «Usuaris bloquejats», fig. 19). Llista sense paginació | Implementat (Tasca #108, DP-042) |
-| `DELETE /users/me` | `UserHandler.DeleteMyAccount` | Baixa del compte (RGPD): esborra en una transacció l'usuari, la seva configuració, els esdeveniments no oficials que ha creat (amb les dades que en depenen) i totes les files que el referencien; dins la transacció esborra el compte de Firebase Auth i, després del commit, l'avatar de S3 (best-effort). `204`; `401` sense identitat; `404` usuari inexistent; `502` si Firebase falla (no s'esborra res) | Implementat (DP-031) |
+| `DELETE /users/me` | `UserHandler.DeleteMyAccount` | Baixa del compte (RGPD): esborra en una transacció l'usuari, la seva configuració, els esdeveniments no oficials que ha creat (amb les dades que en depenen) i totes les files que el referencien; dins la transacció esborra el compte de Firebase Auth i, després del commit, l'avatar del bucket privat (best-effort). `204`; `401` sense identitat; `404` usuari inexistent; `502` si Firebase falla (no s'esborra res) | Implementat (DP-031) |
+| `POST /users/me/avatar` | `UserHandler.UploadAvatar` | Puja la foto de perfil (multipart `avatar` o `file`; JPEG, PNG o WebP; màxim 5 MB) al bucket **privat** `avatars` de Supabase Storage i esborra l'anterior. `200` amb el perfil; `400` imatge invàlida; `502` si Storage falla; `503` sense `SUPABASE_URL`/`SUPABASE_SECRET_KEY` | Implementat (Tasca #247, DP-045) |
+
+### Fotos de perfil privades (Tasca #247)
+Les fotos pujades es desen al bucket privat `avatars` (`S3_AVATAR_BUCKET`) i `Users.ProfilePicture` guarda la ruta de l'objecte
+(`<uuid>/avatar-<ms>.<ext>`), no una URL. Totes les respostes que inclouen `profile-picture` (`GET /users/{id}`, `PATCH /users/me`,
+`POST /users/me/avatar`, `GET /users?q=`, `POST /users/{id}/block`, `GET /users/me/blocked`, `GET`/`POST /events/{id}/messages` i
+`POST /auth/sync`) la retornen com una **URL signada** que caduca en 1 hora (la mateixa URL es reutilitza mentre li queden ≥ 30 min). Les
+URL externes (p. ex. la foto de Google) es retornen tal qual. Si no es pot signar, `profile-picture` surt buit (o l'avatar generat al
+perfil). `PATCH /users/me` només accepta `profile-picture` buit o una URL `http(s)` (`400` en cas contrari). Detalls a DP-045.
 
 ### Idioma i traducció d'esdeveniments (US #28)
 Idiomes: `ca` (original, per defecte), `es`, `en`. L'idioma de l'usuari es guarda a `Settings.Language` i es llegeix/modifica
 amb el camp `language` de `GET /users/me` (només al perfil propi) i `PATCH /users/me` (`400` si no és `ca`/`es`/`en`).
+
+### Notificacions push (`push_handler`, Tasca #275)
+Cada notificació de la bústia (`Notifications`) s'envia també com a push als dispositius del destinatari amb Firebase
+Cloud Messaging. Un ticker (`PUSH_DISPATCH_INTERVAL`, 30 s per defecte) envia les pendents (`PushedAt` nul); les de
+més de 24 h es descarten sense enviar. Sense el fitxer de credencials de Firebase no s'envia res. Supòsits a DP-050.
+
+| Mètode i ruta | Handler | Descripció | Estat |
+|---|---|---|---|
+| `PUT /users/me/devices` | `PushHandler.RegisterDevice` | Registra el dispositiu de l'usuari autenticat: cos `{"token": "<token FCM o FID>", "platform": "android"\|"ios"\|"web"}`. L'app el crida després d'iniciar sessió i quan FCM renova el token. Un token ja registrat passa a l'usuari actual. `204`; `400` cos, token (buit o > 4096 caràcters) o plataforma invàlids; `401` sense identitat | Implementat (DP-050) |
+| `DELETE /users/me/devices/{token}` | `PushHandler.UnregisterDevice` | Oblida el dispositiu (en tancar la sessió). Idempotent: `204` encara que no existís; `401` sense identitat | Implementat (DP-050) |
+
+- **Contingut del push:** títol segons el tipus (`Social`, `Recordatori`, `Recomanació`, `Esdeveniment cancel·lat`), cos = `text` de la notificació (màx. 1000 caràcters) i `data` (cadenes) amb `notification-id`, `type`, `event-id` i `friend-id` quan n'hi ha, perquè l'app obri la fitxa o Avisos.
+- **Preferència:** `push-enabled` (per defecte `true`) es llegeix a `GET /users/me` (només al perfil propi) i es canvia amb `PATCH /users/me`. Desactivat, les notificacions continuen arribant a la bústia però sense push.
+- Els tokens que FCM rebutja definitivament (`UNREGISTERED`, `INVALID_ARGUMENT`, `SENDER_ID_MISMATCH`) s'esborren; `DELETE /users/me` també esborra els dispositius (`ON DELETE CASCADE`).
 
 Els endpoints que retornen esdeveniments (`GET /events`, `/events/{id}`, `/events/search`, `/events/map`, `/event/map`, `/events/recommended`,
 `/events/popular`, `/users/{id}/created-events`, `/users/{userId}/events`) accepten `?lang=ca|es|en`. Resolució: `?lang` → idioma de
@@ -121,7 +144,9 @@ Fora del router i del middleware de Firebase: s'autentica amb la capçalera `X-A
 | Servei | Ús | Si falla |
 |---|---|---|
 | **Supabase (PostgreSQL 15+)** | Base de dades principal gestionada al cloud amb Row Level Security (RLS) habilitat | L'API retorna error 500 |
+| **Supabase Storage** | Fotos de perfil al bucket privat `avatars` (`s3_client`, API REST amb `SUPABASE_SECRET_KEY`; URLs signades) | Pujada: `502`/`503`; lectura: `profile-picture` buit |
 | **Firebase Auth** | Validació de tokens JWT d'usuaris (`firebase_client`) | Petició no autoritzada (401) |
+| **Firebase Cloud Messaging (API V1)** | Enviament de notificacions push als dispositius (`firebase_client/push.go`, mateix compte de servei) | La notificació queda a la bústia i es reintenta fins a 24 h |
 | **Dades Obertes de Catalunya** | Ingesta diària automàtica d'esdeveniments oficials (`gencat_client`) | Es manté l'últim catàleg sincronitzat |
 | **Groq AI (Llama 3.3 70B)** | Processament de llenguatge natural i orquestració de consultes per al xatbot | Error 502/504 en el xatbot; la resta de l'app funciona normalment |
 | **Servidor MCP (`cmd/mcp`)** | Eines de catàleg per a Groq AI mitjançant el protocol MCP | Error 502 en el xatbot |

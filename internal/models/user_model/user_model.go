@@ -40,7 +40,8 @@ type UserProfile struct {
 	PlansCount          int         `json:"plans-count"`
 	CompletedPlansCount int         `json:"completed-plans-count"`
 	ShowPlans           bool        `json:"show-plans"`
-	Language            string      `json:"language,omitempty"` // only in the own profile
+	Language            string      `json:"language,omitempty"`     // only in the own profile
+	PushEnabled         *bool       `json:"push-enabled,omitempty"` // only in the own profile
 	IsFriend            *bool       `json:"is-friend,omitempty"`
 	PlansVisible        bool        `json:"plans-visible"`
 }
@@ -73,6 +74,7 @@ type Settings struct {
 	NotificationBefore string `json:"notification-before"`
 	AllowedNotifTypes  []int  `json:"allowed-notif-types"`
 	Language           string `json:"language"` // ca, es or en
+	PushEnabled        bool   `json:"push-enabled"`
 }
 
 // UserSummary is a user in a list, like the results of GET /users?q=.
