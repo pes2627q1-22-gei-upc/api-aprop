@@ -7,11 +7,13 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"api-aprop/internal/models/chatbot_model"
 	"api-aprop/internal/models/event_model"
+	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/repositories/chatbot_repository"
 	"api-aprop/internal/repositories/postgres/sqlc"
 )
@@ -29,7 +31,7 @@ func NewChatbotRepository(pool *pgxpool.Pool) *ChatbotRepository {
 }
 
 func (r *ChatbotRepository) LatestConversation(ctx context.Context, userID string) (time.Time, error) {
-	uid, err := parseUUID(userID)
+	uid, err := user_model.ParseID(userID)
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -44,7 +46,7 @@ func (r *ChatbotRepository) LatestConversation(ctx context.Context, userID strin
 }
 
 func (r *ChatbotRepository) SaveMessages(ctx context.Context, userID string, conversationStartedAt time.Time, messages ...chatbot_model.Message) error {
-	uid, err := parseUUID(userID)
+	uid, err := user_model.ParseID(userID)
 	if err != nil {
 		return err
 	}
@@ -81,7 +83,7 @@ func (r *ChatbotRepository) SaveMessages(ctx context.Context, userID string, con
 }
 
 func (r *ChatbotRepository) ListMessages(ctx context.Context, userID string, conversationStartedAt time.Time) ([]chatbot_model.Message, error) {
-	uid, err := parseUUID(userID)
+	uid, err := user_model.ParseID(userID)
 	if err != nil {
 		return nil, err
 	}
@@ -123,6 +125,27 @@ func (r *ChatbotRepository) ListMessages(ctx context.Context, userID string, con
 	return messages, nil
 }
 
+func (r *ChatbotRepository) SaveFeedback(ctx context.Context, userID string, conversationStartedAt, sentAt time.Time, helpful bool) error {
+	uid, err := user_model.ParseID(userID)
+	if err != nil {
+		return err
+	}
+	err = r.queries.UpsertChatbotFeedback(ctx, sqlc.UpsertChatbotFeedbackParams{
+		Userid:                uid,
+		Conversationstartedat: toTimestamptz(conversationStartedAt),
+		Sentat:                toTimestamptz(sentAt),
+		Helpful:               helpful,
+	})
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == foreignKeyViolation {
+		return fmt.Errorf("feedback of user %s: %w", userID, chatbot_repository.ErrMessageNotFound)
+	}
+	if err != nil {
+		return fmt.Errorf("save chatbot feedback of user %s: %w", userID, err)
+	}
+	return nil
+}
+
 func toChatbotMessageParams(uid pgtype.UUID, conversation pgtype.Timestamptz, m chatbot_model.Message) sqlc.CreateChatbotMessageParams {
 	params := sqlc.CreateChatbotMessageParams{
 		UserID:                uid,
@@ -143,14 +166,6 @@ func toChatbotMessageParams(uid pgtype.UUID, conversation pgtype.Timestamptz, m 
 		}
 	}
 	return params
-}
-
-func parseUUID(s string) (pgtype.UUID, error) {
-	var uid pgtype.UUID
-	if err := uid.Scan(s); err != nil {
-		return pgtype.UUID{}, fmt.Errorf("invalid user id %q: %w", s, err)
-	}
-	return uid, nil
 }
 
 func toTimestamptz(t time.Time) pgtype.Timestamptz {

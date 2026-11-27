@@ -66,6 +66,22 @@ func (q *Queries) DeleteSignUp(ctx context.Context, arg DeleteSignUpParams) (int
 	return result.RowsAffected(), nil
 }
 
+const getAttendance = `-- name: GetAttendance :one
+SELECT attendance from signup where userid = $1 and event = $2
+`
+
+type GetAttendanceParams struct {
+	Userid pgtype.UUID
+	Event  int32
+}
+
+func (q *Queries) GetAttendance(ctx context.Context, arg GetAttendanceParams) (pgtype.Bool, error) {
+	row := q.db.QueryRow(ctx, getAttendance, arg.Userid, arg.Event)
+	var attendance pgtype.Bool
+	err := row.Scan(&attendance)
+	return attendance, err
+}
+
 const isUserSignedUp = `-- name: IsUserSignedUp :one
 SELECT EXISTS (
     SELECT 1 FROM SignUp
@@ -185,4 +201,25 @@ func (q *Queries) ListUserSignedUpEvents(ctx context.Context, arg ListUserSigned
 		return nil, err
 	}
 	return items, nil
+}
+
+const setSignUpAttendance = `-- name: SetSignUpAttendance :execrows
+UPDATE SignUp
+SET Attendance = $1::boolean
+WHERE UserID = $2::uuid AND Event = $3::integer
+`
+
+type SetSignUpAttendanceParams struct {
+	Attendance pgtype.Bool
+	UserID     pgtype.UUID
+	EventID    int32
+}
+
+// Sets the attendance (NULL = unknown) of the user's sign up for the event.
+func (q *Queries) SetSignUpAttendance(ctx context.Context, arg SetSignUpAttendanceParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setSignUpAttendance, arg.Attendance, arg.UserID, arg.EventID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

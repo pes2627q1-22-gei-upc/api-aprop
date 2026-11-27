@@ -157,3 +157,50 @@ func TestSync_ConcurrentFirstSignIn(t *testing.T) {
 func testID(n byte) pgtype.UUID {
 	return pgtype.UUID{Bytes: [16]byte{15: n}, Valid: true}
 }
+
+func TestResolveUserID(t *testing.T) {
+	registered := user_model.User{ID: testID(7), FirebaseUID: firebaseUID}
+	const userID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
+
+	tests := []struct {
+		name       string
+		identifier string
+		want       string
+		wantErr    error
+	}{
+		{name: "uuid is used as it is", identifier: "3F2504E0-4F89-11D3-9A0C-0305E82C3301", want: userID},
+		{name: "firebase uid is resolved to the user id", identifier: firebaseUID, want: registered.ID.String()},
+		{name: "unknown firebase uid", identifier: "aBcDeFgHiJkLmNoPqRsTuVwXyZ12", wantErr: ErrUserNotRegistered},
+		{name: "missing identifier", wantErr: ErrUserNotRegistered},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := NewAuthService(newFakeRepository(registered)).ResolveUserID(context.Background(), tt.identifier)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("error = %v, want %v", err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Errorf("user id = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveUserID_RepositoryError(t *testing.T) {
+	repoErr := errors.New("db down")
+	_, err := NewAuthService(&failingRepository{err: repoErr}).ResolveUserID(context.Background(), firebaseUID)
+	if !errors.Is(err, repoErr) || errors.Is(err, ErrUserNotRegistered) {
+		t.Fatalf("error = %v, want the repository error", err)
+	}
+}
+
+// failingRepository fails every lookup, like a database that is down.
+type failingRepository struct {
+	fakeRepository
+	err error
+}
+
+func (f *failingRepository) GetByFirebaseUID(_ context.Context, _ string) (user_model.User, error) {
+	return user_model.User{}, f.err
+}

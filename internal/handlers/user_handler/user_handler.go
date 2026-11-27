@@ -2,40 +2,76 @@ package user_handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"mime"
 	"net/http"
 	"path/filepath"
+	"time"
 
+	"api-aprop/internal/handlers/language"
+	"api-aprop/internal/handlers/requester"
 	"api-aprop/internal/handlers/response"
-	"api-aprop/internal/middleware/auth_middleware"
+	"api-aprop/internal/services/translation_service"
 	"api-aprop/internal/services/user_service"
 )
 
-const (
-	UserIDHeader  = "X-User-ID"
-	maxUploadSize = 5 << 20 // 5 MB
-)
+const maxUploadSize = 5 << 20 // 5 MB
 
 type UserHandler struct {
 	userService user_service.Service
+	resolver    requester.Resolver
+	translator  translation_service.Service // optional: without it the events are always in the original language
 }
 
-func NewUserHandler(userService user_service.Service) *UserHandler {
-	return &UserHandler{userService: userService}
+func NewUserHandler(userService user_service.Service, resolver requester.Resolver) *UserHandler {
+	return &UserHandler{userService: userService, resolver: resolver}
+}
+
+// WithTranslator sets the service that translates the events of GET /users/{id}/created-events (US #28).
+func (h *UserHandler) WithTranslator(t translation_service.Service) *UserHandler {
+	h.translator = t
+	return h
 }
 
 func (h *UserHandler) RegisterRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /users", h.SearchUsers)
 	mux.HandleFunc("GET /users/me", h.GetMyProfile)
 	mux.HandleFunc("PATCH /users/me", h.UpdateMyProfile)
+	mux.HandleFunc("DELETE /users/me", h.DeleteMyAccount)
 	mux.HandleFunc("POST /users/me/avatar", h.UploadAvatar)
 	mux.HandleFunc("GET /users/{id}", h.GetUserProfile)
 	mux.HandleFunc("GET /users/{id}/created-events", h.ListCreatedEvents)
+	mux.HandleFunc("GET /users/{id}/ratings", h.ListReceivedRatings)
+	mux.HandleFunc("GET /users/{id}/friends", h.GetUserFriends)
+	mux.HandleFunc("GET /users/me/friend-requests", h.GetFriendRequests)
+	mux.HandleFunc("POST /users/{id}/friend-requests", h.SendFriendRequest)
+	mux.HandleFunc("POST /users/{id}/friend-requests/{date}/accept", h.AcceptFriendRequest)
+	mux.HandleFunc("POST /users/{id}/friend-requests/{date}/deny", h.DenyFriendRequest)
+	mux.HandleFunc("POST /users/{id}/unfriend", h.Unfriend)
+	mux.HandleFunc("GET /users/me/settings", h.GetSettings)
+	mux.HandleFunc("GET /users/me/blocked", h.ListBlockedUsers)
+	mux.HandleFunc("POST /users/{id}/block", h.BlockUser)
+	mux.HandleFunc("DELETE /users/{id}/block", h.UnblockUser)
+}
+
+func (h *UserHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
+	requesterID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
+		return
+	}
+
+	settings, err := h.userService.GetSettings(r.Context(), requesterID)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, settings)
 }
 
 func (h *UserHandler) GetMyProfile(w http.ResponseWriter, r *http.Request) {
-	requesterID := getRequesterID(r)
-	if requesterID == "" {
-		response.WriteError(w, http.StatusUnauthorized, "unauthorized: missing auth token or "+UserIDHeader)
+	requesterID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
 		return
 	}
 
@@ -59,7 +95,14 @@ func (h *UserHandler) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	requesterID := getRequesterID(r)
+	// Anyone can see a profile; the requester is optional and only used to know the friendship
+	var requesterID string
+	if requester.Present(r) {
+		var ok bool
+		if requesterID, ok = requester.ID(w, r, h.resolver); !ok {
+			return
+		}
+	}
 	profile, err := h.userService.GetUserProfile(r.Context(), id, requesterID)
 	if err != nil {
 		writeServiceError(w, err)
@@ -70,32 +113,19 @@ func (h *UserHandler) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *UserHandler) UpdateMyProfile(w http.ResponseWriter, r *http.Request) {
-	requesterID := getRequesterID(r)
-	if requesterID == "" {
-		response.WriteError(w, http.StatusUnauthorized, "unauthorized: missing auth token or "+UserIDHeader)
+	requesterID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
 		return
 	}
 
-	var body struct {
-		Name           *string `json:"name"`
-		Username       *string `json:"username"`
-		Biography      *string `json:"biography"`
-		ProfilePicture *string `json:"profile-picture"`
-		ShowPlans      *bool   `json:"show-plans"`
-	}
+	var body user_service.UpdateProfileInput
 
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		response.WriteError(w, http.StatusBadRequest, "invalid json payload: "+err.Error())
 		return
 	}
 
-	profile, err := h.userService.UpdateProfile(r.Context(), requesterID, user_service.UpdateProfileInput{
-		Name:           body.Name,
-		Username:       body.Username,
-		Biography:      body.Biography,
-		ProfilePicture: body.ProfilePicture,
-		ShowPlans:      body.ShowPlans,
-	})
+	profile, err := h.userService.UpdateProfile(r.Context(), requesterID, body)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -104,10 +134,23 @@ func (h *UserHandler) UpdateMyProfile(w http.ResponseWriter, r *http.Request) {
 	response.WriteJSON(w, http.StatusOK, profile)
 }
 
+// DeleteMyAccount erases the account of the requester and all its data (RGPD). Responds 204 on success.
+func (h *UserHandler) DeleteMyAccount(w http.ResponseWriter, r *http.Request) {
+	requesterID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
+		return
+	}
+
+	if err := h.userService.DeleteAccount(r.Context(), requesterID); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *UserHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
-	requesterID := getRequesterID(r)
-	if requesterID == "" {
-		response.WriteError(w, http.StatusUnauthorized, "unauthorized: missing auth token or "+UserIDHeader)
+	requesterID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
 		return
 	}
 
@@ -143,15 +186,18 @@ func (h *UserHandler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *UserHandler) ListCreatedEvents(w http.ResponseWriter, r *http.Request) {
+	lang, ok := language.Resolve(w, r, h.translator, h.resolver)
+	if !ok {
+		return
+	}
 	id := r.PathValue("id")
 	if id == "" {
 		response.WriteError(w, http.StatusBadRequest, "missing user id")
 		return
 	}
 	if id == "me" {
-		requesterID := getRequesterID(r)
-		if requesterID == "" {
-			response.WriteError(w, http.StatusUnauthorized, "unauthorized: missing auth token or "+UserIDHeader)
+		requesterID, ok := requester.ID(w, r, h.resolver)
+		if !ok {
 			return
 		}
 		id = requesterID
@@ -163,12 +209,177 @@ func (h *UserHandler) ListCreatedEvents(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	if h.translator != nil {
+		events = h.translator.TranslateEvents(r.Context(), lang, events)
+	}
 	response.WriteJSON(w, http.StatusOK, events)
 }
 
-func getRequesterID(r *http.Request) string {
-	if u, ok := auth_middleware.UserFromContext(r.Context()); ok && u.UID != "" {
-		return u.UID
+func (h *UserHandler) ListReceivedRatings(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "me" {
+		requesterID, ok := requester.ID(w, r, h.resolver)
+		if !ok {
+			return
+		}
+		id = requesterID
 	}
-	return r.Header.Get(UserIDHeader)
+
+	ratings, err := h.userService.ListReceivedRatings(r.Context(), id)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, ratings)
+}
+
+func (h *UserHandler) GetFriendRequests(w http.ResponseWriter, r *http.Request) {
+	requesterID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
+		return
+	}
+
+	friendreqs, err := h.userService.GetFriendRequests(r.Context(), requesterID)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, friendreqs)
+}
+
+func (h *UserHandler) SendFriendRequest(w http.ResponseWriter, r *http.Request) {
+	targetid := r.PathValue("id")
+	if targetid == "" {
+		response.WriteError(w, http.StatusBadRequest, "missing user id")
+		return
+	}
+
+	requesterID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
+		return
+	}
+
+	friendreq, err := h.userService.SendFriendRequest(r.Context(), requesterID, targetid)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	response.WriteJSON(w, http.StatusCreated, friendreq)
+}
+
+func (h *UserHandler) AcceptFriendRequest(w http.ResponseWriter, r *http.Request) {
+	targetid := r.PathValue("id")
+	if targetid == "" {
+		response.WriteError(w, http.StatusBadRequest, "missing user id")
+		return
+	}
+
+	requesterID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
+		return
+	}
+
+	datetmp := r.PathValue("date")
+	if datetmp == "" {
+		response.WriteError(w, http.StatusBadRequest, "missing request date")
+		return
+	}
+
+	date, err := time.Parse("2006-01-02T15:04:05.999999Z", datetmp)
+	if err != nil {
+		response.WriteError(w, http.StatusBadRequest, "invalid request date")
+		return
+	}
+
+	friendreq, err := h.userService.AcceptFriendRequest(r.Context(), requesterID, targetid, date)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, friendreq)
+}
+
+func (h *UserHandler) DenyFriendRequest(w http.ResponseWriter, r *http.Request) {
+	targetid := r.PathValue("id")
+	if targetid == "" {
+		response.WriteError(w, http.StatusBadRequest, "missing user id")
+		return
+	}
+
+	requesterID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
+		return
+	}
+
+	datetmp := r.PathValue("date")
+	if datetmp == "" {
+		response.WriteError(w, http.StatusBadRequest, "missing request date")
+		return
+	}
+
+	date, err := time.Parse("2006-01-02T15:04:05.999999Z", datetmp)
+	if err != nil {
+		response.WriteError(w, http.StatusBadRequest, "invalid request date")
+		return
+	}
+
+	friendreq, err := h.userService.DenyFriendRequest(r.Context(), requesterID, targetid, date)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, friendreq)
+}
+
+func (h *UserHandler) Unfriend(w http.ResponseWriter, r *http.Request) {
+	targetid := r.PathValue("id")
+	if targetid == "" {
+		response.WriteError(w, http.StatusBadRequest, "missing user id")
+		return
+	}
+
+	requesterID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
+		return
+	}
+
+	err := h.userService.Unfriend(r.Context(), requesterID, targetid)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	type resp struct {
+		Text string `json:"message"`
+	}
+
+	response.WriteJSON(w, http.StatusOK, resp{Text: fmt.Sprintf("friendship with %s deleted successfully", targetid)})
+}
+
+func (h *UserHandler) GetUserFriends(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		response.WriteError(w, http.StatusBadRequest, "missing user id")
+		return
+	}
+	if id == "me" {
+		requesterID, ok := requester.ID(w, r, h.resolver)
+		if !ok {
+			return
+		}
+		id = requesterID
+	}
+
+	friends, err := h.userService.GetUserFriends(r.Context(), id)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, friends)
 }

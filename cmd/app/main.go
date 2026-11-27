@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"strconv"
@@ -19,29 +20,42 @@ import (
 	"api-aprop/internal/clients/firebase_client"
 	"api-aprop/internal/clients/gencat_client"
 	"api-aprop/internal/clients/groq_client"
-	"api-aprop/internal/clients/mcp_client"
 	"api-aprop/internal/clients/s3_client"
+	"api-aprop/internal/clients/talaia_client"
+	"api-aprop/internal/clients/translate_client"
 	"api-aprop/internal/drivers/postgres_driver"
 	"api-aprop/internal/handlers/assistant_handler"
 	"api-aprop/internal/handlers/auth_handler"
+	"api-aprop/internal/handlers/congestion_handler"
 	"api-aprop/internal/handlers/event_handler"
+	"api-aprop/internal/handlers/message_handler"
+	"api-aprop/internal/handlers/notification_handler"
+	"api-aprop/internal/handlers/password_reset_handler"
 	"api-aprop/internal/handlers/preference_handler"
+	"api-aprop/internal/handlers/push_handler"
+	"api-aprop/internal/handlers/rating_handler"
 	"api-aprop/internal/handlers/requester"
 	"api-aprop/internal/handlers/signup_handler"
 	"api-aprop/internal/handlers/user_handler"
-	"api-aprop/internal/handlers/notification_handler"
-	"api-aprop/internal/mcp_server"
+	"api-aprop/internal/middleware/apikey_middleware"
 	"api-aprop/internal/middleware/auth_middleware"
 	postgres_repository "api-aprop/internal/repositories/postgres"
 	"api-aprop/internal/router"
 	"api-aprop/internal/services/assistant_service"
 	"api-aprop/internal/services/auth_service"
+	"api-aprop/internal/services/congestion_service"
 	"api-aprop/internal/services/event_service"
-	"api-aprop/internal/services/preference_service"
-	"api-aprop/internal/services/signup_service"
-	"api-aprop/internal/services/user_service"
+	"api-aprop/internal/services/message_service"
 	"api-aprop/internal/services/notification_service"
+	"api-aprop/internal/services/password_reset_service"
+	"api-aprop/internal/services/preference_service"
+	"api-aprop/internal/services/push_service"
+	"api-aprop/internal/services/rating_service"
+	"api-aprop/internal/services/signup_service"
+	"api-aprop/internal/services/translation_service"
+	"api-aprop/internal/services/user_service"
 	"api-aprop/migrations"
+	"api-aprop/supabase"
 )
 
 const (
@@ -63,6 +77,21 @@ const (
 	// CORS environment variable: comma separated origins that can call the API from a browser
 	corsEnvAllowedOrigins = "CORS_ALLOWED_ORIGINS" // optional, defaults to defaultCORSOrigins
 	defaultCORSOrigins    = "*"                    // any origin
+
+	// Mobilicat environment variables
+	mobilicatEnvAPIKey      = "MOBILICAT_API_KEY"      // optional: without it the congestion endpoint answers 503
+	mobilicatEnvCongestionK = "MOBILICAT_CONGESTION_K" // optional, defaults to congestion_service.DefaultK
+
+	// Translator service (event translations, US #28)
+	translatorEnvURL    = "TRANSLATOR_URL"     // optional: without it events are not translated
+	translatorEnvAPIKey = "TRANSLATOR_API_KEY" // optional: only if the server requires a key
+
+	// Firebase Web API key (Firebase console > Project settings > General): Firebase Auth REST API
+	firebaseEnvWebAPIKey = "FIREBASE_WEB_API_KEY" // optional: without it the password reset endpoint answers 503
+
+	// Push notifications (Taiga #275): how often the outbox of Notifications is pushed through FCM
+	pushEnvDispatchInterval     = "PUSH_DISPATCH_INTERVAL" // optional, a Go duration, defaults to defaultPushDispatchInterval
+	defaultPushDispatchInterval = 30 * time.Second
 )
 
 func runDaily(task func()) {
@@ -105,6 +134,18 @@ func checkForReminders(minute_interval int, handle_notifs func()) {
 	}()
 }
 
+// runEvery runs task now and then every interval, in the background.
+func runEvery(interval time.Duration, task func()) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			task()
+			<-ticker.C
+		}
+	}()
+}
+
 func main() {
 	// Configuration
 	if err := godotenv.Load(".env", ".env.example"); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -117,14 +158,13 @@ func main() {
 	firebaseCredentialsFile := getEnv("FIREBASE_CREDENTIALS_FILE")
 	gencatEventsURL := getEnv("GENCAT_EVENTS_URL")
 	gencatPageSize, err := strconv.Atoi(getEnv("GENCAT_PAGE_SIZE"))
+	talaiaEventsURL := getEnv("TALAIA_EVENTS_URL")
+	talaiaAPIKey := getEnv("TALAIA_API_KEY")
 	if err != nil {
 		log.Fatalf("invalid GENCAT_PAGE_SIZE: %v", err)
 	}
-	groqAPIKey := getEnv("GROQ_API_KEY")
+	groqAPIKey := getEnv("GROQ_API_KEYS")
 	groqModel := getEnv("GROQ_MODEL")
-	// The API serves the catalogue MCP server itself (see the router below), so the chatbot calls its own port.
-	mcpURL := "http://localhost:" + port + "/mcp"
-	mcpToken := getEnv("MCP_TOKEN")
 	location, err := time.LoadLocation(timeZone)
 	if err != nil {
 		log.Fatalf("load time zone %s: %v", timeZone, err)
@@ -169,23 +209,44 @@ func main() {
 	defer postgresDriver.Close()
 
 	// Migrate database
-	if err := postgresDriver.MigrateFS(migrations.EmbedFS, dbConfig.GetConnectionString()); err != nil {
+	if err := postgresDriver.MigrateFSWithSupabase(migrations.EmbedFS, supabase.MigrationsFS); err != nil {
 		slog.Error("Error migrating database", "error", err)
 		os.Exit(1)
 	}
 	slog.Info("Database schema is up to date.")
 
+	// `api migrate` only migrates and exits: used by CI and, once Render's plan allows it,
+	// as preDeployCommand so a failed migration never replaces the running version.
+	if len(os.Args) > 1 && os.Args[1] == "migrate" {
+		return
+	}
+
 	// Clients
 	httpClient := &http.Client{Timeout: 15 * time.Second}
 	gencatClient := gencat_client.NewGencatClient(httpClient, gencatEventsURL, appToken)
-	groqClient := groq_client.NewGroqClient(httpClient, groq_client.DefaultBaseURL, groqAPIKey, groqModel)
-	mcpClient := mcp_client.NewMCPClient(httpClient, mcpURL, mcpToken)
+	var chatClient groq_client.Client = groq_client.NewGroqClient(httpClient, groq_client.DefaultBaseURL, groqAPIKey, groqModel)
+	// Gemini is the backup when every Groq key fails.
+	if geminiKey := os.Getenv("GEMINI_API_KEY"); geminiKey != "" {
+		geminiModel := os.Getenv("GEMINI_MODEL")
+		if geminiModel == "" {
+			geminiModel = "gemini-3.8-flash" // TODO(DP-027): gemini-2.5-flash returns 404; this one is the model Google suggests, not verified with a successful call
+		}
+		chatClient = groq_client.NewFallbackClient(chatClient, groq_client.NewGroqClient(httpClient, groq_client.GeminiBaseURL, geminiKey, geminiModel))
+	}
 	s3Client := s3_client.NewS3Client(httpClient, s3_client.S3Config{
 		Bucket:    os.Getenv("S3_BUCKET"),
 		Region:    os.Getenv("S3_REGION"),
 		Endpoint:  os.Getenv("S3_ENDPOINT"),
 		PublicURL: os.Getenv("S3_PUBLIC_URL"),
+		// #247: profile pictures in a private bucket, served with signed URLs
+		SupabaseURL:  os.Getenv("SUPABASE_URL"),
+		SecretKey:    os.Getenv("SUPABASE_SECRET_KEY"),
+		AvatarBucket: os.Getenv("S3_AVATAR_BUCKET"),
 	})
+	if os.Getenv("SUPABASE_URL") == "" || os.Getenv("SUPABASE_SECRET_KEY") == "" {
+		slog.Warn("SUPABASE_URL or SUPABASE_SECRET_KEY not set; avatar uploads answer 503 and stored avatars are hidden")
+	}
+  talaiaClient := talaia_client.NewTalaiaClient(httpClient, talaiaEventsURL, talaiaAPIKey)
 
 	// CORS: it wraps the auth middleware (see router.NewRouter) because browsers send the preflight without the token.
 	// Requests without an Origin header (mobile app, curl) are not affected.
@@ -205,6 +266,8 @@ func main() {
 	}).Handler
 
 	var authMiddleware func(http.Handler) http.Handler
+	var accountDeleter firebase_client.AccountDeleter // nil without Firebase: accounts are only deleted from the database
+	var pushSender firebase_client.PushSender         // nil without Firebase: notifications only reach the inbox
 	if _, err := os.Stat(firebaseCredentialsFile); err == nil {
 		firebaseClient, err := firebase_client.NewFirebaseClient(context.Background(), firebaseCredentialsFile)
 		if err != nil {
@@ -212,6 +275,8 @@ func main() {
 			os.Exit(1)
 		}
 		authMiddleware = auth_middleware.NewAuthMiddleware(firebaseClient)
+		accountDeleter = firebaseClient
+		pushSender = firebaseClient
 	} else {
 		slog.Warn("Firebase credentials file not found; running without auth middleware for local development", "file", firebaseCredentialsFile)
 		authMiddleware = func(next http.Handler) http.Handler { return next }
@@ -222,56 +287,96 @@ func main() {
 	chatbotRepository := postgres_repository.NewChatbotRepository(postgresDriver.Pool())
 	catalogueRepository := postgres_repository.NewCatalogueRepository(postgresDriver.Pool())
 	signUpRepository := postgres_repository.NewSignUpRepository(postgresDriver.Pool())
+	ratingRepository := postgres_repository.NewRatingRepository(postgresDriver.Pool())
+	messageRepository := postgres_repository.NewMessageRepository(postgresDriver.Pool())
 	authRepository := postgres_repository.NewAuthRepository(postgresDriver.Pool())
 	userRepository := postgres_repository.NewUserRepository(postgresDriver.Pool())
 	notificationRepository := postgres_repository.NewNotificationRepository(postgresDriver.Pool())
 	preferenceRepository := postgres_repository.NewPreferenceRepository(postgresDriver.Pool())
+	congestionRepository := postgres_repository.NewCongestionRepository(postgresDriver.Pool())
+	translationRepository := postgres_repository.NewTranslationRepository(postgresDriver.Pool())
+	pushRepository := postgres_repository.NewPushRepository(postgresDriver.Pool())
 
 	// Services
-	eventService := event_service.NewEventService(eventRepository, authRepository, preferenceRepository, gencatClient, s3Client)
+	eventService := event_service.NewEventService(eventRepository, preferenceRepository, gencatClient, s3Client, talaiaClient).WithUserRepository(userRepository)
 	assistantService := assistant_service.NewAssistantService(
-		chatbotRepository, catalogueRepository, groqClient, mcpClient,
+		chatbotRepository, catalogueRepository, chatClient,
 		func() time.Time { return time.Now().In(location) }, assistant_service.ReplyTimeout,
-	)
-	signUpService := signup_service.NewSignUpService(signUpRepository, eventRepository)
-	authService := auth_service.NewAuthService(authRepository)
-	userService := user_service.NewUserService(userRepository, s3Client)
+	).WithPreferences(preferenceRepository)
+	signUpService := signup_service.NewSignUpService(signUpRepository, eventRepository, notificationRepository)
+	ratingService := rating_service.NewRatingService(ratingRepository, eventRepository, userRepository)
+	messageService := message_service.NewMessageService(messageRepository, eventRepository).WithAvatarSigner(s3Client)
+	authService := auth_service.NewAuthService(authRepository).WithAvatarSigner(s3Client)
+	userService := user_service.NewUserService(userRepository, notificationRepository, s3Client, accountDeleter)
 	notificationService := notification_service.NewNotificationService(notificationRepository)
 	preferenceService := preference_service.NewPreferenceService(preferenceRepository)
+	congestionService := congestion_service.NewCongestionService(congestionRepository, time.Now, location, congestionK())
+	passwordResetService := password_reset_service.NewPasswordResetService(userRepository, passwordResetSender(), time.Now)
+
+	translationService := translation_service.NewTranslationService(translationRepository, translateClient())
+	pushService := push_service.NewPushService(pushRepository, pushSender)
 
 	// Handlers
-	eventHandler := event_handler.NewEventHandler(eventService)
-	assistantHandler := assistant_handler.NewAssistantHandler(assistantService, eventService)
-	signUpHandler := signup_handler.NewSignUpHandler(signUpService, eventService)
+	eventHandler := event_handler.NewEventHandler(eventService, authService).WithTranslator(translationService)
+	assistantHandler := assistant_handler.NewAssistantHandler(assistantService, authService)
+	signUpHandler := signup_handler.NewSignUpHandler(signUpService, authService).WithTranslator(translationService)
+	ratingHandler := rating_handler.NewRatingHandler(ratingService, authService)
+	messageHandler := message_handler.NewMessageHandler(messageService, authService)
 	authHandler := auth_handler.NewAuthHandler(authService)
-	userHandler := user_handler.NewUserHandler(userService)
+	userHandler := user_handler.NewUserHandler(userService, authService).WithTranslator(translationService)
 	notificationHandler := notification_handler.NewNotificationHandler(notificationService)
-	preferenceHandler := preference_handler.NewPreferenceHandler(preferenceService, eventService)
+	preferenceHandler := preference_handler.NewPreferenceHandler(preferenceService, authService).WithTranslator(translationService)
+	congestionHandler := congestion_handler.NewCongestionHandler(congestionService)
+	passwordResetHandler := password_reset_handler.NewPasswordResetHandler(passwordResetService)
+	pushHandler := push_handler.NewPushHandler(pushService, authService)
 
 	// Initial data
-	go func() {
+	load := func() {
 		if err := eventService.LoadOfficialEvents(context.Background(), gencatPageSize); err != nil {
 			log.Printf("could not load official events: %v", err)
 		}
-	}()
+		if err := eventService.LoadAstronomicalEvents(context.Background()); err != nil {
+			log.Printf("could not load astronomical events: %v", err)
+		}
+	}
+
+	go load()
+
 	// Start goroutines
-	runDaily(func() {
-		if err := eventService.LoadOfficialEvents(context.Background(), gencatPageSize); err != nil {
-			log.Printf("could not load official events: %v", err)
-		}
-	})
-	checkForReminders(5, func(){
-		if nots, err := notificationService.CreateReminders(); err!=nil{
+	runDaily(load)
+	checkForReminders(5, func() {
+		if nots, err := notificationService.CreateReminders(); err != nil {
 			log.Printf("could not load reminders: %v", err)
 		} else {
 			log.Printf("loaded %d new reminders", len(nots))
 		}
 	})
+	if pushSender != nil {
+		interval := pushDispatchInterval()
+		slog.Info("Pushing notifications through FCM", "interval", interval)
+		runEvery(interval, func() {
+			ctx, cancel := context.WithTimeout(context.Background(), interval)
+			defer cancel()
+			if delivered, err := pushService.DispatchPending(ctx); err != nil {
+				slog.Error("could not push notifications", "error", err)
+			} else if delivered > 0 {
+				slog.Info("pushed notifications", "delivered", delivered)
+			}
+		})
+	} else {
+		slog.Warn("Firebase credentials file not found; notifications are not pushed, they only reach the inbox")
+	}
 
-	// /mcp has its own shared token, so it stays outside the Firebase auth middleware.
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", mcp_server.NewHandler(mcp_server.NewServer(catalogueRepository, func() time.Time { return time.Now().In(location) }), mcpToken))
-	mux.Handle("/", router.NewRouter(corsMiddleware, authMiddleware, eventHandler, assistantHandler, signUpHandler, authHandler, notificationHandler, userHandler, preferenceHandler))
+	// Endpoints for Mobilicat: protected by an API key instead of a Firebase token, so they are not in the router
+	mobilicatAPIKey := os.Getenv(mobilicatEnvAPIKey)
+	if mobilicatAPIKey == "" {
+		slog.Warn("Mobilicat API key not set; the congestion endpoint answers 503", "env", mobilicatEnvAPIKey)
+	}
+	mux.Handle(congestion_handler.EstimatePattern, apikey_middleware.New(mobilicatAPIKey)(http.HandlerFunc(congestionHandler.Estimate)))
+	// Public endpoint: whoever forgot the password has no Firebase token. The CORS preflight goes through the router
+	mux.Handle(password_reset_handler.ResetPattern, corsMiddleware(http.HandlerFunc(passwordResetHandler.Reset)))
+	mux.Handle("/", router.NewRouter(corsMiddleware, authMiddleware, eventHandler, assistantHandler, signUpHandler, ratingHandler, messageHandler, authHandler, notificationHandler, userHandler, preferenceHandler, pushHandler))
 
 	// Server: HTTP/1.1 and HTTP/2 without TLS (h2c)
 	protocols := new(http.Protocols)
@@ -292,6 +397,53 @@ func main() {
 	if err := srv.ListenAndServe(); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
+}
+
+// congestionK reads the optional constant of the congestion formula; invalid values use the default.
+func congestionK() float64 {
+	value := os.Getenv(mobilicatEnvCongestionK)
+	if value == "" {
+		return congestion_service.DefaultK
+	}
+	k, err := strconv.ParseFloat(value, 64)
+	if err != nil || k <= 0 || math.IsNaN(k) || math.IsInf(k, 0) {
+		slog.Warn("Invalid congestion constant; using the default", "env", mobilicatEnvCongestionK, "value", value, "default", congestion_service.DefaultK)
+		return congestion_service.DefaultK
+	}
+	return k
+}
+
+// pushDispatchInterval reads how often the push outbox is dispatched; invalid values use the default.
+func pushDispatchInterval() time.Duration {
+	value := os.Getenv(pushEnvDispatchInterval)
+	if value == "" {
+		return defaultPushDispatchInterval
+	}
+	interval, err := time.ParseDuration(value)
+	if err != nil || interval < time.Second {
+		slog.Warn("Invalid push dispatch interval; using the default", "env", pushEnvDispatchInterval, "value", value, "default", defaultPushDispatchInterval)
+		return defaultPushDispatchInterval
+	}
+	return interval
+}
+
+// translateClient returns the translator client; without TRANSLATOR_URL it is disabled and events keep their original text.
+func translateClient() translate_client.Client {
+	url := os.Getenv(translatorEnvURL)
+	if url == "" {
+		slog.Warn("Translator URL not set; events are not translated", "env", translatorEnvURL)
+	}
+	return translate_client.NewTranslatorClient(url, os.Getenv(translatorEnvAPIKey), nil)
+}
+
+// passwordResetSender returns the client that sends the password reset emails, or nil without the Web API key.
+func passwordResetSender() firebase_client.PasswordResetSender {
+	apiKey := os.Getenv(firebaseEnvWebAPIKey)
+	if apiKey == "" {
+		slog.Warn("Firebase Web API key not set; the password reset endpoint answers 503", "env", firebaseEnvWebAPIKey)
+		return nil
+	}
+	return firebase_client.NewIdentityToolkitClient(apiKey, "", nil)
 }
 
 // getEnv returns the value of a required environment variable and exits if it is not set.

@@ -50,7 +50,7 @@ func TestMapEventRowToModel(t *testing.T) {
 		HasFriends:   true,
 	}
 
-	got := mapEventRowToModel(row)
+	got := mapEventRowToModel(row, []string{})
 
 	if got.ID != 42 || got.Title != "Castellers a la plaça" {
 		t.Errorf("unexpected ID/Title: %+v", got)
@@ -80,18 +80,6 @@ func TestListMapEvents_InvalidUUID(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for invalid UUID, got nil")
-	}
-}
-
-func TestToUUID_ValidAndInvalid(t *testing.T) {
-	uid, err := toUUID("3f2504e0-4f89-11d3-9a0c-0305e82c3301")
-	if err != nil || !uid.Valid {
-		t.Fatalf("expected valid pgtype.UUID, got valid=%v err=%v", uid.Valid, err)
-	}
-
-	var empty pgtype.UUID
-	if empty.Valid {
-		t.Fatal("expected zero pgtype.UUID to be invalid (NULL)")
 	}
 }
 
@@ -154,5 +142,30 @@ func TestToGetEventRow_KeepsTicketsURL(t *testing.T) {
 	})
 	if row.Url.String != "https://example.cat/event" || row.Ticketsurl.String != "https://example.cat/tickets" {
 		t.Errorf("url/tickets url = %q/%q", row.Url.String, row.Ticketsurl.String)
+	}
+}
+
+func TestGroupRecommendedEventRows(t *testing.T) {
+	if got := groupRecommendedEventRows(nil); len(got) != 0 {
+		t.Fatalf("empty input returned %d items, want 0", len(got))
+	}
+
+	rows := []sqlc.ListRecommendedEventsRow{
+		{ID: 1, Title: "Concert", NumSignups: 12, Score: 2.5, Category: toText("Música"), Code: pgtype.Int8{Int64: 100, Valid: true}},
+		{ID: 1, Title: "Concert", NumSignups: 12, Score: 2.5, Category: toText("Cultura"), Code: pgtype.Int8{Int64: 100, Valid: true}},
+		{ID: 2, Title: "Teatre al carrer", NumSignups: 3, Score: 1.4, Category: toText("Teatre"), Creator: pgtype.UUID{Valid: true}},
+	}
+	got := groupRecommendedEventRows(rows)
+	if len(got) != 2 {
+		t.Fatalf("got %d events, want 2", len(got))
+	}
+	if got[0].ID != 1 || !slices.Equal(got[0].Categories, []string{"Música", "Cultura"}) {
+		t.Errorf("event[0] = %+v", got[0])
+	}
+	if !got[0].IsOfficial {
+		t.Errorf("event[0] IsOfficial = false, want true")
+	}
+	if got[1].ID != 2 || got[1].IsOfficial || !slices.Equal(got[1].Categories, []string{"Teatre"}) {
+		t.Errorf("event[1] = %+v", got[1])
 	}
 }

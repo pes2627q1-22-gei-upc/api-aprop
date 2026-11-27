@@ -1,11 +1,18 @@
 package signup_service
 
-import "errors"
+import (
+	"errors"
+
+	"api-aprop/internal/models/user_model"
+)
 
 var (
 	ErrEventNotFound    = errors.New("event not found")
-	ErrInvalidUserID    = errors.New("invalid user id")
+	ErrInvalidUserID    = user_model.ErrInvalidID
 	ErrInvalidEventID   = errors.New("invalid event id")
 	ErrInvalidDateRange = errors.New("invalid date range")
-	ErrEventExpired 	= errors.New("event has alredy ended")
+	ErrEventExpired     = errors.New("event has alredy ended")
+	ErrNotEnrolled      = errors.New("user is not enrolled in the event")
+	ErrEventNotStarted  = errors.New("event has not started yet")
+	ErrEventCanceled    = errors.New("event has been canceled")
 )

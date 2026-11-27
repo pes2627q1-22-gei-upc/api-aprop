@@ -56,6 +56,10 @@ func (s *stubEventService) UpdateUnofficialEvent(_ context.Context, id int, e ev
 	return e, nil
 }
 
+func (s *stubEventService) CancelUnofficialEvent(_ context.Context, _ int) (event_model.Cancellation, error) {
+	return event_model.Cancellation{}, nil
+}
+
 func (s *stubEventService) DeleteUnofficialEvent(_ context.Context, _ int) error {
 	return nil
 }
@@ -83,9 +87,16 @@ func (s *stubEventService) SearchEvents(_ context.Context, query string, pageNum
 func (s *stubEventService) CreateUnofficialEvent(_ context.Context, _ string, e event_model.Event) (event_model.Event, error) {
 	return e, nil
 }
+func (s *stubEventService) LoadAstronomicalEvents(_ context.Context) error {
+	return nil
+}
 
 func (s *stubEventService) UploadEventImage(_ context.Context, _ int, _ string, _ string, _ io.Reader) (string, error) {
 	return "https://s3/events/1/poster.jpg", nil
+}
+
+func (s *stubEventService) GetReceivedRatings(id int) ([]event_model.ReceivedRating, error) {
+	return []event_model.ReceivedRating{}, nil
 }
 
 var noopAuth = func(next http.Handler) http.Handler { return next }
@@ -99,7 +110,7 @@ func TestRouter_MapRoutesAndEventDetailRoute(t *testing.T) {
 			mux := NewRouter(
 				noopCORS,
 				noopAuth,
-				event_handler.NewEventHandler(svc),
+				event_handler.NewEventHandler(svc, svc),
 				assistant_handler.NewAssistantHandler(nil, nil),
 				signup_handler.NewSignUpHandler(nil, nil),
 			)
@@ -129,7 +140,7 @@ func TestRouter_MapRoutesAndEventDetailRoute(t *testing.T) {
 		mux := NewRouter(
 			noopCORS,
 			noopAuth,
-			event_handler.NewEventHandler(svc),
+			event_handler.NewEventHandler(svc, svc),
 			assistant_handler.NewAssistantHandler(nil, nil),
 			signup_handler.NewSignUpHandler(nil, nil),
 		)
@@ -157,7 +168,7 @@ func TestRouter_CORSPreflightSkipsAuth(t *testing.T) {
 	mux := NewRouter(
 		cors.AllowAll().Handler,
 		rejectAuth,
-		event_handler.NewEventHandler(&stubEventService{}),
+		event_handler.NewEventHandler(&stubEventService{}, &stubEventService{}),
 	)
 
 	req := httptest.NewRequest(http.MethodOptions, "/events", nil)

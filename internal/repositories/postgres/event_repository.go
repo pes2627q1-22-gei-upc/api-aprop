@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"api-aprop/internal/models/event_model"
+	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/repositories/event_repository"
 	"api-aprop/internal/repositories/postgres/sqlc"
 )
@@ -40,7 +41,7 @@ func (r *EventRepository) Create(e event_model.Event, official bool) (event_mode
 		if err != nil {
 			return err
 		}
-		return setCategories(ctx, q, int(row.ID), e.Categories)
+		return setCategories(ctx, q, int(row.ID), e.Categories, official, false)
 	})
 	if err != nil {
 		return event_model.Event{}, err
@@ -121,7 +122,7 @@ func (r *EventRepository) Update(id int, e event_model.Event, official bool) (ev
 		if err != nil {
 			return err
 		}
-		return setCategories(ctx, q, id, e.Categories)
+		return setCategories(ctx, q, id, e.Categories, official, false)
 	})
 	if err != nil {
 		return event_model.Event{}, err
@@ -213,41 +214,89 @@ func (r *EventRepository) CreateOrReplace(e event_model.Event) (event_model.Even
 	return r.Update(int(id), e, true)
 }
 
+func (r *EventRepository) CreateAstronomical(id string, e event_model.Event) error {
+	ctx := context.Background()
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	qtx := r.queries.WithTx(tx)
+
+	eid, err := qtx.UpsertAstronomicalEvent(ctx, sqlc.UpsertAstronomicalEventParams{
+		AstronomicalID: id,
+		Title:          e.Title,
+		Description:    toText(e.Description),
+		StartDate:      toDate(e.StartDate),
+		EndDate:        toDate(e.EndDate),
+		Schedule:       toText(e.Schedule),
+		Place:          toText(e.Place),
+		Latitude:       toPGXFloat(e.Latitude),
+		Longitude:      toPGXFloat(e.Longitude),
+	})
+	if err != nil {
+		return err
+	}
+	eventid, _ := eid.(int32)
+
+	if eventid != 0 {
+		err = setCategories(ctx, qtx, int(eventid), e.Categories, true, true)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit(ctx)
+}
+
 // Delete removes the event together with its sign-ups, ratings, messages, notifications, categories,
 // preference test choices, chatbot recommendations and its official/unofficial row, in a single transaction.
 func (r *EventRepository) Delete(ctx context.Context, id int) error {
-	eventID := int32(id)
 	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
-		q := r.queries.WithTx(tx)
-		dependents := []struct {
-			name   string
-			delete func(context.Context, int32) error
-		}{
-			{"sign-ups", q.DeleteEventSignUps},
-			{"event ratings", q.DeleteEventRatings},
-			{"user ratings", q.DeleteEventUserRatings},
-			{"messages", q.DeleteEventMessages},
-			{"notifications", q.DeleteEventNotifications},
-			{"preference test choices", q.DeleteEventPreferenceTestChoices},
-			{"chatbot recommendations", q.DeleteEventChatbotRecommendations},
-			{"categories", q.RemoveExistingEventCategories},
-			{"unofficial event", q.DeleteUnofficialEvent},
-		}
-		for _, d := range dependents {
-			if err := d.delete(ctx, eventID); err != nil {
-				return fmt.Errorf("delete %s of event %d: %w", d.name, id, err)
-			}
-		}
-
-		deleted, err := q.DeleteEvent(ctx, eventID)
+		deleted, err := deleteEventTx(ctx, r.queries.WithTx(tx), int32(id))
 		if err != nil {
-			return fmt.Errorf("delete event %d: %w", id, err)
+			return err
 		}
 		if deleted == 0 {
 			return fmt.Errorf("delete event %d: %w", id, event_repository.ErrEventNotFound)
 		}
 		return nil
 	})
+}
+
+// deleteEventTx deletes an event and every row that depends on it with the queries of an open
+// transaction. It returns the number of deleted events (0 if it did not exist).
+// UserRepository.DeleteUser also uses it to delete the unofficial events of a user.
+func deleteEventTx(ctx context.Context, q *sqlc.Queries, eventID int32) (int64, error) {
+	dependents := []struct {
+		name   string
+		delete func(context.Context, int32) error
+	}{
+		{"sign-ups", q.DeleteEventSignUps},
+		{"event ratings", q.DeleteEventRatings},
+		{"user ratings", q.DeleteEventUserRatings},
+		{"messages", q.DeleteEventMessages},
+		{"notifications", q.DeleteEventNotifications},
+		{"preference test choices", q.DeleteEventPreferenceTestChoices},
+		{"chatbot recommendations", q.DeleteEventChatbotRecommendations},
+		{"categories", q.RemoveExistingEventCategories},
+		{"unofficial event", q.DeleteUnofficialEvent},
+	}
+	for _, d := range dependents {
+		if err := d.delete(ctx, eventID); err != nil {
+			return 0, fmt.Errorf("delete %s of event %d: %w", d.name, eventID, err)
+		}
+	}
+
+	deleted, err := q.DeleteEvent(ctx, eventID)
+	if err != nil {
+		return 0, fmt.Errorf("delete event %d: %w", eventID, err)
+	}
+	return deleted, nil
 }
 
 func (r *EventRepository) UpdateImage(ctx context.Context, id int, imageURL string) error {
@@ -257,12 +306,50 @@ func (r *EventRepository) UpdateImage(ctx context.Context, id int, imageURL stri
 	})
 }
 
-func (r *EventRepository) SetCategories(id int, cats []string, _ bool) error {
-	return setCategories(context.Background(), r.queries, id, cats)
+func (r *EventRepository) GetUnofficialState(ctx context.Context, id int) (string, error) {
+	state, err := r.queries.GetUnofficialEventState(ctx, int32(id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", fmt.Errorf("get state of event %d: %w", id, event_repository.ErrEventNotFound)
+	}
+	if err != nil {
+		return "", fmt.Errorf("get state of event %d: %w", id, err)
+	}
+	return state, nil
+}
+
+func (r *EventRepository) Cancel(ctx context.Context, id int) (int64, error) {
+	var notified int64
+	err := pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+		q := r.queries.WithTx(tx)
+		cancelled, err := q.CancelUnofficialEvent(ctx, int32(id))
+		if err != nil {
+			return fmt.Errorf("cancel event %d: %w", id, err)
+		}
+		if cancelled == 0 {
+			// Not Active or not an unofficial event: tell both cases apart
+			state, err := q.GetUnofficialEventState(ctx, int32(id))
+			if errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("cancel event %d: %w", id, event_repository.ErrEventNotFound)
+			}
+			if err != nil {
+				return fmt.Errorf("cancel event %d: %w", id, err)
+			}
+			return fmt.Errorf("cancel event %d: %w: state is %s", id, event_repository.ErrEventNotActive, state)
+		}
+		notified, err = q.CreateCancellationNotifications(ctx, int32(id))
+		if err != nil {
+			return fmt.Errorf("notify the cancellation of event %d: %w", id, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return notified, nil
 }
 
 // setCategories replaces the categories of the event, creating the ones that do not exist yet.
-func setCategories(ctx context.Context, q *sqlc.Queries, id int, cats []string) error {
+func setCategories(ctx context.Context, q *sqlc.Queries, id int, cats []string, isOfficial bool, isAstronomical bool) error {
 	if len(cats) == 0 {
 		return nil
 	}
@@ -276,11 +363,18 @@ func setCategories(ctx context.Context, q *sqlc.Queries, id int, cats []string) 
 		if err != nil {
 			return fmt.Errorf("add categories to event %d: %w", id, err)
 		}
+		if !isAstronomical && strings.HasPrefix(v, "talaia") {
+			return event_repository.ErrCategoryNotAllowed
+		}
 		var catid int32
 		if exists {
 			catid, err = q.GetCategoryID(ctx, v)
 		} else {
-			catid, err = q.NewCategory(ctx, v)
+			if isOfficial {
+				catid, err = q.NewCategory(ctx, v)
+			} else {
+				return event_repository.ErrCategoryNotFound
+			}
 		}
 		if err != nil {
 			return fmt.Errorf("add categories to event %d: %w", id, err)
@@ -485,7 +579,7 @@ func (r *EventRepository) List(params map[string]any) ([]event_model.Event, erro
 	return events, nil
 }
 
-func toGetEventRow (r sqlc.SearchEventsWithRelevanceRow) sqlc.GetEventRow {
+func toGetEventRow(r sqlc.SearchEventsWithRelevanceRow) sqlc.GetEventRow {
 	return sqlc.GetEventRow{
 		ID:           r.ID,
 		Title:        r.Title,
@@ -501,7 +595,7 @@ func toGetEventRow (r sqlc.SearchEventsWithRelevanceRow) sqlc.GetEventRow {
 		Relatedurls:  r.Relatedurls,
 		Urlnames:     r.Urlnames,
 		Images:       r.Images,
-		Videos:		  r.Videos,
+		Videos:       r.Videos,
 		Email:        r.Email,
 		Phone:        r.Phone,
 		Activityurl:  r.Activityurl,
@@ -518,7 +612,7 @@ func toGetEventRow (r sqlc.SearchEventsWithRelevanceRow) sqlc.GetEventRow {
 		Creator:      r.Creator,
 		Datecreated:  r.Datecreated,
 		Category:     r.Category,
-	}    
+	}
 }
 
 func (r *EventRepository) Search(ctx context.Context, query string, pageNum, pageSize int) (event_model.SearchResult, error) {
@@ -612,7 +706,7 @@ func (r *EventRepository) ListMapEvents(ctx context.Context, filter event_model.
 		MaxLng: filter.MaxLng,
 	}
 	if filter.UserID != "" {
-		uid, err := toUUID(filter.UserID)
+		uid, err := user_model.ParseID(filter.UserID)
 		if err != nil {
 			return nil, err
 		}
@@ -623,15 +717,30 @@ func (r *EventRepository) ListMapEvents(ctx context.Context, filter event_model.
 		return nil, fmt.Errorf("list map events: %w", err)
 	}
 	events := make([]event_model.MapEvent, 0, len(rows))
+	lastevent := sqlc.ListMapEventsRow{}
+	cats := []string{}
 	for _, row := range rows {
-		events = append(events, mapEventRowToModel(row))
+		if lastevent == (sqlc.ListMapEventsRow{}) {
+			lastevent = row
+		}
+		if lastevent.ID != row.ID {
+			events = append(events, mapEventRowToModel(lastevent, cats))
+			lastevent = row
+			cats = []string{row.Category.String}
+		} else {
+			cats = append(cats, row.Category.String)
+		}
 	}
+	if lastevent != (sqlc.ListMapEventsRow{}) {
+		events = append(events, mapEventRowToModel(lastevent, cats))
+	}
+
 	return events, nil
 }
 
-func getPopularToGetEventRow(row sqlc.GetPopularEventsRow) sqlc.GetEventRow{
+func getPopularToGetEventRow(row sqlc.GetPopularEventsRow) sqlc.GetEventRow {
 	return sqlc.GetEventRow{
-		ID:			  row.ID,
+		ID:           row.ID,
 		Title:        row.Title,
 		Description:  row.Description,
 		Subtitle:     row.Subtitle,
@@ -661,19 +770,20 @@ func getPopularToGetEventRow(row sqlc.GetPopularEventsRow) sqlc.GetEventRow{
 		Code:         row.Code,
 		Creator:      row.Creator,
 		Datecreated:  row.Datecreated,
-		Category:	  row.Category,
+		Category:     row.Category,
+		State:        row.State,
 	}
 }
 
-func (r *EventRepository) GetPopular(pageSize int, pageNum int) ([]event_model.Event, error){
+func (r *EventRepository) GetPopular(pageSize int, pageNum int) ([]event_model.Event, error) {
 	if pageSize < 0 || pageNum < 0 {
 		return nil, fmt.Errorf("popular events: %w: pageSize and pageNum must not be negative", event_repository.ErrInvalidFilter)
 	}
-	rows, err := r.queries.GetPopularEvents(context.Background(), sqlc.GetPopularEventsParams{Limit: int32(pageSize), Offset: int32(pageSize*pageNum)})
-	if err!=nil{
+	rows, err := r.queries.GetPopularEvents(context.Background(), sqlc.GetPopularEventsParams{Limit: int32(pageSize), Offset: int32(pageSize * pageNum)})
+	if err != nil {
 		return []event_model.Event{}, err
 	}
-	if len(rows)==0{
+	if len(rows) == 0 {
 		return []event_model.Event{}, nil
 	}
 	events := []event_model.Event{}
@@ -691,6 +801,75 @@ func (r *EventRepository) GetPopular(pageSize int, pageNum int) ([]event_model.E
 	return events, nil
 }
 
+func recommendedRowToGetEventRow(row sqlc.ListRecommendedEventsRow) sqlc.GetEventRow {
+	return sqlc.GetEventRow{
+		ID:           row.ID,
+		Title:        row.Title,
+		Subtitle:     row.Subtitle,
+		Description:  row.Description,
+		Schedule:     row.Schedule,
+		Tickets:      row.Tickets,
+		Url:          row.Url,
+		Ticketsurl:   row.Ticketsurl,
+		Free:         row.Free,
+		Permanent:    row.Permanent,
+		Modality:     row.Modality,
+		Relatedurls:  row.Relatedurls,
+		Urlnames:     row.Urlnames,
+		Images:       row.Images,
+		Videos:       row.Videos,
+		Email:        row.Email,
+		Phone:        row.Phone,
+		Activityurl:  row.Activityurl,
+		Startdate:    row.Startdate,
+		Enddate:      row.Enddate,
+		Place:        row.Place,
+		Latitude:     row.Latitude,
+		Longitude:    row.Longitude,
+		PostalCode:   row.PostalCode,
+		Municipality: row.Municipality,
+		Region:       row.Region,
+		Address:      row.Address,
+		Code:         row.Code,
+		Creator:      row.Creator,
+		Datecreated:  row.Datecreated,
+		Category:     row.Category,
+		State:        row.State,
+	}
+}
+
+func groupRecommendedEventRows(rows []sqlc.ListRecommendedEventsRow) []event_model.Event {
+	if len(rows) == 0 {
+		return []event_model.Event{}
+	}
+	events := make([]event_model.Event, 0, len(rows))
+	current := rows[0]
+	cats := []string{}
+	for _, row := range rows {
+		if row.ID != current.ID {
+			events = append(events, toModelExtended(recommendedRowToGetEventRow(current), cats))
+			cats = []string{}
+			current = row
+		}
+		cats = appendCategory(cats, row.Category)
+	}
+	events = append(events, toModelExtended(recommendedRowToGetEventRow(current), cats))
+	return events
+}
+
+// ListRecommended returns a paginated slice of active events ranked in SQL for userID.
+func (r *EventRepository) ListRecommended(ctx context.Context, userID pgtype.UUID, pageSize, pageOffset int) ([]event_model.Event, error) {
+	rows, err := r.queries.ListRecommendedEvents(ctx, sqlc.ListRecommendedEventsParams{
+		UserID:     userID,
+		PageOffset: int32(pageOffset),
+		PageSize:   int32(pageSize),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list recommended events: %w", err)
+	}
+	return groupRecommendedEventRows(rows), nil
+}
+
 func (r *EventRepository) EventExists(eventID int) (bool, error) {
 	exists, err := r.queries.EventExists(context.Background(), int32(eventID))
 	if err != nil {
@@ -699,9 +878,22 @@ func (r *EventRepository) EventExists(eventID int) (bool, error) {
 	return exists, nil
 }
 
-func mapEventRowToModel(row sqlc.ListMapEventsRow) event_model.MapEvent {
+func (r *EventRepository) GetReceivedRatings(id int) ([]event_model.ReceivedRating, error) {
+	rows, err := r.queries.GetEventRatings(context.Background(), int32(id))
+	if err != nil {
+		return []event_model.ReceivedRating{}, err
+	}
+	ratings := []event_model.ReceivedRating{}
+	for _, row := range rows {
+		ratings = append(ratings, event_model.ReceivedRating{Rating: int(row.Rating), RatingDate: row.Ratingdate.Time})
+	}
+
+	return ratings, nil
+}
+
+func mapEventRowToModel(row sqlc.ListMapEventsRow, cats []string) event_model.MapEvent {
 	return event_model.MapEvent{
-		Event: toModel(sqlc.Event{
+		Event: toModelExtended(sqlc.GetEventRow{
 			ID:           row.ID,
 			Title:        row.Title,
 			Subtitle:     row.Subtitle,
@@ -729,7 +921,8 @@ func mapEventRowToModel(row sqlc.ListMapEventsRow) event_model.MapEvent {
 			Activityurl:  row.Activityurl,
 			Startdate:    row.Startdate,
 			Enddate:      row.Enddate,
-		}, 0),
+			State:        row.State,
+		}, cats),
 		IsOfficial: row.IsOfficial,
 		HasFriends: row.HasFriends,
 	}
@@ -738,6 +931,13 @@ func mapEventRowToModel(row sqlc.ListMapEventsRow) event_model.MapEvent {
 // toModel converts a database row to the domain model.
 // The code is not stored in the events table, so it is passed separately.
 func toModel(row sqlc.Event, code int64) event_model.Event {
+	var rating *float32
+
+	if row.Rating.Valid {
+		r := row.Rating.Float32
+		rating = &r
+	}
+
 	return event_model.Event{
 		ID:           int(row.ID),
 		Code:         code,
@@ -768,14 +968,28 @@ func toModel(row sqlc.Event, code int64) event_model.Event {
 		ActivityURL:  row.Activityurl.String,
 		StartDate:    row.Startdate.Time,
 		EndDate:      row.Enddate.Time,
+		Rating:       rating,
 	}
 }
 
 func toModelExtended(row sqlc.GetEventRow, cats []string) event_model.Event {
+	var rating *float32
+
+	if row.Rating.Valid {
+		r := row.Rating.Float32
+		rating = &r
+	}
+
+	var state *string
+	if row.State.Valid {
+		s := string(row.State.Unofficialeventstate)
+		state = &s
+	}
+
 	return event_model.Event{
 		ID:           int(row.ID),
 		Code:         row.Code.Int64,
-		IsOfficial:   (row.Code.Valid && row.Code.Int64 > 0) && !row.Creator.Valid,
+		IsOfficial:   (row.Code.Valid && row.Code.Int64 > 0) || !row.Creator.Valid,
 		Title:        row.Title,
 		Subtitle:     row.Subtitle.String,
 		Schedule:     row.Schedule.String,
@@ -805,6 +1019,8 @@ func toModelExtended(row sqlc.GetEventRow, cats []string) event_model.Event {
 		Creator:      row.Creator,
 		DateCreated:  row.Datecreated.Time,
 		Categories:   cats,
+		Rating:       rating,
+		State:        state,
 	}
 }
 

@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"unicode/utf8"
 
+	"api-aprop/internal/clients/s3_client"
 	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/repositories/auth_repository"
 )
@@ -18,15 +20,35 @@ const (
 
 type AuthService struct {
 	authRepository auth_repository.Repository
+	avatars        s3_client.AvatarSigner
 }
 
 func NewAuthService(authRepository auth_repository.Repository) *AuthService {
 	return &AuthService{authRepository: authRepository}
 }
 
+// WithAvatarSigner signs the avatar of the private bucket in the response of Sync (#247). Without it, only
+// external profile pictures are returned.
+func (s *AuthService) WithAvatarSigner(avatars s3_client.AvatarSigner) *AuthService {
+	s.avatars = avatars
+	return s
+}
+
 // Sync returns the database user of the Firebase account, creating it the first time the user signs in.
 // The username is only needed (and used) when the user is created. The email always follows Firebase.
 func (s *AuthService) Sync(ctx context.Context, firebaseUID, email, username string) (user_model.SyncResult, error) {
+	result, err := s.sync(ctx, firebaseUID, email, username)
+	if err != nil {
+		return user_model.SyncResult{}, err
+	}
+	field := s3_client.AvatarField{UserID: result.User.ID.String(), Picture: &result.User.ProfilePicture}
+	if err := s3_client.ResolveAvatars(ctx, s.avatars, []s3_client.AvatarField{field}); err != nil {
+		slog.Warn("could not sign the profile picture", "user", result.User.ID.String(), "error", err)
+	}
+	return result, nil
+}
+
+func (s *AuthService) sync(ctx context.Context, firebaseUID, email, username string) (user_model.SyncResult, error) {
 	user, err := s.authRepository.GetByFirebaseUID(ctx, firebaseUID)
 	if err == nil {
 		user, err = s.syncEmail(ctx, user, email)
@@ -59,6 +81,25 @@ func (s *AuthService) Sync(ctx context.Context, firebaseUID, email, username str
 		return user_model.SyncResult{}, err
 	}
 	return user_model.SyncResult{User: user, Created: true}, nil
+}
+
+// ResolveUserID returns the database ID (UUID) of the requester. The identifier is the Firebase UID set by
+// the auth middleware, or directly a UUID when the API runs without authentication (local development and tests).
+func (s *AuthService) ResolveUserID(ctx context.Context, identifier string) (string, error) {
+	if identifier == "" {
+		return "", ErrUserNotRegistered
+	}
+	if uid, err := user_model.NormalizeID(identifier); err == nil {
+		return uid, nil
+	}
+	user, err := s.authRepository.GetByFirebaseUID(ctx, identifier)
+	if errors.Is(err, auth_repository.ErrUserNotFound) {
+		return "", fmt.Errorf("%w: %w", ErrUserNotRegistered, err)
+	}
+	if err != nil {
+		return "", fmt.Errorf("resolve user: %w", err)
+	}
+	return user.ID.String(), nil
 }
 
 // syncEmail stores the Firebase email when the user changed it there.

@@ -155,3 +155,33 @@ func TestSanitizeSchema(t *testing.T) {
 		t.Fatalf("schema = %s\nwant      %s", got, want)
 	}
 }
+
+func TestChatCompletion_MultiKeyFailoverOn429(t *testing.T) {
+	var requestedKeys []string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		requestedKeys = append(requestedKeys, auth)
+		if auth == "Bearer key1" {
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = io.WriteString(w, `{"error":{"message":"rate limit"}}`)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"id":"1","choices":[{"index":0,"message":{"role":"assistant","content":"Hola"},"finish_reason":"stop"}]}`)
+	}))
+	t.Cleanup(ts.Close)
+
+	client := NewGroqClient(ts.Client(), ts.URL, "key1, key2", "groq-test-model")
+	resp, err := client.ChatCompletion(context.Background(), ChatCompletionRequest{
+		Messages: []Message{UserMessage("hola")},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Choices) != 1 || resp.Choices[0].Message.Content != "Hola" {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+	if len(requestedKeys) != 2 || requestedKeys[0] != "Bearer key1" || requestedKeys[1] != "Bearer key2" {
+		t.Fatalf("expected failover from key1 to key2, got: %v", requestedKeys)
+	}
+}

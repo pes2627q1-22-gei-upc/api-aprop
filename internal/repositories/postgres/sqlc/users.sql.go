@@ -11,6 +11,43 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const acceptFriendRequest = `-- name: AcceptFriendRequest :one
+UPDATE friendrequests SET state='Accepted'::friendrequeststate, dateresolved=now() where sender=$1 and receiver=$2 and datesent=$3 and state='Pending'::friendrequeststate RETURNING sender, receiver, datesent, state, dateresolved
+`
+
+type AcceptFriendRequestParams struct {
+	Sender   pgtype.UUID
+	Receiver pgtype.UUID
+	Datesent pgtype.Timestamp
+}
+
+func (q *Queries) AcceptFriendRequest(ctx context.Context, arg AcceptFriendRequestParams) (Friendrequest, error) {
+	row := q.db.QueryRow(ctx, acceptFriendRequest, arg.Sender, arg.Receiver, arg.Datesent)
+	var i Friendrequest
+	err := row.Scan(
+		&i.Sender,
+		&i.Receiver,
+		&i.Datesent,
+		&i.State,
+		&i.Dateresolved,
+	)
+	return i, err
+}
+
+const addFriendship = `-- name: AddFriendship :exec
+INSERT INTO friendships (user1, user2) values ($1, $2), ($2, $1)
+`
+
+type AddFriendshipParams struct {
+	User1 pgtype.UUID
+	User2 pgtype.UUID
+}
+
+func (q *Queries) AddFriendship(ctx context.Context, arg AddFriendshipParams) error {
+	_, err := q.db.Exec(ctx, addFriendship, arg.User1, arg.User2)
+	return err
+}
+
 const areFriends = `-- name: AreFriends :one
 SELECT EXISTS (
     SELECT 1 FROM Friendships
@@ -72,12 +109,133 @@ func (q *Queries) CountUserPlans(ctx context.Context, userID pgtype.UUID) (int64
 	return column_1, err
 }
 
+const createFriendRequest = `-- name: CreateFriendRequest :one
+INSERT INTO friendrequests (sender, receiver, datesent) VALUES ($1, $2, now()) returning sender, receiver, datesent, state, dateresolved
+`
+
+type CreateFriendRequestParams struct {
+	Sender   pgtype.UUID
+	Receiver pgtype.UUID
+}
+
+func (q *Queries) CreateFriendRequest(ctx context.Context, arg CreateFriendRequestParams) (Friendrequest, error) {
+	row := q.db.QueryRow(ctx, createFriendRequest, arg.Sender, arg.Receiver)
+	var i Friendrequest
+	err := row.Scan(
+		&i.Sender,
+		&i.Receiver,
+		&i.Datesent,
+		&i.State,
+		&i.Dateresolved,
+	)
+	return i, err
+}
+
+const deleteAllowedNotificationTypes = `-- name: DeleteAllowedNotificationTypes :exec
+DELETE FROM AllowedNotifications
+WHERE Settings = $1::integer
+`
+
+func (q *Queries) DeleteAllowedNotificationTypes(ctx context.Context, settingsID int32) error {
+	_, err := q.db.Exec(ctx, deleteAllowedNotificationTypes, settingsID)
+	return err
+}
+
+const denyFriendRequest = `-- name: DenyFriendRequest :one
+UPDATE friendrequests SET state='Rejected'::friendrequeststate, dateresolved=now() where sender=$1 and receiver=$2 and datesent=$3 and state='Pending'::friendrequeststate RETURNING sender, receiver, datesent, state, dateresolved
+`
+
+type DenyFriendRequestParams struct {
+	Sender   pgtype.UUID
+	Receiver pgtype.UUID
+	Datesent pgtype.Timestamp
+}
+
+func (q *Queries) DenyFriendRequest(ctx context.Context, arg DenyFriendRequestParams) (Friendrequest, error) {
+	row := q.db.QueryRow(ctx, denyFriendRequest, arg.Sender, arg.Receiver, arg.Datesent)
+	var i Friendrequest
+	err := row.Scan(
+		&i.Sender,
+		&i.Receiver,
+		&i.Datesent,
+		&i.State,
+		&i.Dateresolved,
+	)
+	return i, err
+}
+
+const getFriendRequests = `-- name: GetFriendRequests :many
+SELECT sender, receiver, datesent, state, dateresolved from friendrequests where state='Pending'::friendrequeststate and receiver=$1 ORDER BY datesent DESC
+`
+
+func (q *Queries) GetFriendRequests(ctx context.Context, receiver pgtype.UUID) ([]Friendrequest, error) {
+	rows, err := q.db.Query(ctx, getFriendRequests, receiver)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Friendrequest
+	for rows.Next() {
+		var i Friendrequest
+		if err := rows.Scan(
+			&i.Sender,
+			&i.Receiver,
+			&i.Datesent,
+			&i.State,
+			&i.Dateresolved,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getSettings = `-- name: GetSettings :many
+SELECT s.id, s.showplans, s.notificationbefore, s.language, COALESCE(an.notificationtype, -1) from settings s left join allowednotifications an on an.settings=s.id where id=$1
+`
+
+type GetSettingsRow struct {
+	ID                 int32
+	Showplans          bool
+	Notificationbefore pgtype.Interval
+	Language           string
+	Notificationtype   int32
+}
+
+func (q *Queries) GetSettings(ctx context.Context, id int32) ([]GetSettingsRow, error) {
+	rows, err := q.db.Query(ctx, getSettings, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetSettingsRow
+	for rows.Next() {
+		var i GetSettingsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Showplans,
+			&i.Notificationbefore,
+			&i.Language,
+			&i.Notificationtype,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getUserByFirebaseUIDWithSettings = `-- name: GetUserByFirebaseUIDWithSettings :one
 SELECT u.id, u.firebaseuid, u.username, u.name, u.email, u.profilepicture, u.biography,
-       u.dateregistered, u.accountstate, u.experience, u.level, u.rating, u.settings,
-       COALESCE(s.showplans, true)::boolean AS show_plans
+       u.dateregistered, u.accountstate, u.experience, u.level, u.rating, u.settings
 FROM Users u
-LEFT JOIN Settings s ON s.ID = u.Settings
 WHERE u.FirebaseUID = $1::varchar
 `
 
@@ -95,7 +253,6 @@ type GetUserByFirebaseUIDWithSettingsRow struct {
 	Level          pgtype.Int4
 	Rating         pgtype.Float4
 	Settings       int32
-	ShowPlans      bool
 }
 
 func (q *Queries) GetUserByFirebaseUIDWithSettings(ctx context.Context, firebaseUid string) (GetUserByFirebaseUIDWithSettingsRow, error) {
@@ -115,17 +272,14 @@ func (q *Queries) GetUserByFirebaseUIDWithSettings(ctx context.Context, firebase
 		&i.Level,
 		&i.Rating,
 		&i.Settings,
-		&i.ShowPlans,
 	)
 	return i, err
 }
 
 const getUserByUUID = `-- name: GetUserByUUID :one
 SELECT u.id, u.firebaseuid, u.username, u.name, u.email, u.profilepicture, u.biography,
-       u.dateregistered, u.accountstate, u.experience, u.level, u.rating, u.settings,
-       COALESCE(s.showplans, true)::boolean AS show_plans
+       u.dateregistered, u.accountstate, u.experience, u.level, u.rating, u.settings
 FROM Users u
-LEFT JOIN Settings s ON s.ID = u.Settings
 WHERE u.id = $1::uuid
 `
 
@@ -143,7 +297,6 @@ type GetUserByUUIDRow struct {
 	Level          pgtype.Int4
 	Rating         pgtype.Float4
 	Settings       int32
-	ShowPlans      bool
 }
 
 func (q *Queries) GetUserByUUID(ctx context.Context, uuid pgtype.UUID) (GetUserByUUIDRow, error) {
@@ -163,17 +316,14 @@ func (q *Queries) GetUserByUUID(ctx context.Context, uuid pgtype.UUID) (GetUserB
 		&i.Level,
 		&i.Rating,
 		&i.Settings,
-		&i.ShowPlans,
 	)
 	return i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
 SELECT u.id, u.firebaseuid, u.username, u.name, u.email, u.profilepicture, u.biography,
-       u.dateregistered, u.accountstate, u.experience, u.level, u.rating, u.settings,
-       COALESCE(s.showplans, true)::boolean AS show_plans
+       u.dateregistered, u.accountstate, u.experience, u.level, u.rating, u.settings
 FROM Users u
-LEFT JOIN Settings s ON s.ID = u.Settings
 WHERE LOWER(u.Username) = LOWER($1::varchar)
 `
 
@@ -191,7 +341,6 @@ type GetUserByUsernameRow struct {
 	Level          pgtype.Int4
 	Rating         pgtype.Float4
 	Settings       int32
-	ShowPlans      bool
 }
 
 func (q *Queries) GetUserByUsername(ctx context.Context, username string) (GetUserByUsernameRow, error) {
@@ -211,33 +360,59 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (GetUs
 		&i.Level,
 		&i.Rating,
 		&i.Settings,
-		&i.ShowPlans,
 	)
 	return i, err
 }
 
-const getUserReliability = `-- name: GetUserReliability :one
-SELECT AVG(er.Rating)::real AS reliability
-FROM EventRatings er
-JOIN UnofficialEvents ue ON ue.ID = er.Event
-WHERE ue.Creator = $1::uuid
+const getUserFriends = `-- name: GetUserFriends :many
+SELECT user2 from friendships where user1=$1
 `
 
-func (q *Queries) GetUserReliability(ctx context.Context, creator pgtype.UUID) (float32, error) {
-	row := q.db.QueryRow(ctx, getUserReliability, creator)
-	var reliability float32
-	err := row.Scan(&reliability)
-	return reliability, err
+func (q *Queries) GetUserFriends(ctx context.Context, user1 pgtype.UUID) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, getUserFriends, user1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var user2 pgtype.UUID
+		if err := rows.Scan(&user2); err != nil {
+			return nil, err
+		}
+		items = append(items, user2)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const isBlocked = `-- name: IsBlocked :one
+SELECT EXISTS (SELECT 1 from blocked where (blockeduser = $1 and blockinguser = $2) or (blockeduser = $2 and blockinguser = $1) limit 1)
+`
+
+type IsBlockedParams struct {
+	Blockeduser  pgtype.UUID
+	Blockinguser pgtype.UUID
+}
+
+func (q *Queries) IsBlocked(ctx context.Context, arg IsBlockedParams) (bool, error) {
+	row := q.db.QueryRow(ctx, isBlocked, arg.Blockeduser, arg.Blockinguser)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const listUserCreatedEvents = `-- name: ListUserCreatedEvents :many
 SELECT e.id, e.title, e.subtitle, e.description, e.schedule, e.tickets, e.url, e.ticketsurl,
 e.free, e.permanent, e.modality, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone,
 e.activityurl, e.startdate, e.enddate, e.place, e.latitude, e.longitude, e.postalcode, e.municipality,
-e.region, e.address, ue.creator, ue.datecreated
+e.region, e.address, ue.creator, ue.datecreated, ue.state
 FROM events e
 JOIN unofficialevents ue ON e.id = ue.id
 WHERE ue.creator = $1::uuid
+and ue.state = 'Active'::unofficialeventstate
 ORDER BY e.startdate DESC NULLS LAST, e.id DESC
 `
 
@@ -271,6 +446,7 @@ type ListUserCreatedEventsRow struct {
 	Address      pgtype.Text
 	Creator      pgtype.UUID
 	Datecreated  pgtype.Timestamp
+	State        Unofficialeventstate
 }
 
 func (q *Queries) ListUserCreatedEvents(ctx context.Context, creator pgtype.UUID) ([]ListUserCreatedEventsRow, error) {
@@ -312,6 +488,7 @@ func (q *Queries) ListUserCreatedEvents(ctx context.Context, creator pgtype.UUID
 			&i.Address,
 			&i.Creator,
 			&i.Datecreated,
+			&i.State,
 		); err != nil {
 			return nil, err
 		}
@@ -323,6 +500,99 @@ func (q *Queries) ListUserCreatedEvents(ctx context.Context, creator pgtype.UUID
 	return items, nil
 }
 
+const listUserReceivedRatings = `-- name: ListUserReceivedRatings :many
+SELECT ur.rater, ur.rated, e.ID as event_id, e.title as event_title, ur.Rating, ur.RatingDate
+FROM UserRatings ur
+JOIN Events e ON e.ID = ur.Event
+WHERE ur.rated = $1::uuid
+ORDER BY ur.RatingDate DESC, ur.Event DESC
+`
+
+type ListUserReceivedRatingsRow struct {
+	Rater      pgtype.UUID
+	Rated      pgtype.UUID
+	EventID    int32
+	EventTitle string
+	Rating     int32
+	Ratingdate pgtype.Timestamp
+}
+
+func (q *Queries) ListUserReceivedRatings(ctx context.Context, creator pgtype.UUID) ([]ListUserReceivedRatingsRow, error) {
+	rows, err := q.db.Query(ctx, listUserReceivedRatings, creator)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUserReceivedRatingsRow
+	for rows.Next() {
+		var i ListUserReceivedRatingsRow
+		if err := rows.Scan(
+			&i.Rater,
+			&i.Rated,
+			&i.EventID,
+			&i.EventTitle,
+			&i.Rating,
+			&i.Ratingdate,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const pendingRequestExists = `-- name: PendingRequestExists :one
+SELECT EXISTS (SELECT 1 from friendrequests where state = 'Pending'::friendrequeststate and ((sender=$1 and receiver=$2) or (sender=$2 and receiver=$1)) limit 1)
+`
+
+type PendingRequestExistsParams struct {
+	Sender   pgtype.UUID
+	Receiver pgtype.UUID
+}
+
+func (q *Queries) PendingRequestExists(ctx context.Context, arg PendingRequestExistsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, pendingRequestExists, arg.Sender, arg.Receiver)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const removeFriendship = `-- name: RemoveFriendship :exec
+DELETE from friendships where (user1=$1 and user2=$2) or (user1=$2 and user2=$1)
+`
+
+type RemoveFriendshipParams struct {
+	User1 pgtype.UUID
+	User2 pgtype.UUID
+}
+
+func (q *Queries) RemoveFriendship(ctx context.Context, arg RemoveFriendshipParams) error {
+	_, err := q.db.Exec(ctx, removeFriendship, arg.User1, arg.User2)
+	return err
+}
+
+const updateAllowedNotificationTypes = `-- name: UpdateAllowedNotificationTypes :exec
+INSERT INTO AllowedNotifications (Settings, NotificationType)
+SELECT
+    $1::integer,
+    n.notification_type
+FROM unnest($2::integer[]) AS n(notification_type)
+ON CONFLICT (Settings, NotificationType) DO NOTHING
+`
+
+type UpdateAllowedNotificationTypesParams struct {
+	SettingsID        int32
+	NotificationTypes []int32
+}
+
+func (q *Queries) UpdateAllowedNotificationTypes(ctx context.Context, arg UpdateAllowedNotificationTypesParams) error {
+	_, err := q.db.Exec(ctx, updateAllowedNotificationTypes, arg.SettingsID, arg.NotificationTypes)
+	return err
+}
+
 const updateUserProfile = `-- name: UpdateUserProfile :one
 UPDATE Users SET
     Name = COALESCE($1::varchar, Name),
@@ -330,7 +600,7 @@ UPDATE Users SET
     Biography = COALESCE($3::varchar, Biography),
     ProfilePicture = COALESCE($4::varchar, ProfilePicture)
 WHERE ID = $5::uuid
-RETURNING firebaseuid, username, email, profilepicture, biography, dateregistered, accountstate, experience, level, rating, settings, name, uuid, id
+RETURNING firebaseuid, username, email, profilepicture, biography, dateregistered, accountstate, experience, level, rating, settings, name, id, interesttestprompted
 `
 
 type UpdateUserProfileParams struct {
@@ -363,27 +633,34 @@ func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfilePa
 		&i.Rating,
 		&i.Settings,
 		&i.Name,
-		&i.Uuid,
 		&i.ID,
+		&i.Interesttestprompted,
 	)
 	return i, err
 }
 
 const updateUserSettings = `-- name: UpdateUserSettings :one
 UPDATE Settings SET
-    ShowPlans = $1::boolean
-WHERE ID = $2::integer
-RETURNING id, showplans, notificationbefore
+    ShowPlans = $1::boolean,
+    NotificationBefore = ($2::varchar)::interval
+WHERE ID = $3::integer
+RETURNING id, showplans, notificationbefore, language
 `
 
 type UpdateUserSettingsParams struct {
-	ShowPlans bool
-	ID        int32
+	ShowPlans          bool
+	NotificationBefore string
+	ID                 int32
 }
 
 func (q *Queries) UpdateUserSettings(ctx context.Context, arg UpdateUserSettingsParams) (Setting, error) {
-	row := q.db.QueryRow(ctx, updateUserSettings, arg.ShowPlans, arg.ID)
+	row := q.db.QueryRow(ctx, updateUserSettings, arg.ShowPlans, arg.NotificationBefore, arg.ID)
 	var i Setting
-	err := row.Scan(&i.ID, &i.Showplans, &i.Notificationbefore)
+	err := row.Scan(
+		&i.ID,
+		&i.Showplans,
+		&i.Notificationbefore,
+		&i.Language,
+	)
 	return i, err
 }

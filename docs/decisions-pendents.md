@@ -94,7 +94,7 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Context:** `docs/ai/40-api-i-serveis.md`
 - **Dubte:** rutes, formats, autenticació i versionat dels serveis que intercanviem.
 - **Opcions:** —
-- **Provisionalment:** interfície + fake al backend quan es comenci la integració.
+- **Provisionalment:** interfície + fake al backend quan es comenci la integració. Mobilicat: primer endpoint `POST /api/v1/congestion/estimate` implementat; supòsits a DP-032.
 - **Qui decideix:** altre equip + backend
 - **Resolució:**
 
@@ -146,6 +146,7 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Opcions:** A) validar el token de Firebase en un middleware i obtenir-ne l'usuari (eliminar `X-User-ID` i comprovar que `{userId}` és el de la sessió) · B) mantenir-ho només en desenvolupament
 - **Provisionalment:** l'UUID arriba a la capçalera o a la ruta sense autorització; `TODO(DP-011)` als handlers. El frontend continua amb el repositori de demostració (DP-010).
 - **Actualització 2026-10-26** (Claude Code, branca `fix/resolve-user-id`): inscripcions (`signup`/`enroll` i estat), xatbot i preferències apliquen l'opció A: amb el middleware, l'usuari surt del token de Firebase i es tradueix a UUID (`internal/handlers/requester`), i `X-User-ID` s'ignora; només es llegeix sense middleware. Queda oberta per a `GET /users/{userId}/events` (no es comprova que `{userId}` sigui el de la sessió), les notificacions (`/notifications/user/{id}`) i el `userId` del mapa.
+- **Actualització 2026-11-11** (Claude Code, branca `feature/unificar-usuari`, Taiga #246): events i users també identifiquen el requester amb `internal/handlers/requester`, el resolver és únic (`auth_service.ResolveUserID`) i sense identitat sempre es respon `401`. Per decisió de l'usuari, les notificacions **no** s'han tocat: `GET /notifications/user/{id}` i `POST /notifications/user/{id}/read` continuen sense comprovar que `{id}` sigui el de la sessió (`TODO(DP-011)` al handler).
 - **Qui decideix:** backend + equip (ADR-0003)
 - **Resolució:**
 
@@ -298,6 +299,348 @@ resolució és d'arquitectura, crea un ADR; si és una convenció, afegeix-la a 
 - **Opcions:** A) un `images` buit conserva la imatge actual (no es pot treure) · B) el client sempre envia `images` i un buit l'esborra · C) endpoint `DELETE /events/{id}/image`.
 - **Provisionalment:** A (`TODO(DP-026)`).
 - **Qui decideix:** frontend + backend
+- **Resolució:**
+
+### DP-027 · Reimplementació de l'assistent: tool calling directe i cerca amb rànquing
+- **Estat:** oberta
+- **Obert per:** 2026-11-07 · Claude Code (Sonnet 5.5) · branca `feature/assistant-tool-calling`
+- **Context:** s'elimina MCP (`cmd/mcp`, `internal/mcp_server`, `internal/clients/mcp_client`, `/mcp`, `MCP_TOKEN`); el servei crida les eines directament (`assistant_service/tools.go`). `SearchEvents` ignora accents (`unaccent`, migració 000012) i ordena per rellevància del text + pes màxim de `UserPreferences`.
+- **Dubte:** (1) l'extensió `unaccent` i la consulta no s'han provat contra Supabase; (2) els pesos de rellevància (títol 3, categoria 2, subtítol 1, descripció 1) i la suma amb la preferència són deduïts, no mesurats; (3) `ADR-0005` i `docs/architecture.md` encara descriuen MCP; (4) falten les eines `list_categories`/`get_user_context`, el filtre de tema fusionat i els IDs recomanats a l'historial; (5) ajuda de l'app: `assistant_service/help_guide.md` s'ha extret del codi del frontend el 2026-11-07 i s'ha de mantenir sincronitzada; l'assistent respon en l'idioma de l'usuari tot i que la UI és només en català; (6) Gemini com a còpia de seguretat (`GEMINI_API_KEY`, `GEMINI_MODEL`) sense provar; (7) `GET /assistant/suggestions` no és a `api/openapi.yaml` ni el frontend l'usa; (8) la navegació des del xat requereix un contracte nou amb el frontend i no s'ha fet.
+- **Opcions:** A) mantenir el rànquing actual · B) afegir cerca per text complet (`tsvector`) · C) afegir `pgvector` si A/B no basten.
+- **Provisionalment:** A.
+- **Qui decideix:** equip
+- **Resolució:**
+
+
+### DP-028 · Millores de l'assistent: accions de pantalla, feedback i límit de missatges
+- **Estat:** oberta
+- **Obert per:** 2026-11-07 · Claude Code (Sonnet 5.5) · branca `feature/assistant-tool-calling`
+- **Context:** `POST /assistant/feedback` (migració 000013, taula `ChatbotFeedback`), camp `action.screen` a la resposta de `POST /assistant/messages`, límit de 20 missatges/minut per usuari (`429`), registre de les crides a eines, ajuda amb l'estat de l'usuari (`user-has-done-test`).
+- **Dubte:** (1) `action.screen` és un enum tancat (`home`, `agenda`, `discover`, `notifications`, `profile`, `settings`, `interest-test`) deduït del tema de la guia (`topicScreens` a `help.go`); el frontend ha de dir quines pantalles existeixen de debò; temes sense pantalla clara (mapa, crear activitat, amics) no en porten; (2) `action` no es desa: una conversa recarregada amb `GET /assistant/conversation` no el porta; (3) el límit és en memòria (es perd en reiniciar i no es comparteix entre instàncies) i els 20/min no s'han validat amb ús real; (4) la migració 000013 no s'ha aplicat a Supabase ni es reflecteix a `supabase/migrations/`; la consulta de `sqlc` s'ha escrit a mà (sqlc no és instal·lat): cal `sqlc generate` i comparar; (5) `gemini-2.5-flash` retorna 404; el valor per defecte és ara `gemini-3.8-flash` (el que suggereix Google) però la crida de prova ha donat 503/timeout, així que Gemini continua sense verificar; (6) el model respon sovint en català a preguntes en castellà o anglès tot i la regla del prompt; (7) `api/openapi.yaml` no inclou els endpoints nous.
+- **Opcions:** A) deixar-ho així i validar amb el frontend · B) desar `action` en una columna nova · C) límit compartit (Redis/BD).
+- **Provisionalment:** A.
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
+### DP-029 · Confirmar l'assistència: codi d'error R8, camp i esquema
+- **Estat:** oberta
+- **Obert per:** 2026-11-14 · Claude Code (Sonnet 5.5) · branca `feature/attendance-confirmation` (Taiga #211, US #64)
+- **Context:** `PATCH /events/{id}/enrollment/attendance` amb cos `{"attendance": true|false|null}` (el camp ha de ser present). Migració 000015: `SignUp.Attendance boolean` nul·lable (`null` = desconeguda). El codi sqlc afegit coincideix amb la sortida de `sqlc generate` v1.31.1 (verificat en una còpia; la resta de diferències de `sqlc` són prèvies).
+- **Dubte:** (1) R8 viola → `409 Conflict` (alternativa `422`); (2) esborrar el valor (`null`) es permet abans de l'inici; (3) no inscrit → `404`; (4) el nom del camp i la forma de la resposta no tenen contracte amb el frontend; (5) la migració 000015 s'ha provat en un PostgreSQL 16 local (migracions 1–15 + SQL i servei reals), però no s'ha aplicat a Supabase; (6) es compara `StartDate < ara` amb l'hora del servidor, sense zona horària d'esdeveniment; com que `Events.StartDate` és de tipus `date` (sense hora), un esdeveniment d'avui ja compta com a començat des de les 00:00.
+- **Opcions:** A) 409 · B) 422.
+- **Provisionalment:** A.
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
+### DP-030 · Especificació de la consulta GetUserProfile quan es completin els Settings
+- **Estat:** oberta
+- **Obert per:** 2026-11-17 · Lluc Paez · branca `fix/db-corrections` (Storyless)
+- **Context:** `GET /users/{id}`.
+- **Dubte:** (1) La consulta GET /users/{id} actualment retorna el camp showPlans dels Settings de l'usuari, cosa que s'entén perquè és necessari per calcular si els plans de l'usuari objectiu s'han de mostrar a l'usuari que fa la petició. El problema és la resta dels camps, com ara NotificationBefore, però també totes les altres configuracions que s'hauran d'afegir més tard. Hem de decidir què retorna aquesta consulta i què no. Penso que tindria més sentit fer una consulta separada per la resta de configuracions, ja que és informació que no cal per mostrar el perfil d'un usuari (i que els altres usuaris no haurien de tenir).
+- **Opcions:** A) GetUserProfile retorna ShowPlans però cap altre Setting. Els Settings s'obtindran amb una consulta separada GET users/{id}/settings o GET settings/{id} segons convingui. · B) GetUserProfile retorna tots els Settings.
+- **Provisionalment:** A.
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
+### DP-031 · Baixa del compte (`DELETE /users/me`): abast de l'esborrat RGPD
+- **Estat:** oberta
+- **Obert per:** 2026-11-16 · Claude Code (Opus 5.5) · branca `feature/delete-users` (Taiga #116)
+- **Context:** `UserRepository.DeleteUser` (`queries/account_deletion.sql`), `user_service.DeleteAccount`, `firebase_client.DeleteUser`, `s3_client.DeleteAvatar`. Opcions 1–3 confirmades per l'equip (Arnau) abans d'implementar.
+- **Dubte / supòsits:**
+  1. **Esborrat físic** (no anonimització): es treu la fila de `Users`, els seus `Settings` i totes les files que la referencien (notificacions pròpies i les d'altres sobre l'usuari, sol·licituds d'amistat, amistats, bloquejos, inscripcions, valoracions donades i **rebudes**, missatges, test i preferències, nivell, estat i converses del xatbot).
+  2. Els **esdeveniments no oficials creats per l'usuari s'esborren** amb les dades que en depenen (inscripcions i valoracions d'altres usuaris incloses), reutilitzant la lògica de `DELETE /events/{id}` (`deleteEventTx`). Els altres usuaris no en reben cap avís.
+  3. L'**avatar** s'esborra de S3 després del commit, en mode best-effort (un error només es registra). Les imatges dels esdeveniments esborrats **no** s'eliminen de S3. La petició `DELETE` a S3 no va signada, igual que la pujada actual.
+  4. Ordre: transacció a la BD → baixa a Firebase (dins la transacció, abans del commit; si falla → `502` i rollback) → commit. Si el commit fallés després d'esborrar el compte de Firebase, les dades quedarien a la BD sense compte: es registra amb `slog.Error` i s'han d'esborrar a mà. Un compte de Firebase inexistent no és error (idempotent).
+  5. Sense credencials de Firebase (desenvolupament local) només s'esborra de la BD.
+  6. No es demana cap confirmació addicional (contrasenya o reautenticació recent) al backend: la confirmació és responsabilitat del frontend.
+  7. No s'ha provat contra PostgreSQL/Supabase (sense BD a l'entorn de desenvolupament): només tests unitaris.
+- **Opcions:** —
+- **Provisionalment:** els supòsits anteriors.
+- **Qui decideix:** equip (backend + frontend)
+- **Resolució:**
+
+### DP-032 · Contracte amb Mobilicat: estimació de congestió
+- **Estat:** oberta
+- **Obert per:** 2026-11-16 · Claude Code (Opus 5.5) · branca `feature/mobilicat-endpoints` (Taiga #112)
+- **Context:** `POST /api/v1/congestion/estimate` (`congestion_handler`, `congestion_service`, `queries/congestion.sql`), segons el correu de Mobilicat. Opcions 1–4 confirmades per l'equip (Arnau) abans d'implementar; la resta són supòsits pendents de Mobilicat.
+- **Dubte / supòsits:**
+  1. JSON en **snake_case** (`start_time`, `radius_km`, `congestion_factor`, `events_count`) tal com el correu, excepció a la regla kebab-case del projecte.
+  2. Autenticació amb capçalera `X-API-Key` comparada amb `MOBILICAT_API_KEY` (sense la clau configurada → `503`; clau absent o incorrecta → `401`). Cal fer arribar la clau a Mobilicat per un canal privat.
+  3. Fórmula: `score = Σ(1 + inscripcions no marcades com a absents)`, `factor = 0.1 + 0.9·(1 − e^(−score/K))`, K = 20 (`MOBILICAT_CONGESTION_K`), arrodonit a 2 decimals. Nivells: `LOW` < 0.4 ≤ `MEDIUM` < 0.7 ≤ `HIGH`.
+  4. Compten els esdeveniments (oficials i no oficials) amb coordenades dins del radi (haversine) i dates que se solapen amb la franja, excepte els de modalitat `Online`. Un esdeveniment no permanent sense data de fi dura un dia; un de permanent sense data de fi, indefinidament. Sense `StartDate` no compta.
+  5. Granularitat de dia: `Events.StartDate/EndDate` són `date`, així que la franja es converteix a dies de `Europe/Madrid`; les hores de `start_time`/`end_time` no afinen més.
+  6. Valors per defecte: sense `timeframe` → ara; només `start_time` → `end_time = start_time`; només `end_time` → `start_time = ara`; `end_time < start_time` → `400`. Radi per defecte 1 km (també si és 0), màxim 50 km.
+  7. Límits: 1–100 ubicacions per petició; `id` obligatori i retornat; resultats en el mateix ordre. A més de `locations`, s'accepta un objecte `location` individual ("ubicació individual o array" del correu).
+  8. Sense versionat més enllà del prefix `/api/v1` del correu ni límit de peticions (rate limit).
+  9. Mètode `POST` tot i ser una operació de només lectura (segura i idempotent): el cos porta fins a 100 ubicacions amb `id` i una franja niuada, que no caben bé a la query string, i un `GET` amb cos no té semàntica definida (RFC 9110) i molts clients i proxies el descarten. Si Mobilicat ho demana, es pot afegir `GET /api/v1/congestion/estimate?latitude=…&longitude=…` per a una sola ubicació.
+- **Opcions:** —
+- **Provisionalment:** els supòsits anteriors.
+- **Qui decideix:** Mobilicat + backend
+- **Resolució:**
+
+### DP-033 · Valorar un esdeveniment: taula reutilitzada, codi d'error R10 i consulta d'assistència
+- **Estat:** oberta
+- **Obert per:** 2026-11-17 · Claude Code (Sonnet 5.5) · branca `feature/event-rating` (Taiga #184, US #48)
+- **Context:** `POST /events/{id}/ratings` amb cos `{"score": 1..5}` → `201 {"user-id","event-id","score"}` i `GET /events/{id}/enrollment/attendance` (alias `/signup/attendance`) → `200 {"user-id","event-id","has-attended"}`. La tasca demanava una taula `ratings`, però `EventRatings` ja existeix (migració 000001: PK `(UserID, Event)` = únic per usuari/esdeveniment, `CHECK rating 1..5` des de la 000008, FK a `Users` des de la 000009), així que es reutilitza i **no s'afegeix cap migració**. `ratings.sql.go` s'ha generat amb `sqlc` v1.31.1 a partir de `ratings.sql`.
+- **Dubte:** (1) R10 (no ha assistit) → `403` (alternatives `409`/`422`); (2) valoració repetida → `409` (no s'actualitza; potser s'hauria de permetre editar); (3) `score` fora de 1..5 o no enter → `400`; (4) R8 no es torna a comprovar: R10 exigeix `attendance = true`, que R8 ja només deixa fixar un cop l'esdeveniment ha començat; (5) `RatingDate` s'omple amb `now()` de la BD; (6) `GET /events/{id}/enrollment/attendance` retorna `has-attended: true|false` per saber si mostrar el botó de valorar; (7) sense migració ni prova contra una BD real.
+- **Opcions:** A) 403 + 409 · B) 422 + 409 · C) 403 + upsert (editar).
+- **Provisionalment:** A.
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
+### DP-034 · Fórmula de recomanació en SQL, exclusió d'esdeveniments inscrits i paginació obligatòria
+- **Estat:** oberta
+- **Obert per:** 2026-11-17 · Antigravity · Taiga #51 (`feature/recommended-events`)
+- **Context:** `internal/services/event_service/event_service.go` (`GetRecommendedEvents`), `internal/handlers/event_handler/event_handler.go` (`GetRecommendedEvents`) i `internal/repositories/postgres/queries/recommendations.sql` (`ListRecommendedEvents`)
+- **Dubte:** (1) La tasca demana combinar `Interès./pes` (`UserPreferences`) i `SignUp`, però no fixa una fórmula exacta ni si els esdeveniments on l'usuari ja està inscrit s'han d'excloure o només penalitzar; (2) tampoc no especifica si `pageSize` i `pageNum` han de ser obligatoris amb `pageSize > 0` i `pageNum >= 0` (`400` en cas contrari) o si han de tenir valors per defecte com a `GET /events` (`defaultPageSize = 20`, `pageNum = 0`); (3) `ListRecommendedEvents` a `recommendations.sql` calcula la puntuació, ordena i pagina (`LIMIT`/`OFFSET`) directament a PostgreSQL (generat amb `sqlc` v1.31.1), però encara no s'ha executat contra una BD PostgreSQL/Supabase real.
+- **Opcions:** A) Excloure els esdeveniments on l'usuari ja està inscrit, puntuar a SQL com a mitjana per categoria de `(COALESCE(pes_preferència, 1.0) + LEAST(inscripcions_categoria * 0.5, 2.0))` + `LEAST(0.1 * LN(1 + inscripcions_globals), 0.5)` i exigir `pageSize > 0` i `pageNum >= 0` · B) Incloure els ja inscrits (penalitzats o no), ajustar pesos/topalls o posar valors per defecte de paginació.
+- **Provisionalment:** A (`TODO(DP-034)` a `event_service.go` i `event_handler.go`).
+- **Qui decideix:** backend + equip
+
+### DP-035 · Fiabilitat de l'organitzador: font de les valoracions i llistat
+- **Estat:** oberta
+- **Obert per:** 2026-11-17 · Claude Code (Sonnet 5.5) · branca `feature/organizer-reliability` (US #59)
+- **Context:** `reliability` = mitjana de `EventRatings.Rating` dels `UnofficialEvents` creats per l'usuari (`20-model-domini.md`: /fiabilitat); `null` si no n'hi ha. Per revisió de la PR #67 es llegeix de `Users.Rating`, que un trigger sobre `EventRatings` (migració 000017, amb backfill) recalcula a cada alta, edició o baixa de valoració. Nou `GET /users/{id}/ratings` (`id` o `me`) amb `event-id`, `event-title`, `rating`, `rating-date`.
+- **Dubte:** (1) la revisió demanava calcular-ho des de `UserRatings`, però aquesta taula no té columna de puntuació (només rater, rated, event, ratingdate), així que la font continua sent `EventRatings`; (1b) el trigger és `SECURITY DEFINER` i no s'ha provat contra Supabase; (2) el llistat no exposa qui valora (privacitat) i és visible per a qualsevol usuari autenticat; (3) sense paginació; (4) la consulta no s'ha provat contra Supabase; `sqlc generate` v1.31.1 s'ha executat i només s'ha conservat `users.sql.go`.
+- **Opcions:** A) EventRatings · B) UserRatings · C) mitjana de totes dues.
+- **Provisionalment:** A.
+- **Qui decideix:** equip
+
+### DP-036 · Editar i eliminar la meva valoració (`/events/{id}/ratings/me`)
+- **Estat:** oberta
+- **Obert per:** 2026-11-18 · Claude Code (Sonnet 5.5) · branca `feature/rating-edit-delete-205` (Taiga #205, US #61)
+- **Context:** `PUT /events/{id}/ratings/me` (cos `{"score": 1..5}`, el mateix que `POST`) → `200 {"user-id","event-id","score"}`; `DELETE /events/{id}/ratings/me` → `204`. L'usuari es resol de l'autenticació (només toca la seva valoració). Sense migració: `UPDATE`/`DELETE` sobre `EventRatings`. La fiabilitat de l'organitzador (`GetUserReliability`) és un `AVG` calculat en llegir, així que no cal recalcular res.
+- **Dubte:** (1) `PUT` retorna `200` (el `POST` retorna `201`); (2) `404` tant si l'esdeveniment no existeix com si l'usuari no té valoració (mateix codi, missatge diferent); (3) `RatingDate` es conserva en editar (alternativa: posar-la a `now()`); (4) no es torna a comprovar R10 en editar/eliminar (la valoració ja existeix); (5) si s'ha de poder eliminar/editar una valoració d'un esdeveniment ja finalitzat o esborrat; (6) SQL no provat contra BD real.
+- **Opcions:** A) `RatingDate` conservada · B) `RatingDate = now()` en editar.
+- **Provisionalment:** A.
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
+### DP-037 · Cerca d'usuaris `GET /users?q=`
+- **Estat:** oberta
+- **Obert per:** 2026-11-18 · Claude Code (Opus 5.5) · branca `feature/cercar-usuaris` (Taiga #161)
+- **Context:** `UserHandler.SearchUsers`, `user_service.SearchUsers`, `queries/user_search.sql`. (Obert com a DP-035; renumerada a DP-037 en fer merge de `develop`, que ja tenia DP-033 a DP-036.)
+- **Dubte / supòsits:**
+  1. Es cerca per «conté» (`ILIKE`) al nom d'usuari i al nom, sense distingir majúscules. Els comodins `%`, `_` i `\` es cerquen literalment. Ordre: nom d'usuari exacte, després els que comencen pel text i al final la resta, alfabèticament. No s'ignoren els accents (`Nuria` no troba `Núria`).
+  2. «Comptes desactivats»: s'exclouen tots els usuaris amb un `AccountState` diferent d'`Active` (ara és l'únic estat que existeix; R6 en preveu el `Desactivat`).
+  3. Bloquejos: s'exclouen en els dos sentits (qui ha bloquejat l'usuari que cerca i qui ell ha bloquejat), com fa `IsBlocked`.
+  4. L'usuari que cerca no surt als resultats. Cal identitat (`401` sense).
+  5. Paginació com `GET /events/search`: `pageNum` (des de 0) i `pageSize` (20 per defecte, màxim 50); `q` buit retorna una pàgina buida en lloc de tots els usuaris; `q` de més de 100 caràcters → `400`.
+  6. Cada resultat només porta `id`, `username`, `name` i `profile-picture` (ni el correu ni si és amic).
+  7. SQL no provat contra PostgreSQL/Supabase; `user_search.sql.go` s'ha escrit a mà en el format de sqlc.
+- **Opcions:** —
+- **Provisionalment:** els supòsits anteriors.
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
+### DP-038 · Estat d'un esdeveniment no oficial i modificació amb `PUT /events/{id}`
+- **Estat:** oberta
+- **Obert per:** 2026-11-18 · Claude Code (Opus 5.5) · branca `feature/modificar-esdeveniment` (Taiga #188)
+- **Context:** (Obert com a DP-034 amb la migració 000017; renumerades a DP-038 i 000018 en fer merge de `develop`, que ja les tenia ocupades.) La tasca demana verificar l'«estat actiu», però la BD no tenia cap estat per als NoOficials (`20-model-domini.md`: `NoOficial.estat: Retirat, … TODO(confirmar)`). L'equip (Arnau) ha triat afegir una columna d'estat.
+- **Dubte / supòsits:**
+  1. Migració 000018: enum `UnofficialEventState ('Active', 'Withdrawn')` i columna `UnofficialEvents.State NOT NULL DEFAULT 'Active'`. Els esdeveniments existents queden `Active`. Els oficials no en tenen (R7: mai no poden estar Retirats).
+  2. `PUT /events/{id}` respon `409 Conflict` si l'estat no és `Active`. L'ordre de comprovacions és: autoria i tipus (`403`) → estat (`409`) → camps i R5 (`400`).
+  3. De moment cap endpoint no canvia l'estat (la retirada arribarà amb les denúncies, R7). L'estat no surt a les respostes JSON dels esdeveniments.
+  4. No s'ha bloquejat `POST /events/{id}/image` ni `DELETE /events/{id}` per als esdeveniments retirats, ni s'amaguen dels llistats: fora de l'abast de #188.
+  5. Pendent de confirmar si cal un estat `Cancelled` (cancel·lat pel creador), diferent de `Withdrawn`. → La Tasca #180 l'afegeix (DP-041).
+  6. La migració i la consulta `GetUnofficialEventState` no s'han provat contra PostgreSQL/Supabase; `events.sql.go` s'ha escrit a mà en el format de sqlc (sense regenerar, pels ajustos manuals del fitxer).
+- **Opcions:** —
+- **Provisionalment:** els supòsits anteriors.
+- **Qui decideix:** equip (backend + frontend)
+- **Resolució:**
+
+### DP-039 · Recuperar la contrasenya: endpoint públic `POST /auth/password-reset`
+- **Estat:** oberta
+- **Obert per:** 2026-11-18 · Claude Code (Opus 5.5) · branca `feature/recuperar-contrasenya` (Taiga #118, part backend)
+- **Context:** (Obert com a DP-033; renumerada a DP-039 en fer merge de `develop`, que ja tenia fins a la DP-038.) `password_reset_handler`, `password_reset_service`, `firebase_client.IdentityToolkitClient`. La tasca és sobretot de frontend (`sendPasswordResetEmail`, `ForgotPasswordScreen`); el backend hi afegeix poder fer-ho amb el nom d'usuari i un límit al servidor.
+- **Dubte / supòsits:**
+  1. Endpoint **públic** (qui ha oblidat la contrasenya no té sessió), muntat fora del router com el de Mobilicat. Cos `{"identifier": "..."}`: si conté `@` és un correu; si no, un nom d'usuari que es busca a la BD per obtenir-ne el correu.
+  2. **Anti-enumeració:** respon `204` tant si el compte existeix com si no. Amb un nom d'usuari, els límits i els errors de Firebase tampoc no es comuniquen (un nom inexistent no arriba mai a Firebase). Una fallada de xarxa amb Firebase sí que retorna `502`.
+  3. Enviament amb l'API REST de Firebase Auth (`accounts:sendOobCode`, `PASSWORD_RESET`) i la **Web API key** (`FIREBASE_WEB_API_KEY`; sense ella → `503`). L'Admin SDK no serveix: només genera l'enllaç i caldria un servei de correu propi. El correu i la pàgina de l'enllaç són les plantilles de Firebase, en català (`X-Firebase-Locale: ca`).
+  4. Límit: 1 petició per identificador i per correu cada 60 s (`429` + `Retry-After`), en memòria (es perd en reiniciar i no es comparteix entre instàncies). Sense límit per IP. Firebase hi afegeix les seves quotes.
+  5. El frontend (`FirebaseAuthRepository.sendPasswordResetEmail`) hauria de cridar aquest endpoint en lloc de `FirebaseAuth.sendPasswordResetEmail`, per poder acceptar el nom d'usuari. Pendent de la part FE.
+  6. No provat contra Firebase real (sense la clau a l'entorn de desenvolupament): només tests unitaris amb `httptest`.
+- **Opcions:** A) aquest endpoint · B) només el SDK de Firebase al client (sense nom d'usuari ni límit propi).
+- **Provisionalment:** A.
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
+### DP-040 · Xat d'esdeveniment: taula `EventMessages` i `GET`/`POST /events/{id}/messages`
+- **Estat:** oberta
+- **Obert per:** 2026-11-19 · Claude Code (Opus 5.5) · branca `feature/xat-esdeveniment` (Taiga #147)
+- **Context:** `message_handler`, `message_service`, `queries/event_messages.sql`, migració 000019. La tasca demanava una migració de la taula `event_messages`, però la taula ja existia com a `Messages` (migració 000001) amb la PK `(UserID, Event, DateSent)`, que és la clau R1 (autor + esdeveniment + dataEnviament). L'equip (Arnau) ha triat reanomenar-la.
+- **Dubte / supòsits:**
+  1. Migració 000019: `Messages` → `EventMessages` (com `EventRatings`), `DateSent DEFAULT now()` i índex `(Event, DateSent DESC)`. Es mantenen la PK i les FK. S'han actualitzat `DeleteUserMessages` i `DeleteEventMessages`.
+  1b. **Compressió del text** (demanada per l'equip per estalviar espai a la BD): Postgres només comprimeix files de més d'~2 kB, que un missatge no arriba a fer, així que la comprimeix l'API (`message_codec.go`). `Message` passa a `bytea`: 1 byte de format (`0` = text UTF-8 tal qual, `1` = DEFLATE de `compress/flate`, sense dependències noves) + el text. Només es comprimeix si ocupa menys; els missatges curts (menys d'~100 bytes, la majoria) queden igual (+1 byte). Els llargs ocupen aproximadament la meitat. Conseqüències: el text ja no es pot llegir ni cercar des de SQL o el panell de Supabase (afecta, p. ex., futures denúncies de missatges); la BD només limita la mida (2..4001 bytes) i el límit de 1–1000 caràcters el comprova l'API; les files existents es converteixen al format `0`; el `down` no pot descomprimir els missatges en format `1` i els substitueix per `[missatge comprimit]`. L'alternativa que estalviaria més espai és esborrar els xats dels esdeveniments acabats fa N dies (tasca diària a `runDaily`), pendent de decidir.
+  2. R11 també s'aplica a la lectura: només els inscrits poden veure el xat (`403` en tots dos casos, com R10 a les valoracions). «Inscripció activa» = existeix una fila a `SignUp` (desapuntar-se l'esborra).
+  3. El creador d'un esdeveniment no oficial no hi té accés si no s'hi ha inscrit.
+  4. No es comprova l'estat de l'esdeveniment (`Withdrawn`), ni si ja ha acabat, ni els bloqueigs entre usuaris: tots els inscrits veuen tots els missatges.
+  5. Paginació: del més nou al més antic, `pageNum` des de 0, `pageSize` 50 per defecte i màxim 100. Sense temps real (el client fa polling).
+  6. Dos missatges del mateix usuari al mateix esdeveniment en el mateix microsegon violen la clau R1 → `409`.
+  7. Cada missatge porta `user-id`, `username`, `name`, `profile-picture`, `event-id`, `text` i `date-sent`.
+  8. La migració i les consultes no s'han provat contra PostgreSQL/Supabase; `event_messages.sql.go` s'ha escrit a mà en el format de sqlc.
+- **Opcions:** —
+- **Provisionalment:** els supòsits anteriors.
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
+### DP-041 · Cancel·lar un esdeveniment no oficial (`POST /events/{id}/cancel`)
+- **Estat:** oberta
+- **Obert per:** 2026-11-19 · Claude Code (Opus 5.5) · branca `feature/cancellar-esdeveniment` (Taiga #180)
+- **Context:** `EventHandler.CancelEvent`, `EventService.CancelUnofficialEvent`, `EventRepository.Cancel`, consultes `CancelUnofficialEvent` i `CreateCancellationNotifications`, migració 000020. (La DP-040 és a la PR #69 del xat.)
+- **Dubte / supòsits:**
+  1. Migració 000020: nou valor `Cancelled` a `UnofficialEventState` (diferent de `Withdrawn`, que és per denúncies, R7) i nou tipus de notificació `Cancelacio` a `NotificationTypes` (`NumNotificationTypes` passa a 4). El tipus s'insereix amb la migració perquè `NotificationRepository` esborra i recrea els tipus quan no n'hi ha `NumNotificationTypes`, i aquest esborrat fallaria si ja hi ha notificacions. El `down` no pot treure el valor de l'enum (Postgres no ho permet) i torna els cancel·lats a `Active`.
+  2. Autoria com a `PUT`/`DELETE`: només el creador (`403` per a la resta i per als oficials). Ordre: autoria (`403`) → acabat (`409`) → estat (`409`).
+  3. Només es pot cancel·lar un esdeveniment `Active` que no hagi acabat (darrer dia = `EndDate`, o `StartDate` si no en té, abans d'avui → `409`). Un esdeveniment en curs sí que es pot cancel·lar. Tornar-lo a cancel·lar dona `409`.
+  4. El canvi d'estat i les notificacions van en una sola transacció; l'`UPDATE` només actua si l'estat encara és `Active`, així dues peticions alhora no generen notificacions duplicades.
+  5. Es notifica un cop cada usuari inscrit, excepte el creador, amb el text «<títol> s'ha cancel·lat.» (en català, com els recordatoris). No es tenen en compte les preferències de notificació de `Settings`. Com que ja tenen una notificació de l'esdeveniment, `CreateReminders` ja no els enviarà el recordatori.
+  6. Les inscripcions no s'esborren, l'esdeveniment segueix als llistats i el JSON de l'esdeveniment no mostra l'estat. Tampoc no es bloquegen les noves inscripcions, el xat ni la imatge d'un esdeveniment cancel·lat. Cal decidir-ho amb el frontend.
+  7. Resposta `200 {event-id, state, notified-users}`. No hi ha manera de desfer la cancel·lació.
+  8. La migració i les consultes no s'han provat contra PostgreSQL/Supabase; el codi de `sqlc` s'ha escrit a mà en el seu format.
+- **Opcions:** —
+- **Provisionalment:** els supòsits anteriors.
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
+### DP-042 · Bloquejar i desbloquejar usuaris (`/users/{id}/block`, `GET /users/me/blocked`)
+- **Estat:** oberta
+- **Obert per:** 2026-11-19 · Claude Code (Opus 5.5) · branca `feature/usuaris-bloquejats` (Taiga #108, part backend)
+- **Context:** `user_handler/blocked_users.go`, `user_service/blocked_users.go`, `postgres/blocked_users.go`, `queries/blocked_users.sql`, migració 000021. La taula `Blocked` ja existia (000001: PK `(BlockingUser, BlockedUser)`, `CHECK` R2, FK a `Users` des de la 000009) i ja s'usava a `IsBlocked` (sol·licituds d'amistat) i a la cerca d'usuaris, però no hi havia cap endpoint. (La DP-040 i la DP-041 són a les PR #69 i #70.)
+- **Dubte / supòsits:**
+  1. Migració 000021: columna `DateBlocked` (`DEFAULT now()`; els bloquejos existents queden amb la data de la migració) per ordenar la llista, i índex per `BlockedUser`.
+  2. R3: en bloquejar, en una sola transacció s'elimina l'amistat (les dues files de `Friendships`) i les sol·licituds `Pending` o `Accepted` entre tots dos passen a `Rejected` (es manté la `DateResolved` de les acceptades). No s'esborren perquè les notificacions socials les referencien.
+  3. En desbloquejar no es recupera l'amistat: cal tornar a enviar una sol·licitud.
+  4. L'usuari bloquejat no rep cap notificació. Bloquejar no amaga els esdeveniments, el xat ni les notificacions antigues de l'altre usuari; només impedeix les sol·licituds d'amistat (`IsBlocked`) i el treu de la cerca.
+  5. Rutes: `POST /users/{id}/block` (`201` amb l'usuari bloquejat), `DELETE /users/{id}/block` (`204`) i `GET /users/me/blocked` (`200`, del més recent al més antic, sense paginació). `{id}` accepta UUID, Firebase UID o nom d'usuari, com `unfriend`. Codis: `400` R2, `404` usuari inexistent o no bloquejat, `409` ja bloquejat.
+  6. La migració i les consultes no s'han provat contra PostgreSQL/Supabase; `blocked_users.sql.go` s'ha escrit a mà en el format de sqlc.
+- **Opcions:** —
+- **Provisionalment:** els supòsits anteriors.
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
+### DP-043 · Canviar idioma (#28): idioma de l'usuari i traducció d'esdeveniments
+- **Estat:** oberta
+- **Obert per:** 2026-11-19 · Claude Code (Sonnet 5.5) · branca `feature/change-language-28` (Taiga #28)
+- **Context:** `translate_client`, `translation_service`, `translation_repository`, `handlers/language`, `queries/translations.sql`, migració 000022. Decisions ja preses per l'usuari: idiomes `ca`/`es`/`en` (original `ca`), servei traductor extern sobre Cloudflare Workers AI (`TRANSLATOR_URL`), cau a BD i idioma persistit a `Settings`.
+- **Dubte / supòsits:**
+  1. **Numeració de la migració:** `develop` ja té fusionades `000020` (`event_cancellation`) i `000021` (`blocked_users`), així que s'usa **000022** (`supabase/migrations/20261119000022_event_translations.sql`). Compte amb la PR #73 (`feature/settings-improvements`), que també porta una migració pendent: si es fusiona abans, caldrà renumerar aquesta.
+  2. **Idioma de resolució:** `?lang` guanya; sense ell, l'idioma de `Settings` de l'usuari autenticat; sense usuari (o si no es pot identificar o llegir), l'original. Un usuari sense `POST /auth/sync` no rep `401` per això: simplement veu l'original. `ca` no crida mai el traductor.
+  3. **Camps traduïts:** arran de la revisió de la PR #74 (Lluc), es tradueixen `title`, `subtitle`, `description`, `schedule`, `tickets` i `url-names` (separat per comes per traduir cada nom d'enllaç sense trencar la correspondència amb `related-urls`). Pendent de confirmar amb el frontend si s'acaba mostrant `subtitle`. `place`, `municipality`, `region`, `address`, etc. queden sense traduir. L'esdeveniment retornat per `POST`/`PUT /events` tampoc es tradueix (és el text de l'autor).
+  4. **Cau:** `EventTranslations(Event, Lang, Title, Subtitle, Description, Schedule, Tickets, URLNames, SourceHash, UpdatedAt)` amb PK `(Event, Lang)`, `ON DELETE CASCADE` i RLS. `SourceHash` = SHA-256 dels sis camps originals separats per `0x00`; un canvi a qualsevol dels sis camps invalida la traducció. No hi ha caducitat ni esborrat de traduccions antigues.
+  5. **Fallada de traducció:** es retorna el text original, es registra (`slog`) i no es desa res a la cau; amb `TRANSLATOR_URL` buit el client queda desactivat (`ErrDisabled`, no es registra per petició). Els esdeveniments sense cau d'una petició es divideixen en lots de 3 (fins a 4 en paral·lel, màxim 20 per petició) amb deduplicació dels textos repetits dins de cada lot i un timeout compartit de 12 s (`context.WithTimeout`, per sota del `WriteTimeout` de 15 s del servidor); cada lot es desa a la cau independentment, de manera que si un lot falla o expira, la resta igualment es tradueixen i es guarden. Cas del mapa: `GET /events/map` no té `LIMIT`, així que amb un mapa fred es tradueixen els primers 20 esdeveniments sense cau (els que ja són a la cau sempre es serveixen traduïts); la resta apareixen en català fins que la cau s'escalfi. El timeout de 15 s del client HTTP és només el límit superior.
+  6. **Camp `Settings.Language`:** no s'ha regenerat `sqlc` (`models.go` té ajustos manuals). Les consultes noves són a `queries/translations.sql` i `sqlc/translations.sql.go` s'ha escrit a mà; `GetSettings`/`UpdateUserSettings` generats no coneixen la columna, així que `UserRepository` fa una consulta addicional per llegir-la, i en desar-la usa la consulta manual `UpdateSettings` (un sol `UPDATE` amb `ShowPlans`, `NotificationBefore` i `Language`, atòmic). Si es regenera `sqlc`, `Setting` guanyarà el camp `Language` i les consultes duplicades es podran fusionar.
+  7. **Fora d'abast:** el xatbot (`assistant_handler`/MCP) no tradueix els esdeveniments ni respon en l'idioma de l'usuari; la qualitat de totes les traduccions automàtiques no s'ha revisat manualment.
+  8. **Millores conegudes, no corregides:** (a) cada petició autenticada fa cerques d'usuari addicionals (resolució de Firebase UID → UUID i lectura de `Settings.Language`); (b) `language.Resolve` accepta el fallback de capçalera `X-User-ID` (com la resta de l'API en mode de proves), cosa que permetria llegir l'idioma d'un altre usuari amb només conèixer el seu ID; (c) no hi ha `singleflight`: peticions concurrents pels mateixos esdeveniments sense cau tradueixen i desen dues vegades.
+  9. La versió inicial (títol i descripció) es va verificar contra PostgreSQL local i Cloudflare Workers AI; l'ampliació amb `Subtitle`, `Schedule`, `Tickets` i `URLNames` està verificada amb tests unitaris i queda pendent de re-provar contra PostgreSQL/Supabase i el Worker real.
+- **Opcions:** —
+- **Provisionalment:** els supòsits anteriors.
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
+### DP-044 · Repetir el test d'interessos (#30/#154): substitució R1, estat i selecció de preguntes
+- **Estat:** oberta
+- **Obert per:** 2026-11-21 · Antigravity (Gemini 4 Neon) · branca `feature/interest-test-retake-30` (Taiga #30 / #154)
+- **Context:** `internal/repositories/postgres/queries/preferences.sql`, `internal/repositories/postgres/sqlc/preferences.sql.go`, `internal/repositories/postgres/preference_repository.go` (`GetQuestions`, `GetTestStatus`, `SaveTestAndPreferences`), `internal/services/preference_service/`, `internal/handlers/preference_handler/`, `api/openapi.yaml`.
+- **Dubte / supòsits:**
+  1. **Unicitat R1 sense migració:** `PreferenceTests` té PK `(UserID, DateTaken)` i no té restricció `UNIQUE (UserID)` a la BD. R1 (un sol `TestInteressos` actiu per usuari) s'aplica dins la transacció de `SaveTestAndPreferences` amb `LockUserPreferenceTest` (`pg_advisory_xact_lock`) i esborrant primer `PreferenceTestChoices` i `PreferenceTests` de l'usuari abans d'inserir el nou test (`TODO(DP-044)`). `GetTestStatus` llegeix `ORDER BY DateTaken DESC LIMIT 1`.
+  2. **Selecció de preguntes (`GET /preferences/test`):** `GetPreferenceTestQuestions` a `queries/preferences.sql` filtra `btrim(e.title) != ''` i `e.images IS NOT NULL AND btrim(e.images) != ''`, agrupa per `COALESCE(MIN(ec.category), 0)`, fa round-robin aleatori (`ROW_NUMBER() OVER (PARTITION BY primary_category ORDER BY random())`) prioritzant esdeveniments amb categoria (`primary_category > 0`) i barrejant el resultat final. No s'exclouen esdeveniments acabats (`enddate`) ni no oficials cancel·lats/retirats (`UnofficialEvents.State`).
+  3. **Recàlcul de pesos:** en repetir el test, els pesos de totes les categories es recalculen des de zero (`1.0` per defecte, ± `0.2` per resposta, rang `[0.1, 3.0]`); les categories absents al nou test tornen a `1.0`.
+  4. **Proves d'integració contra BD:** totes les consultes s'han mogut a `queries/preferences.sql` i generat amb `sqlc generate` v1.31.1 (amb `sqlc_schema_compat.sql` per al `CREATE TYPE UnofficialEventState` del bloc `DO $$` de la migració 000018), però no hi ha tests d'integració automatitzats contra una BD PostgreSQL/Supabase local (verificat per compilació `sqlc`, revisió i proves unitàries amb fakes).
+- **Opcions:** A) mantenir la substitució transaccional amb lock i la selecció actual a `preferences.sql` · B) afegir una migració amb `UNIQUE (UserID)` a `PreferenceTests` i filtrar per estat `Active` / dates futures.
+- **Provisionalment:** A (`TODO(DP-044)` a `internal/repositories/postgres/preference_repository.go`).
+- **Qui decideix:** backend + frontend
+- **Resolució:**
+
+### DP-045 · Fotos de perfil en un bucket privat amb URLs signades (#247)
+- **Estat:** oberta
+- **Obert per:** 2026-11-20 · Claude Code (Opus 5.5) · branca `feature/restringir-fotos-perfil` (Taiga #247)
+- **Context:** `s3_client/avatar_storage.go`, `s3_client/resolve.go`, `user_service`, `message_service`, `auth_service`, `user_handler/error_mapper.go`, migració 000025. Abans no hi havia cap bucket ni variables `S3_*`: sense `S3_ENDPOINT`, `POST /users/me/avatar` no pujava res i desava una URL inventada (`https://media.s3.eu-west-1.amazonaws.com/avatars/...`). L'usuari (Arnau) ha creat el bucket privat `avatars` sense policies i una *secret key* nova.
+- **Dubte / supòsits:**
+  1. **Accés:** el bucket és privat i només hi accedeix el backend amb `SUPABASE_SECRET_KEY` (capçalera `apikey`; les claus `service_role` antigues, que són JWT, també van a `Authorization`). S'usa l'API REST de Storage (`/storage/v1/object/...`) en lloc del protocol S3 per no afegir l'SDK d'AWS ni signar amb SigV4.
+  2. **Què es desa:** `Users.ProfilePicture` guarda la ruta `<uuid>/avatar-<unix ms>.<jpg|png|webp>` (extensió segons el `Content-Type`, no el nom del fitxer). Només es signen les rutes que encaixen amb aquest format **i** pertanyen a l'usuari de la fila; la resta de valors que no són URL `http(s)` s'amaguen.
+  3. **Lectura:** cada resposta amb `profile-picture` (perfil, cerca, bloquejats, xat, `POST /auth/sync`) signa les rutes en una sola petició (`POST /object/sign/avatars`). TTL **1 h**; la URL es cacheja en memòria i es reutilitza mentre li queda ≥ 30 min, perquè el frontend pugui fer servir la cau d'imatges. Qualsevol usuari autenticat que vegi un altre usuari rep la URL (com abans); un bloqueig no invalida les URLs ja lliurades fins que caduquen.
+  4. **Errors:** si no es pot signar (Storage caigut o sense configurar) la foto surt buida (al perfil, l'avatar generat de ui-avatars) i es registra; la petició no falla. Pujada: `503` sense configuració, `502` si Storage falla, `400` tipus invàlid.
+  5. **`PATCH /users/me`:** `profile-picture` només accepta buit o una URL `http(s)` externa (màx. 2048). Les rutes del bucket es rebutgen perquè ningú no pugui apuntar a l'avatar d'un altre. Encara s'accepten URL externes arbitràries: cal decidir si es tanquen.
+  6. **Esborrat:** en pujar una foto nova o canviar-la amb `PATCH` s'esborra l'anterior del bucket (best-effort), igual que a la baixa del compte (DP-031), ara amb una petició autenticada (ja no queda l'esborrat sense signar de la DP-031). Si l'`UPDATE` falla després de pujar, s'esborra l'objecte pujat.
+  7. **Migració 000025:** posa a `NULL` les URLs inventades `https://*.s3.*.amazonaws.com/avatars/...`. No crea el bucket: les migracions incrustades també s'executen contra PostgreSQL local, sense l'esquema `storage`.
+  8. **Fora d'abast:** els cartells d'esdeveniments (`UploadEventImage`) segueixen amb el codi antic i tampoc es pugen sense `S3_ENDPOINT`.
+  9. **No provat contra Supabase real:** pujada, signatura i esborrat només estan provats amb tests unitaris (servidor HTTP fals); falta verificar el format de resposta de `/object/sign` i que la *secret key* nova només a `apikey` funciona. Frontend: la URL caduca, cal un `cacheKey` estable (p. ex. l'id de l'usuari) si es fa servir `CachedNetworkImage`.
+- **Opcions:** —
+- **Provisionalment:** els supòsits anteriors.
+- **Qui decideix:** frontend + backend
+- **Resolució:**
+
+### DP-046 · Millores del xatbot: selecció estructurada d'IDs, lots de 3 i exclusió d'esdeveniments ja mostrats
+- **Estat:** oberta
+- **Obert per:** 2026-11-21 · Antigravity (Gemini 4 Neon) · branca `fix/app-improvements-chatbot`
+- **Context:** `internal/services/assistant_service/{assistant_service.go,prompt.go,tools.go,recommendations.go}` i `api/openapi.yaml`. (Nota: el servidor MCP `cmd/mcp` ja s'havia eliminat a DP-027.)
+- **Dubte / supòsits:**
+  1. **Selecció estructurada d'IDs amb etiqueta final (`[RECOMMENDED_IDS: id1, id2, id3]` / `[RECOMMENDED_IDS: none]`):** s'evita `response_format` JSON per compatibilitat amb tool calling a Groq i Gemini fallback i per no afegir rondes dins el timeout de 8 s. Si el model omet l'etiqueta, el servidor busca els títols candidats dins del text (per ordre d'aparició, màxim 3) i, com a últim recurs, limita a 3 els resultats no vistos de l'última cerca (`TODO(DP-046)`).
+  2. **Exclusió d'esdeveniments ja mostrats sense tocar `sqlc/`:** `tools.go` augmenta `filter.Limit` (`desired + len(excludedIDs)`, màxim 250) i filtra en Go fins als 200 darrers IDs recomanats a la conversa (`history` carregat per `ListMessages`). Com que les converses encara no es reinicien (DP-017), els IDs s'acumulen a la conversa única de l'usuari fins al límit de 200 (`TODO(DP-046)`).
+  3. **Flux conversacional (preguntes aclaridores vs recomanació directa):** aplicat al prompt del sistema (`prompt.go`) i verificat amb tests unitaris amb fakes; pendent de provar amb el model real (`TestEval` contra Groq/Gemini).
+- **Opcions:** A) mantenir l'etiqueta `[RECOMMENDED_IDS: ...]` + filtratge en Go · B) passar a sortida JSON estructurada o filtre `NOT (e.ID = ANY(...))` a `queries/catalogue.sql` (regenerant `sqlc`).
+- **Provisionalment:** A (`TODO(DP-046)` a `recommendations.go` i `tools.go`).
+- **Qui decideix:** backend + equip
+### DP-047 · Traducció del test d'interessos (`GET /preferences/test?lang=`) reutilitzant `EventTranslations`
+- **Estat:** oberta
+- **Obert per:** 2026-11-21 · Antigravity (Gemini 4 Neon) · branca `fix/app-improvements-lang`
+- **Context:** `internal/services/translation_service/`, `internal/handlers/preference_handler/preference_handler.go`, `cmd/app/main.go`, `api/openapi.yaml`.
+- **Dubte / supòsits:**
+  1. **Mecanisme d'idioma i traducció:** es reutilitza el paràmetre `?lang=ca|es|en` (resolt amb `language.Resolve`: `?lang` guanya; si no, `Settings.Language` de l'usuari; si no, `ca`) i la taula de cau `EventTranslations` + `translate_client` (`TRANSLATOR_URL`) existents de #28 (DP-043), en lloc d'afegir una migració nova o cridar Groq.
+  2. **Compartició de cau sense invalidar `EventTranslations`:** `TestQuestion` només conté `title` i `description` (no `subtitle`, `schedule`, `tickets` ni `url-names`), i no es regenera `sqlc/*`. Per evitar invalidar ni sobreescriure les traduccions completes de 6 camps desades per `TranslateEvents`, `TranslateTestQuestions` aprofita qualsevol fila existent d'`EventTranslations` que tingui `title` (i `description`, si l'original no és buida) no buits, sense comprovar el `SourceHash` de 6 camps. En cas de miss, tradueix `title` i `description` i desa un `SourceHash` dels 2 camps (si l'esdeveniment té més camps, un `GET /events/{id}` posterior l'actualitzarà automàticament amb els 6 camps). Limitació: si s'edita el títol/descripció d'un esdeveniment ja present a `EventTranslations`, el test veurà la traducció anterior fins que un endpoint d'`/events` la refresqui.
+  3. **Límit de misses:** `maxQuestionMisses = 25` (en lots de 5) per poder traduir totes les 25 preguntes del test en una sola petició (només 2 camps per pregunta en lloc de 6).
+  4. **Idioma al perfil (`Settings.Language`):** es reutilitza la columna existent `Settings.Language NOT NULL DEFAULT 'ca'` (migració 000022) i `GET`/`PATCH /users/me` sense duplicar camps ni tocar `sqlc/*`.
+- **Opcions:** A) reutilitzar `EventTranslations` i `TranslationService` tal com està (`TODO(DP-047)`) · B) afegir els 4 camps addicionals a `GetPreferenceTestQuestions` (requereix regenerar `sqlc`) o una taula separada de traduccions per al test.
+- **Provisionalment:** A (`TODO(DP-047)` a `internal/services/translation_service/translation_service.go`).
+### DP-048 · Test d'interessos: onboarding només al registre, progrés parcial i represa
+- **Estat:** oberta
+- **Obert per:** 2026-11-21 · Antigravity (Gemini 4 Neon) · branca `fix/app-improvements-interest`
+- **Context:** `migrations/000026_interest_test_progress.{up,down}.sql`, `supabase/migrations/20261121000026_interest_test_progress.sql`, `internal/repositories/postgres/queries/preferences.sql`, `internal/repositories/postgres/preference_repository.go`, `internal/services/preference_service/`, `internal/handlers/preference_handler/`, `api/openapi.yaml`.
+- **Dubte / supòsits:**
+  1. **Estat `prompted` al servidor:** migració `000026` afegeix `Users.InterestTestPrompted` amb `DEFAULT true` per als comptes ja existents (evita reobrir l'onboarding als usuaris antics en iniciar sessió) i `ALTER COLUMN ... SET DEFAULT false` per als nous registres (idempotent en re-execucions). Nou endpoint `POST /preferences/test/prompted` (`204 No Content`, idempotent) i camp `prompted` a `GET /preferences/test/status`.
+  2. **Taula separada `PreferenceTestProgress`:** guarda les respostes parcials («Més tard») amb PK `(UserID, Event)` i `ON DELETE CASCADE` cap a `Users` i `Events` (RLS habilitat). Així un desat parcial (`POST /preferences/test` amb `{"answers": [...], "partial": true}`) acumula respostes per `ON CONFLICT DO UPDATE` sense sobreescriure ni esborrar un `PreferenceTests`/`UserPreferences` completat prèviament (R1). En completar (`partial: false`), es fusionen l'esborrany i les respostes noves (màx. 25), es recalcula `UserPreferences` sobre el conjunt complet, es substitueix `PreferenceTests`/`PreferenceTestChoices` i s'esborra `PreferenceTestProgress`.
+  3. **Represa a `GET /preferences/test`:** quan hi ha files a `PreferenceTestProgress`, es retornen com a màxim `25 - answered_count` preguntes excloent els esdeveniments ja contestats, conservant el format d'array `[]TestQuestion` (compatible amb el paràmetre d'idioma en curs).
+  4. **Consultes generades amb `sqlc`:** arran de la revisió de la PR #80, les 6 consultes noves de `queries/preferences.sql` s'han generat amb `sqlc generate` v1.31.1 (fent servir `sqlc_schema_compat.sql` per al bloc `DO $$` de la migració 000018) i `preference_repository.go` ja les invoca a través de `sqlc.Queries` sense SQL directe.
+- **Opcions:** A) mantenir `Users.InterestTestPrompted` + taula `PreferenceTestProgress` amb `sqlc` · B) desar el progrés dins `PreferenceTests` amb una columna `Completed` (impediria pausar una repetició sense perdre el test anterior) o només en local al dispositiu.
+- **Provisionalment:** A (`TODO(DP-048)` a `migrations/000026_interest_test_progress.up.sql` i `preference_service.go`).
+- **Qui decideix:** backend + frontend
+- **Resolució:**
+
+### DP-049 · Traducció parcial o asimètrica de títols d'esdeveniments entre idiomes (`EventTranslations` / `translation_service`)
+- **Estat:** oberta
+- **Obert per:** 2026-11-21 · Antigravity (Gemini 4 Neon) · branca `fix/app-improvements` (incidència A4)
+- **Context:** `internal/services/translation_service/translation_service.go`, `internal/clients/translate_client/translator_client.go`, `internal/repositories/postgres/queries/map_events.sql`, `internal/handlers/assistant_handler/`. Relacionada amb DP-043 i DP-047.
+- **Diagnòstic (per què alguns títols surten traduïts en un idioma i no en un altre):**
+  1. **Bugs clars corregits a `translation_service.go`:**
+     - Si el servei traductor extern retornava cadenes buides o només espais per a camps no buits, `translateBatch` / `translateQuestionBatch` sobreescrivia el camp amb `""` i desava la fila corrupta a `EventTranslations` amb un `SourceHash` vàlid. Ara es conserva el text original per a aquell camp i no es desa cap fila incompleta a la cau.
+     - Quan un esdeveniment ja tenia una traducció parcial de 2 camps (`Title`, `Description`) desada per `TranslateTestQuestions` (DP-047) i `TranslateEvents` / `TranslateMapEvents` intentava actualitzar-lo als 6 camps però quedava fora de `maxMisses` o el lot fallava/expirava, es descartava la traducció de 2 camps i es retornava el títol en català. Ara, si el `SourceHash` de 2 camps coincideix amb el text actual i l'actualització a 6 camps no s'ha completat, s'aplica el fallback dels camps ja traduïts a la cau.
+  2. **Limitacions estructurals de disseny (no canviades per no tocar `sqlc/*` ni trencar límits de latència):**
+     - **Cau independent per `(Event, Lang)` + límit `maxMisses = 20` + timeout compartit de 12 s + fallback parcial per lots (`batchSize = 3`, màx. 4 en paral·lel):** `GET /events` sol demanar `pageSize = 50` i `GET /events/map` no té límit, de manera que només els primers 20 esdeveniments sense cau d'una petició s'intenten traduir; si un lot falla o supera els 12 s, cau en català mentre els altres lots sí que queden a la cau. En canviar d'idioma, el client llança en paral·lel les peticions de llista, mapa, agenda i descobriment sense `singleflight` al servidor (DP-043 #8c), amplificant timeouts/429 del traductor i fent que un esdeveniment quedi en cau en `es` i no en `en` (o a l'inrevés).
+     - **Precedència d'`OR` a `queries/map_events.sql` (línia 36):** `AND e.enddate is null or e.enddate > now()` sense parèntesis fa que `GET /events/map` ignori el requadre geogràfic per a esdeveniments futurs i retorni molt més de 20 esdeveniments sense cau per petició. No s'edita aquí perquè requereix regenerar `internal/repositories/postgres/sqlc/*`.
+     - **Comportament del model NMT extern (`TRANSLATOR_URL`):** la traducció automàtica `ca→es` i `ca→en` de títols culturals curts o noms propis pot traduir un títol en castellà i deixar-lo intacte en anglès (o viceversa), i `EventTranslations` no té caducitat.
+     - **Assistent cultural:** `POST /assistant/messages` i `GET /assistant/conversation` encara no tradueixen `recommended-events` (DP-043 #7).
+- **Opcions:** A) mantenir les correccions defensives a `translation_service.go` i documentar les limitacions (actual) · B) pre-escalfar traduccions en background en ingerir esdeveniments de Gencat, afegir `singleflight` per `(eventID, lang)` i corregir els parèntesis de `map_events.sql` regenerant `sqlc`.
+- **Provisionalment:** A (`TODO(DP-049)` a `internal/services/translation_service/translation_service.go`).
+- **Qui decideix:** backend + equip
+- **Resolució:**
+
+### DP-050 · Notificacions push amb FCM (#275): contracte, outbox i preferència global
+- **Estat:** oberta
+- **Obert per:** 2026-11-20 · Claude Code (Opus 5.5) amb confirmació de l'usuari · branca `feature/push-notifications` (Taiga #275)
+- **Context:** `push_handler`, `push_service`, `push_repository`, `firebase_client/push.go`, `queries/push_notifications.sql`, migració 000027, `cmd/app/main.go`. Decisions ja preses per l'usuari: totes les notificacions de la bústia (`Notifications`) s'envien també com a push; interruptor global `Settings.PushEnabled`; outbox cada 30 s amb caducitat de 24 h; títol segons el tipus. La part Flutter és d'un altre equip.
+- **Dubte / supòsits:**
+  1. **Contracte (pendent de validar amb el frontend):** `PUT /users/me/devices` amb `{"token", "platform": "android"|"ios"|"web"}` → `204` (upsert: un token ja registrat passa a l'usuari actual, p. ex. un mòbil compartit); `DELETE /users/me/devices/{token}` → `204` sempre (idempotent, per al tancament de sessió). Push: `notification.title`/`body` i `data` (tot cadenes) amb `notification-id`, `type` (nom del `NotificationType`), `event-id` i `friend-id` quan n'hi ha. `PATCH /users/me` accepta `push-enabled` i `GET /users/me` el retorna només al perfil propi.
+  2. **Outbox:** `Notifications.PushedAt` marca el que ja s'ha enviat; un ticker (`PUSH_DISPATCH_INTERVAL`, per defecte 30 s) reclama lots de 100 amb `FOR UPDATE SKIP LOCKED` dins d'una transacció, envia i marca. No s'ha tocat cap servei que crea notificacions. La migració marca l'històric com a enviat. Es marquen sense enviar: usuaris amb `PushEnabled=false`, usuaris sense dispositius i les pendents de més de 24 h (`MaxPushAge`). Una fallada general de FCM o només errors transitoris deixen la notificació pendent per al següent tic (lliurament *at-least-once*: si falla el `MarkPushed` després d'enviar, es pot repetir un push).
+  3. **Tokens no vàlids:** `UNREGISTERED`, `INVALID_ARGUMENT` i `SENDER_ID_MISMATCH` esborren el token. Per evitar que un payload invàlid esborri tokens bons, el cos es retalla a 1000 caràcters (`MaxBodyLength`).
+  4. **Token o FID:** el SDK v4.22.0 declara obsolets els *registration tokens* en favor dels *Firebase Installation IDs*. Flutter encara obté tokens (`getToken()`) i FCM els accepta, així que el backend accepta tots dos: els que contenen `:` s'envien com a token (amb `//nolint:staticcheck`) i la resta com a FID. Quan l'app registri FIDs, es pot treure el camí dels tokens.
+  5. **Títols:** Social → «Social», Recordatori → «Recordatori», Recomanacio → «Recomanació», Cancelacio → «Esdeveniment cancel·lat», altres → «AProp!». El cos és el `Text` de la notificació, que es desa en català: no es tradueix segons `Settings.Language` (relacionat amb DP-043).
+  6. **Relació amb la PR #73 (US #19 Configurar les notificacions):** aquella PR filtra en crear les notificacions segons `AllowedNotifications`; com que el push replica la bústia, el filtre s'hi aplica sol. `PushEnabled` és independent (la notificació arriba a la bústia però sense push). Totes dues toquen `UpdateProfile`, `user_repository.UpdateSettings` i `openapi.yaml`: caldrà resoldre conflictes, i el `GET` de configuració de la #73 hauria d'incloure `push-enabled`.
+  7. **Numeració de la migració:** inicialment era la 000024, però `develop` ja té de la 000023 a la 000026 (`allowed_notifications`, `correct_ratings`, `private_avatars` i `interest_test_progress`); s'ha renumerat a **000027** (`supabase/migrations/20261122000027_push_notifications.sql`) en fusionar `develop`.
+  8. **`sqlc`:** `sqlc generate` falla al repositori (la 000020 fa `ALTER TYPE UnofficialEventState`, que sqlc no coneix) i `models.go` té ajustos manuals; s'ha generat en una còpia temporal i només s'ha copiat `sqlc/push_notifications.sql.go`. `PushEnabled` es llegeix i es desa amb consultes pròpies (com `Language`), i `UpdateSettings` ara fa les seves sentències en una transacció.
+  9. **ADR:** si l'equip valida l'outbox, cal un ADR-0006.
+- **Opcions:** —
+- **Provisionalment:** els supòsits anteriors, amb `TODO(DP-050)` a `push_service.go`, `firebase_client/push.go` i `user_repository.go`.
+- **Qui decideix:** frontend (contracte i token/FID) + backend + equip (outbox, ADR)
 - **Resolució:**
 
 ## Resoltes

@@ -160,7 +160,7 @@ func (q *Queries) ListChatbotMessages(ctx context.Context, arg ListChatbotMessag
 }
 
 const listChatbotRecommendations = `-- name: ListChatbotRecommendations :many
-SELECT r.SentAt, e.id, e.title, e.subtitle, e.description, e.schedule, e.url, e.tickets, e.ticketsurl, e.free, e.permanent, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone, e.activityurl, e.startdate, e.enddate, e.modality, e.place, e.latitude, e.longitude, e.postalcode, e.municipality, e.region, e.address
+SELECT r.SentAt, e.id, e.title, e.subtitle, e.description, e.schedule, e.url, e.tickets, e.ticketsurl, e.free, e.permanent, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone, e.activityurl, e.startdate, e.enddate, e.modality, e.place, e.latitude, e.longitude, e.postalcode, e.municipality, e.region, e.address, e.rating
 FROM ChatbotRecommendations r
 JOIN Events e ON e.ID = r.Event
 WHERE r.UserID = $1::uuid AND r.ConversationStartedAt = $2::timestamptz
@@ -215,6 +215,7 @@ func (q *Queries) ListChatbotRecommendations(ctx context.Context, arg ListChatbo
 			&i.Event.Municipality,
 			&i.Event.Region,
 			&i.Event.Address,
+			&i.Event.Rating,
 		); err != nil {
 			return nil, err
 		}
@@ -224,4 +225,27 @@ func (q *Queries) ListChatbotRecommendations(ctx context.Context, arg ListChatbo
 		return nil, err
 	}
 	return items, nil
+}
+
+const upsertChatbotFeedback = `-- name: UpsertChatbotFeedback :exec
+INSERT INTO ChatbotFeedback (UserID, ConversationStartedAt, SentAt, Helpful)
+VALUES ($1::uuid, $2::timestamptz, $3::timestamptz, $4::boolean)
+ON CONFLICT (UserID, ConversationStartedAt, SentAt) DO UPDATE SET Helpful = EXCLUDED.Helpful, CreatedAt = now()
+`
+
+type UpsertChatbotFeedbackParams struct {
+	Userid                pgtype.UUID
+	Conversationstartedat pgtype.Timestamptz
+	Sentat                pgtype.Timestamptz
+	Helpful               bool
+}
+
+func (q *Queries) UpsertChatbotFeedback(ctx context.Context, arg UpsertChatbotFeedbackParams) error {
+	_, err := q.db.Exec(ctx, upsertChatbotFeedback,
+		arg.Userid,
+		arg.Conversationstartedat,
+		arg.Sentat,
+		arg.Helpful,
+	)
+	return err
 }

@@ -5,64 +5,150 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/gofrs/uuid/v5"
 
+	"api-aprop/internal/clients/firebase_client"
 	"api-aprop/internal/clients/s3_client"
 	"api-aprop/internal/models/event_model"
+	"api-aprop/internal/models/language_model"
+	"api-aprop/internal/models/notification_model"
 	"api-aprop/internal/models/user_model"
+	"api-aprop/internal/repositories/notification_repository"
 	"api-aprop/internal/repositories/user_repository"
 )
 
 var usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9_]{3,30}$`)
 
 const (
-	maxNameLength = 100
-	maxBioLength  = 500
+	maxNameLength       = 100
+	maxBioLength        = 500
+	maxPictureURLLength = 2048
 )
 
 type userService struct {
-	userRepo user_repository.Repository
-	s3Client s3_client.Client
+	userRepo         user_repository.Repository
+	notificationRepo notification_repository.Repository
+	s3Client         s3_client.AvatarStorage
+	accountDeleter   firebase_client.AccountDeleter
 }
 
 var _ Service = (*userService)(nil)
 
-func NewUserService(userRepo user_repository.Repository, s3Client s3_client.Client) Service {
+// NewUserService creates the service. s3Client stores the avatars in a private bucket and signs their URLs (#247).
+// accountDeleter deletes the Firebase Auth account when a user deletes its account; it can be nil when the API
+// runs without Firebase (local development).
+func NewUserService(userRepo user_repository.Repository, notificationRepo notification_repository.Repository, s3Client s3_client.AvatarStorage, accountDeleter firebase_client.AccountDeleter) Service {
 	return &userService{
-		userRepo: userRepo,
-		s3Client: s3Client,
+		userRepo:         userRepo,
+		notificationRepo: notificationRepo,
+		s3Client:         s3Client,
+		accountDeleter:   accountDeleter,
 	}
+}
+
+// DeleteAccount erases the user and its data in a single transaction. The Firebase Auth account is
+// deleted inside the transaction, before the commit: if Firebase fails nothing is deleted. The avatar
+// is deleted from storage after the commit and a failure there does not undo the deletion.
+func (s *userService) DeleteAccount(ctx context.Context, requesterID string) error {
+	id, err := user_model.ParseID(requesterID)
+	if err != nil {
+		return ErrInvalidUserID
+	}
+	user, err := s.userRepo.GetByID(ctx, id)
+	if errors.Is(err, user_repository.ErrUserNotFound) {
+		return ErrUserNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("get user to delete: %w", err)
+	}
+
+	firebaseDeleted := false
+	deleteFirebaseAccount := func(ctx context.Context) error {
+		if s.accountDeleter == nil {
+			slog.Warn("Firebase is not configured; the authentication account is not deleted", "user", requesterID)
+			return nil
+		}
+		if err := s.accountDeleter.DeleteUser(ctx, user.FirebaseUID); err != nil {
+			return fmt.Errorf("%w: %w", ErrAuthProvider, err)
+		}
+		firebaseDeleted = true
+		return nil
+	}
+
+	err = s.userRepo.DeleteUser(ctx, id, deleteFirebaseAccount)
+	switch {
+	case errors.Is(err, user_repository.ErrUserNotFound):
+		return ErrUserNotFound
+	case errors.Is(err, ErrAuthProvider):
+		return err
+	case err != nil:
+		if firebaseDeleted {
+			// TODO(DP-031): the commit failed after the Firebase account was deleted; the data must be erased by hand
+			slog.Error("account data not deleted but the Firebase account was", "user", requesterID, "firebase-uid", user.FirebaseUID, "error", err)
+		}
+		return fmt.Errorf("delete user: %w", err)
+	}
+
+	if user.ProfilePicture != "" && s.s3Client != nil {
+		if err := s.s3Client.DeleteAvatar(ctx, requesterID, user.ProfilePicture); err != nil {
+			slog.Warn("could not delete the avatar of a deleted user", "user", requesterID, "error", err)
+		}
+	}
+	return nil
+}
+
+func (s *userService) GetSettings(ctx context.Context, userId string) (user_model.Settings, error) {
+	user, err := s.findUser(ctx, userId)
+	if err != nil {
+		return user_model.Settings{}, err
+	}
+
+	settings, err := s.userRepo.GetSettings(ctx, user.Settings)
+	if err != nil {
+		return user_model.Settings{}, err
+	}
+	return settings, nil
 }
 
 func (s *userService) GetUserProfile(ctx context.Context, targetIdentifier string, requesterIdentifier string) (user_model.UserProfile, error) {
 	var (
-		target    user_model.User
-		showPlans bool
-		isSelf    bool
-		err       error
+		target   user_model.User
+		settings user_model.Settings
+		isSelf   bool
+		err      error
 	)
 
 	if targetIdentifier == "" || targetIdentifier == "me" {
 		if requesterIdentifier == "" {
 			return user_model.UserProfile{}, ErrUnauthorized
 		}
-		target, showPlans, err = s.findUser(ctx, requesterIdentifier)
+		target, err = s.findUser(ctx, requesterIdentifier)
 		if err != nil {
 			return user_model.UserProfile{}, ErrUserNotFound
+		}
+		settings, err = s.userRepo.GetSettings(ctx, target.Settings)
+		if err != nil {
+			return user_model.UserProfile{}, err
 		}
 		isSelf = true
 	} else {
-		target, showPlans, err = s.findUser(ctx, targetIdentifier)
+		target, err = s.findUser(ctx, targetIdentifier)
 		if err != nil {
 			return user_model.UserProfile{}, ErrUserNotFound
 		}
+		settings, err = s.userRepo.GetSettings(ctx, target.Settings)
+		if err != nil {
+			return user_model.UserProfile{}, err
+		}
 		if requesterIdentifier != "" {
-			if requester, _, rErr := s.findUser(ctx, requesterIdentifier); rErr == nil {
+			if requester, rErr := s.findUser(ctx, requesterIdentifier); rErr == nil {
 				if requester.ID == target.ID {
 					isSelf = true
 				}
@@ -74,16 +160,11 @@ func (s *userService) GetUserProfile(ctx context.Context, targetIdentifier strin
 		friendsCount        int
 		plansCount          int
 		completedPlansCount int
-		reliability         *float32
 	)
 
 	friendsCount, _ = s.userRepo.CountFriends(ctx, target.ID)
 	plansCount, _ = s.userRepo.CountPlans(ctx, target.ID)
 	completedPlansCount, _ = s.userRepo.CountCompletedPlans(ctx, target.ID)
-	reliability, _ = s.userRepo.GetReliability(ctx, target.ID)
-	if reliability == nil && target.Rating != nil {
-		reliability = target.Rating
-	}
 
 	var (
 		isFriend     *bool
@@ -95,10 +176,10 @@ func (s *userService) GetUserProfile(ctx context.Context, targetIdentifier strin
 		isFriend = nil
 	} else {
 		if requesterIdentifier != "" {
-			if requester, _, rErr := s.findUser(ctx, requesterIdentifier); rErr == nil {
+			if requester, rErr := s.findUser(ctx, requesterIdentifier); rErr == nil {
 				areFriends, _ := s.userRepo.AreFriends(ctx, requester.ID, target.ID)
 				isFriend = &areFriends
-				plansVisible = areFriends && showPlans
+				plansVisible = areFriends && settings.ShowPlans
 			} else {
 				plansVisible = false
 			}
@@ -113,6 +194,7 @@ func (s *userService) GetUserProfile(ctx context.Context, targetIdentifier strin
 	}
 
 	profilePic := target.ProfilePicture
+	s.resolveAvatars(ctx, s3_client.AvatarField{UserID: target.ID.String(), Picture: &profilePic})
 	if profilePic == "" {
 		profilePic = "https://ui-avatars.com/api/?name=" + url.QueryEscape(displayName) + "&background=random"
 	}
@@ -128,25 +210,27 @@ func (s *userService) GetUserProfile(ctx context.Context, targetIdentifier strin
 		AccountState:        target.AccountState,
 		Experience:          target.Experience,
 		Level:               target.Level,
-		Rating:              target.Rating,
-		Reliability:         reliability,
+		Reliability:         target.Rating,
 		FriendsCount:        friendsCount,
 		PlansCount:          plansCount,
 		CompletedPlansCount: completedPlansCount,
-		ShowPlans:           showPlans,
+		ShowPlans:           settings.ShowPlans,
 		IsFriend:            isFriend,
 		PlansVisible:        plansVisible,
 	}
 
 	if isSelf {
 		profile.Email = target.Email
+		profile.Language = settings.Language
+		pushEnabled := settings.PushEnabled
+		profile.PushEnabled = &pushEnabled
 	}
 
 	return profile, nil
 }
 
 func (s *userService) ListCreatedEvents(ctx context.Context, targetIdentifier string) ([]event_model.Event, error) {
-	target, _, err := s.findUser(ctx, targetIdentifier)
+	target, err := s.findUser(ctx, targetIdentifier)
 	if err != nil {
 		return nil, ErrUserNotFound
 	}
@@ -160,13 +244,33 @@ func (s *userService) ListCreatedEvents(ctx context.Context, targetIdentifier st
 	return events, nil
 }
 
+func (s *userService) ListReceivedRatings(ctx context.Context, targetIdentifier string) ([]user_model.ReceivedRating, error) {
+	target, err := s.findUser(ctx, targetIdentifier)
+	if err != nil {
+		return nil, ErrUserNotFound
+	}
+	return s.userRepo.ListReceivedRatings(ctx, target.ID)
+}
+
 func (s *userService) UpdateProfile(ctx context.Context, requesterIdentifier string, input UpdateProfileInput) (user_model.UserProfile, error) {
+	settingsChanged := false
+	profileChanged := false
+
 	if requesterIdentifier == "" {
 		return user_model.UserProfile{}, ErrUnauthorized
 	}
-	user, _, err := s.findUser(ctx, requesterIdentifier)
+	user, err := s.findUser(ctx, requesterIdentifier)
 	if err != nil {
 		return user_model.UserProfile{}, ErrUserNotFound
+	}
+	settings, err := s.userRepo.GetSettings(ctx, user.Settings)
+	if err != nil {
+		return user_model.UserProfile{}, err
+	}
+
+	// Validation: language (US #28)
+	if input.Language != nil && !language_model.Valid(*input.Language) {
+		return user_model.UserProfile{}, fmt.Errorf("%w: language must be ca, es or en", ErrInvalidInput)
 	}
 
 	// Validation R1: Username
@@ -176,6 +280,7 @@ func (s *userService) UpdateProfile(ctx context.Context, requesterIdentifier str
 			return user_model.UserProfile{}, fmt.Errorf("%w: username must be 3-30 characters long and contain only letters, numbers and underscores", ErrInvalidInput)
 		}
 		input.Username = &trimmedUser
+		profileChanged = true
 	}
 
 	// Validation R1: Name
@@ -185,6 +290,7 @@ func (s *userService) UpdateProfile(ctx context.Context, requesterIdentifier str
 			return user_model.UserProfile{}, fmt.Errorf("%w: name cannot exceed %d characters", ErrInvalidInput, maxNameLength)
 		}
 		input.Name = &trimmedName
+		profileChanged = true
 	}
 
 	// Validation R1: Biography
@@ -194,15 +300,45 @@ func (s *userService) UpdateProfile(ctx context.Context, requesterIdentifier str
 			return user_model.UserProfile{}, fmt.Errorf("%w: biography cannot exceed %d characters", ErrInvalidInput, maxBioLength)
 		}
 		input.Biography = &trimmedBio
+		profileChanged = true
+	}
+
+	// #247: avatars of the private bucket can only be set with POST /users/me/avatar
+	if input.ProfilePicture != nil {
+		trimmedPicture := strings.TrimSpace(*input.ProfilePicture)
+		if err := validatePictureURL(trimmedPicture); err != nil {
+			return user_model.UserProfile{}, err
+		}
+		input.ProfilePicture = &trimmedPicture
+		profileChanged = true
 	}
 
 	if input.ShowPlans != nil {
-		if err := s.userRepo.UpdateSettings(ctx, user.Settings, *input.ShowPlans); err != nil {
-			return user_model.UserProfile{}, err
-		}
+		settings.ShowPlans = *(input.ShowPlans)
+		settingsChanged = true
 	}
 
-	if input.Name != nil || input.Username != nil || input.Biography != nil || input.ProfilePicture != nil {
+	if input.NotificationBefore != nil {
+		settings.NotificationBefore = *(input.NotificationBefore)
+		settingsChanged = true
+	}
+
+	if input.Language != nil {
+		settings.Language = *(input.Language)
+		settingsChanged = true
+	}
+
+	if input.AllowedNotifTypes != nil {
+		settings.AllowedNotifTypes = *(input.AllowedNotifTypes)
+		settingsChanged = true
+	}
+
+	if input.PushEnabled != nil {
+		settings.PushEnabled = *(input.PushEnabled)
+		settingsChanged = true
+	}
+
+	if profileChanged {
 		updatedUser, err := s.userRepo.UpdateProfile(ctx, user.ID, input.Name, input.Username, input.Biography, input.ProfilePicture)
 		if errors.Is(err, user_repository.ErrUsernameTaken) {
 			return user_model.UserProfile{}, ErrUsernameTaken
@@ -210,74 +346,313 @@ func (s *userService) UpdateProfile(ctx context.Context, requesterIdentifier str
 		if err != nil {
 			return user_model.UserProfile{}, err
 		}
+		s.deleteReplacedAvatar(ctx, user, updatedUser.ProfilePicture)
 		user = updatedUser
 	}
 
-	return s.GetUserProfile(ctx, uuidToString(user.ID), requesterIdentifier)
+	if settingsChanged {
+		err := s.userRepo.UpdateSettings(ctx, settings)
+		if errors.Is(err, user_repository.ErrInvalidInterval) {
+			return user_model.UserProfile{}, ErrInvalidInterval
+		} else if errors.Is(err, user_repository.ErrInvalidNotificationType) {
+			return user_model.UserProfile{}, ErrInvalidNotificationType
+		} else if err != nil {
+			return user_model.UserProfile{}, err
+		}
+	}
+
+	return s.GetUserProfile(ctx, user.ID.String(), requesterIdentifier)
 }
 
 func (s *userService) UploadAvatar(ctx context.Context, requesterIdentifier string, filename string, contentType string, reader io.Reader) (user_model.UserProfile, error) {
 	if requesterIdentifier == "" {
 		return user_model.UserProfile{}, ErrUnauthorized
 	}
-	user, _, err := s.findUser(ctx, requesterIdentifier)
+	user, err := s.findUser(ctx, requesterIdentifier)
 	if err != nil {
 		return user_model.UserProfile{}, ErrUserNotFound
 	}
 
 	if s.s3Client == nil {
-		return user_model.UserProfile{}, fmt.Errorf("%w: storage service unconfigured", ErrInvalidInput)
+		return user_model.UserProfile{}, ErrStorageUnavailable
 	}
 
-	targetUID := user.ID
-
-	avatarURL, err := s.s3Client.UploadAvatar(ctx, uuidToString(targetUID), filename, contentType, reader)
-	if err != nil {
-		return user_model.UserProfile{}, fmt.Errorf("%w: %v", ErrInvalidInput, err)
+	avatarPath, err := s.s3Client.UploadAvatar(ctx, user.ID.String(), filename, contentType, reader)
+	switch {
+	case errors.Is(err, s3_client.ErrInvalidContentType):
+		return user_model.UserProfile{}, fmt.Errorf("%w: %w", ErrInvalidInput, err)
+	case errors.Is(err, s3_client.ErrStorageNotConfigured):
+		return user_model.UserProfile{}, fmt.Errorf("%w: %w", ErrStorageUnavailable, err)
+	case err != nil:
+		return user_model.UserProfile{}, fmt.Errorf("%w: %w", ErrStorageFailed, err)
 	}
 
-	updatedUser, err := s.userRepo.UpdateProfile(ctx, user.ID, nil, nil, nil, &avatarURL)
+	updatedUser, err := s.userRepo.UpdateProfile(ctx, user.ID, nil, nil, nil, &avatarPath)
 	if err != nil {
+		// the uploaded object is not referenced by anyone
+		if delErr := s.s3Client.DeleteAvatar(ctx, user.ID.String(), avatarPath); delErr != nil {
+			slog.Warn("could not delete an unused avatar", "user", user.ID.String(), "error", delErr)
+		}
 		return user_model.UserProfile{}, err
 	}
+	s.deleteReplacedAvatar(ctx, user, updatedUser.ProfilePicture)
 
-	return s.GetUserProfile(ctx, uuidToString(updatedUser.ID), requesterIdentifier)
+	return s.GetUserProfile(ctx, updatedUser.ID.String(), requesterIdentifier)
 }
 
-func (s *userService) findUser(ctx context.Context, identifier string) (user_model.User, bool, error) {
+func (s *userService) GetUserFriends(ctx context.Context, userid string) ([]string, error) {
+	user, err := s.findUser(ctx, userid)
+	if err != nil {
+		return []string{}, ErrUserNotFound
+	}
+
+	id := user.ID
+
+	friends, err := s.userRepo.GetUserFriends(ctx, id)
+	if err != nil {
+		return []string{}, err
+	}
+	return friends, nil
+}
+
+func (s *userService) GetFriendRequests(ctx context.Context, userid string) ([]user_model.FriendRequest, error) {
+	user, err := s.findUser(ctx, userid)
+	if err != nil {
+		return []user_model.FriendRequest{}, ErrUserNotFound
+	}
+
+	id := user.ID
+
+	friendreqs, err := s.userRepo.GetFriendRequests(ctx, id)
+	if err != nil {
+		return []user_model.FriendRequest{}, err
+	}
+	return friendreqs, nil
+}
+
+func (s *userService) SendFriendRequest(ctx context.Context, userid string, targetid string) (user_model.FriendRequest, error) {
+	user, err := s.findUser(ctx, userid)
+	if err != nil {
+		return user_model.FriendRequest{}, ErrUserNotFound
+	}
+
+	id := user.ID
+	targetuser, err := s.findUser(ctx, targetid)
+	if err != nil {
+		return user_model.FriendRequest{}, ErrUserNotFound
+	}
+	targetuuid := targetuser.ID
+
+	if id == targetuuid {
+		return user_model.FriendRequest{}, ErrSameUser
+	}
+
+	arefriends, err := s.userRepo.AreFriends(ctx, id, targetuuid)
+	if err != nil {
+		return user_model.FriendRequest{}, err
+	}
+	if arefriends {
+		return user_model.FriendRequest{}, ErrAlreadyFriends
+	}
+
+	existingrequest, err := s.userRepo.PendingRequestExists(ctx, id, targetuuid)
+	if err != nil {
+		return user_model.FriendRequest{}, err
+	}
+	if existingrequest {
+		return user_model.FriendRequest{}, ErrRequestAlreadyExists
+	}
+
+	isblocked, err := s.userRepo.IsBlocked(ctx, id, targetuuid)
+	if err != nil {
+		return user_model.FriendRequest{}, err
+	}
+	if isblocked {
+		return user_model.FriendRequest{}, ErrIsBlocked
+	}
+
+	friendreq, err := s.userRepo.SendFriendRequest(ctx, id, targetuuid)
+	if err != nil {
+		return user_model.FriendRequest{}, err
+	}
+	return friendreq, nil
+}
+
+func (s *userService) AcceptFriendRequest(ctx context.Context, userid string, targetid string, date time.Time) (user_model.FriendRequest, error) {
+	user, err := s.findUser(ctx, userid)
+	if err != nil {
+		return user_model.FriendRequest{}, ErrUserNotFound
+	}
+
+	id := user.ID
+	targetuser, err := s.findUser(ctx, targetid)
+	if err != nil {
+		return user_model.FriendRequest{}, ErrUserNotFound
+	}
+	targetuuid := targetuser.ID
+
+	if id == targetuuid {
+		return user_model.FriendRequest{}, ErrSameUser
+	}
+
+	friendreq, err := s.userRepo.AcceptFriendRequest(ctx, id, targetuuid, date)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return user_model.FriendRequest{}, ErrRequestNotFound
+	} else if err != nil {
+		return user_model.FriendRequest{}, err
+	} else {
+		// If it fails to create the notification, the AcceptFriendRequest operation should still return properly if accepting succeeded
+		nottype, err := s.notificationRepo.GetNotificationTypeByName("Social")
+		if err == nil {
+			_, _ = s.notificationRepo.Create(notification_model.Notification{
+				UserID:      targetuuid,
+				Friend:      id,
+				Type:        nottype,
+				RequestDate: pgtype.Timestamp{Time: date, Valid: true},
+				Text:        fmt.Sprintf("%s ha acceptat la teva sol·licitud d'amistat", user.Username),
+			})
+		}
+	}
+
+	return friendreq, nil
+}
+
+func (s *userService) DenyFriendRequest(ctx context.Context, userid string, targetid string, date time.Time) (user_model.FriendRequest, error) {
+	user, err := s.findUser(ctx, userid)
+	if err != nil {
+		return user_model.FriendRequest{}, ErrUserNotFound
+	}
+
+	id := user.ID
+	targetuser, err := s.findUser(ctx, targetid)
+	if err != nil {
+		return user_model.FriendRequest{}, ErrUserNotFound
+	}
+	targetuuid := targetuser.ID
+
+	if id == targetuuid {
+		return user_model.FriendRequest{}, ErrSameUser
+	}
+
+	friendreq, err := s.userRepo.DenyFriendRequest(ctx, id, targetuuid, date)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return user_model.FriendRequest{}, ErrRequestNotFound
+	} else if err != nil {
+		return user_model.FriendRequest{}, err
+	} else {
+		// If it fails to create the notification, the AcceptFriendRequest operation should still return properly if accepting succeeded
+		nottype, err := s.notificationRepo.GetNotificationTypeByName("Social")
+		if err == nil {
+			_, _ = s.notificationRepo.Create(notification_model.Notification{
+				UserID:      targetuuid,
+				Friend:      id,
+				Type:        nottype,
+				RequestDate: pgtype.Timestamp{Time: date, Valid: true},
+				Text:        fmt.Sprintf("%s ha rebutjat la teva sol·licitud d'amistat", user.Username),
+			})
+		}
+	}
+
+	return friendreq, nil
+}
+
+func (s *userService) Unfriend(ctx context.Context, userid string, targetid string) error {
+	user, err := s.findUser(ctx, userid)
+	if err != nil {
+		return ErrUserNotFound
+	}
+
+	id := user.ID
+	targetuser, err := s.findUser(ctx, targetid)
+	if err != nil {
+		return ErrUserNotFound
+	}
+	targetuuid := targetuser.ID
+
+	if id == targetuuid {
+		return ErrSameUser
+	}
+
+	arefriends, err := s.userRepo.AreFriends(ctx, id, targetuuid)
+	if err != nil {
+		return err
+	}
+	if !arefriends {
+		return ErrNotFriends
+	}
+
+	err = s.userRepo.Unfriend(ctx, id, targetuuid)
+
+	if err == nil {
+		// If it fails to create the notification, the Unfriend operation should still return properly if unfriending succeeded
+		nottype, err := s.notificationRepo.GetNotificationTypeByName("Social")
+		if err == nil {
+			_, _ = s.notificationRepo.Create(notification_model.Notification{
+				UserID: targetuuid,
+				Friend: id,
+				Type:   nottype,
+				Text:   fmt.Sprintf("%s ha eliminat la seva amistat amb tu", user.Username),
+			})
+		}
+	}
+
+	return err
+}
+
+// resolveAvatars replaces stored profile pictures with URLs that clients can load (#247). A failure only hides
+// the pictures, the response is still served.
+func (s *userService) resolveAvatars(ctx context.Context, fields ...s3_client.AvatarField) {
+	if err := s3_client.ResolveAvatars(ctx, s.s3Client, fields); err != nil {
+		slog.Warn("could not sign profile pictures", "error", err)
+	}
+}
+
+// deleteReplacedAvatar deletes, best-effort, the avatar of before from the bucket once the profile points to
+// another picture. External URLs are ignored by DeleteAvatar.
+func (s *userService) deleteReplacedAvatar(ctx context.Context, before user_model.User, current string) {
+	if s.s3Client == nil || before.ProfilePicture == "" || before.ProfilePicture == current {
+		return
+	}
+	if err := s.s3Client.DeleteAvatar(ctx, before.ID.String(), before.ProfilePicture); err != nil {
+		slog.Warn("could not delete a replaced avatar", "user", before.ID.String(), "error", err)
+	}
+}
+
+// validatePictureURL checks the profile-picture of PATCH /users/me: empty (no picture) or an external http(s)
+// URL. Object paths of the private bucket are rejected so a user cannot point to the avatar of another one.
+// TODO(DP-045): external URLs are still accepted (e.g. the Google photo).
+func validatePictureURL(picture string) error {
+	if picture == "" {
+		return nil
+	}
+	if len(picture) > maxPictureURLLength {
+		return fmt.Errorf("%w: profile-picture cannot exceed %d characters", ErrInvalidInput, maxPictureURLLength)
+	}
+	u, err := url.Parse(picture)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || !s3_client.IsExternalPicture(picture) {
+		return fmt.Errorf("%w: profile-picture must be empty or an http(s) URL; upload avatars with POST /users/me/avatar", ErrInvalidInput)
+	}
+	return nil
+}
+
+func (s *userService) findUser(ctx context.Context, identifier string) (user_model.User, error) {
 	if identifier == "" {
-		return user_model.User{}, false, ErrUserNotFound
+		return user_model.User{}, ErrUserNotFound
 	}
 	// Try ID first
-	if id, err := uuid.FromString(identifier); err == nil {
-		u, showPlans, err := s.userRepo.GetByID(ctx, toPGUUID(id))
+	if id, err := user_model.ParseID(identifier); err == nil {
+		u, err := s.userRepo.GetByID(ctx, id)
 		if err == nil {
-			return u, showPlans, nil
+			return u, nil
 		}
 	}
 	// Try FirebaseUID
-	if u, showPlans, err := s.userRepo.GetByFirebaseUID(ctx, identifier); err == nil {
-		return u, showPlans, nil
+	if u, err := s.userRepo.GetByFirebaseUID(ctx, identifier); err == nil {
+		return u, nil
 	}
 	// Try Username
-	if u, showPlans, err := s.userRepo.GetByUsername(ctx, identifier); err == nil {
-		return u, showPlans, nil
+	if u, err := s.userRepo.GetByUsername(ctx, identifier); err == nil {
+		return u, nil
 	}
-	return user_model.User{}, false, ErrUserNotFound
-}
-
-func uuidToString(u pgtype.UUID) string {
-	if !u.Valid {
-		return ""
-	}
-	src := u.Bytes
-	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
-		src[0:4], src[4:6], src[6:8], src[8:10], src[10:16])
-}
-
-func toPGUUID(id uuid.UUID) pgtype.UUID {
-    return pgtype.UUID{
-        Bytes: [16]byte(id),
-        Valid: true,
-    }
+	return user_model.User{}, ErrUserNotFound
 }

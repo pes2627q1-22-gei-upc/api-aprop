@@ -8,10 +8,10 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/gofrs/uuid/v5"
 
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/models/signup_model"
+	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/repositories/postgres/sqlc"
 	"api-aprop/internal/repositories/signup_repository"
 )
@@ -32,7 +32,7 @@ func NewSignUpRepository(pool *pgxpool.Pool) *SignUpRepository {
 // Create inserts the sign up unless the user is already signed up to the event.
 // TODO(DP-012): without a UNIQUE (UserID, Event) constraint concurrent requests can still duplicate the sign up.
 func (r *SignUpRepository) Create(ctx context.Context, userID string, eventID int) (bool, error) {
-	uid, err := toUUID(userID)
+	uid, err := user_model.ParseID(userID)
 	if err != nil {
 		return false, err
 	}
@@ -48,13 +48,29 @@ func (r *SignUpRepository) Create(ctx context.Context, userID string, eventID in
 }
 
 func (r *SignUpRepository) Delete(ctx context.Context, userID string, eventID int) (bool, error) {
-	uid, err := toUUID(userID)
+	uid, err := user_model.ParseID(userID)
 	if err != nil {
 		return false, err
 	}
 	rows, err := r.queries.DeleteSignUp(ctx, sqlc.DeleteSignUpParams{UserID: uid, EventID: int32(eventID)})
 	if err != nil {
 		return false, fmt.Errorf("unenroll from event %d: %w", eventID, err)
+	}
+	return rows > 0, nil
+}
+
+func (r *SignUpRepository) SetAttendance(ctx context.Context, userID string, eventID int, attendance *bool) (bool, error) {
+	uid, err := user_model.ParseID(userID)
+	if err != nil {
+		return false, err
+	}
+	params := sqlc.SetSignUpAttendanceParams{UserID: uid, EventID: int32(eventID)}
+	if attendance != nil {
+		params.Attendance = pgtype.Bool{Bool: *attendance, Valid: true}
+	}
+	rows, err := r.queries.SetSignUpAttendance(ctx, params)
+	if err != nil {
+		return false, fmt.Errorf("set attendance for event %d: %w", eventID, err)
 	}
 	return rows > 0, nil
 }
@@ -68,7 +84,7 @@ func (r *SignUpRepository) CountSignUps(ctx context.Context, eventID int) (int, 
 }
 
 func (r *SignUpRepository) IsSignedUp(ctx context.Context, userID string, eventID int) (bool, error) {
-	uid, err := toUUID(userID)
+	uid, err := user_model.ParseID(userID)
 	if err != nil {
 		return false, err
 	}
@@ -79,8 +95,25 @@ func (r *SignUpRepository) IsSignedUp(ctx context.Context, userID string, eventI
 	return signedUp, nil
 }
 
+func (r *SignUpRepository) GetAttendance(ctx context.Context, userID string, eventID int) (*bool, error) {
+	uid, err := user_model.ParseID(userID)
+	if err != nil {
+		return nil, err
+	}
+	attendance, err := r.queries.GetAttendance(ctx, sqlc.GetAttendanceParams{Userid: uid, Event: int32(eventID)})
+	if err != nil {
+		return nil, fmt.Errorf("check attendance for user %s and event %d: %w", userID, eventID, err)
+	}
+	var ret *bool
+	if attendance.Valid {
+		b := attendance.Bool
+		ret = &b
+	}
+	return ret, nil
+}
+
 func (r *SignUpRepository) ListUserEvents(ctx context.Context, userID string, dateRange signup_model.DateRange) ([]event_model.Event, error) {
-	uid, err := toUUID(userID)
+	uid, err := user_model.ParseID(userID)
 	if err != nil {
 		return nil, err
 	}
@@ -139,12 +172,4 @@ func signedUpEventToModel(row sqlc.ListUserSignedUpEventsRow) event_model.Event 
 		Startdate:    row.Startdate,
 		Enddate:      row.Enddate,
 	}, 0)
-}
-
-func toUUID(s string) (pgtype.UUID, error) {
-	tmp, err := uuid.FromString(s)
-	if err!=nil{
-		return pgtype.UUID{}, fmt.Errorf("invalid user id %s: %w", s, err)
-	}
-	return pgtype.UUID{Valid: true, Bytes: [16]byte(tmp)}, nil
 }

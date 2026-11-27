@@ -7,11 +7,12 @@ import (
 	"net/http"
 	"strconv"
 
+	"api-aprop/internal/handlers/language"
 	"api-aprop/internal/handlers/requester"
 	"api-aprop/internal/handlers/response"
-	"api-aprop/internal/middleware/auth_middleware"
 	"api-aprop/internal/models/event_model"
 	"api-aprop/internal/services/event_service"
+	"api-aprop/internal/services/translation_service"
 )
 
 const maxBodyBytes = 1 << 20
@@ -19,15 +20,20 @@ const maxBodyBytes = 1 << 20
 // maxImageBytes is the largest event image. The request can be a bit larger because of the multipart form.
 const maxImageBytes = 5 << 20
 
-// UserIDHeader carries the user identity until authentication exists.
-const UserIDHeader = "X-User-ID"
-
 type EventHandler struct {
 	eventService event_service.Service
+	resolver     requester.Resolver
+	translator   translation_service.Service // optional: without it the events are always in the original language
 }
 
-func NewEventHandler(eventService event_service.Service) *EventHandler {
-	return &EventHandler{eventService: eventService}
+func NewEventHandler(eventService event_service.Service, resolver requester.Resolver) *EventHandler {
+	return &EventHandler{eventService: eventService, resolver: resolver}
+}
+
+// WithTranslator sets the service that translates the events when ?lang= or the user language asks for it (US #28).
+func (h *EventHandler) WithTranslator(t translation_service.Service) *EventHandler {
+	h.translator = t
+	return h
 }
 
 // RegisterRoutes registers the event endpoints.
@@ -41,31 +47,20 @@ func (h *EventHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /events", h.CreateEvent)
 	mux.HandleFunc("PUT /events/{id}", h.UpdateEvent)
 	mux.HandleFunc("DELETE /events/{id}", h.DeleteEvent)
+	mux.HandleFunc("POST /events/{id}/cancel", h.CancelEvent)
 	mux.HandleFunc("POST /events/{id}/image", h.UploadEventImage)
 	mux.HandleFunc("GET /categories", h.GetCategories)
 	mux.HandleFunc("GET /categories/{id}", h.GetCategory)
 	mux.HandleFunc("GET /events/recommended", h.GetRecommendedEvents)
 	mux.HandleFunc("GET /events/popular", h.GetPopularEvents)
-}
-
-func getUserID(r *http.Request) string {
-	if u, ok := auth_middleware.UserFromContext(r.Context()); ok && u.UID != "" {
-		return u.UID
-	}
-	return r.Header.Get(UserIDHeader)
-}
-
-// requesterID returns the database ID (UUID) of the user making the request.
-func (h *EventHandler) requesterID(r *http.Request) (string, error) {
-	return h.eventService.ResolveUserID(r.Context(), getUserID(r))
+	mux.HandleFunc("GET /events/{id}/ratings", h.GetReceivedRatings)
 }
 
 // authorizeCreator checks that the requester is the creator of the event. Official events have no creator,
 // so nobody can modify or delete them. It writes the error response and returns false when not allowed.
 func (h *EventHandler) authorizeCreator(w http.ResponseWriter, r *http.Request, id int) bool {
-	requester, err := h.requesterID(r)
-	if err != nil {
-		writeServiceError(w, err)
+	userID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
 		return false
 	}
 
@@ -75,7 +70,7 @@ func (h *EventHandler) authorizeCreator(w http.ResponseWriter, r *http.Request, 
 		return false
 	}
 
-	if event.IsOfficial || !event.Creator.Valid || event.Creator.String() != requester {
+	if event.IsOfficial || !event.Creator.Valid || event.Creator.String() != userID {
 		response.WriteError(w, http.StatusForbidden, "only the creator can modify this event")
 		return false
 	}
@@ -100,8 +95,28 @@ func intParam(w http.ResponseWriter, r *http.Request, name string, def int) (int
 	return n, true
 }
 
+func (h *EventHandler) GetReceivedRatings(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil {
+		response.WriteError(w, http.StatusBadRequest, "invalid event id")
+		return
+	}
+
+	ratings, err := h.eventService.GetReceivedRatings(id)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, ratings)
+}
+
 // ListEvents handles GET /events
 func (h *EventHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
+	lang, ok := language.Resolve(w, r, h.translator, h.resolver)
+	if !ok {
+		return
+	}
 	params := make(map[string]any)
 	pageSize, ok := intParam(w, r, "pageSize", defaultPageSize)
 	if !ok {
@@ -137,32 +152,45 @@ func (h *EventHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response.WriteJSON(w, http.StatusOK, list)
+	response.WriteJSON(w, http.StatusOK, h.translateEvents(r, lang, list))
 }
 
-func (h *EventHandler) GetRecommendedEvents(w http.ResponseWriter, r *http.Request){
+// translateEvents translates the events into lang; without a translator or for the original language it is a no-op.
+func (h *EventHandler) translateEvents(r *http.Request, lang string, events []event_model.Event) []event_model.Event {
+	if h.translator == nil {
+		return events
+	}
+	return h.translator.TranslateEvents(r.Context(), lang, events)
+}
+
+// GetRecommendedEvents handles GET /events/recommended?pageSize={m}&pageNum={n}
+// TODO(DP-034): confirm whether pageSize/pageNum should be required or default like GET /events.
+func (h *EventHandler) GetRecommendedEvents(w http.ResponseWriter, r *http.Request) {
 	pageSize, err := strconv.Atoi(r.URL.Query().Get("pageSize"))
-	if err!=nil{
+	if err != nil || pageSize <= 0 {
 		response.WriteError(w, http.StatusBadRequest, "invalid page size")
 		return
 	}
 	pageNum, err := strconv.Atoi(r.URL.Query().Get("pageNum"))
-	if err!=nil{
+	if err != nil || pageNum < 0 {
 		response.WriteError(w, http.StatusBadRequest, "invalid page num")
 		return
 	}
-	requester, err := h.requesterID(r)
+	lang, ok := language.Resolve(w, r, h.translator, h.resolver)
+	if !ok {
+		return
+	}
+	userID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
+		return
+	}
+
+	ev, err := h.eventService.GetRecommendedEvents(r.Context(), userID, pageSize, pageNum)
 	if err != nil {
 		writeServiceError(w, err)
 		return
 	}
-
-	ev, err := h.eventService.GetRecommendedEvents(r.Context(), requester, pageSize, pageNum)
-	if err!=nil{
-		writeServiceError(w, err)
-		return
-	}
-	response.WriteJSON(w, http.StatusOK, ev)
+	response.WriteJSON(w, http.StatusOK, h.translateEvents(r, lang, ev))
 }
 
 // GetEvent handles GET /events/{id}
@@ -172,11 +200,18 @@ func (h *EventHandler) GetEvent(w http.ResponseWriter, r *http.Request) {
 		response.WriteError(w, http.StatusBadRequest, "invalid event id")
 		return
 	}
+	lang, ok := language.Resolve(w, r, h.translator, h.resolver)
+	if !ok {
+		return
+	}
 
 	event, err := h.eventService.GetEvent(id)
 	if err != nil {
 		writeServiceError(w, err)
 		return
+	}
+	if h.translator != nil {
+		event = h.translator.TranslateEvent(r.Context(), lang, event)
 	}
 	response.WriteJSON(w, http.StatusOK, event)
 }
@@ -190,13 +225,12 @@ func (h *EventHandler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Users can only create unofficial events, so the creator is required
-	requester, err := h.requesterID(r)
-	if err != nil {
-		writeServiceError(w, err)
+	userID, ok := requester.ID(w, r, h.resolver)
+	if !ok {
 		return
 	}
 
-	created, err := h.eventService.CreateUnofficialEvent(r.Context(), requester, e)
+	created, err := h.eventService.CreateUnofficialEvent(r.Context(), userID, e)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -247,6 +281,27 @@ func (h *EventHandler) DeleteEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// CancelEvent handles POST /events/{id}/cancel. Only the creator of an unofficial event can cancel it; the users signed
+// up to it are notified.
+func (h *EventHandler) CancelEvent(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil {
+		response.WriteError(w, http.StatusBadRequest, "invalid event id")
+		return
+	}
+
+	if !h.authorizeCreator(w, r, id) {
+		return
+	}
+
+	cancellation, err := h.eventService.CancelUnofficialEvent(r.Context(), id)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	response.WriteJSON(w, http.StatusOK, cancellation)
 }
 
 // UploadEventImage handles POST /events/{id}/image. Only the creator of an unofficial event can change its image.
@@ -321,8 +376,12 @@ func (h *EventHandler) ListMapEvents(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	lang, ok := language.Resolve(w, r, h.translator, h.resolver)
+	if !ok {
+		return
+	}
 	if requester.Present(r) {
-		if filter.UserID, ok = requester.ID(w, r, h.eventService); !ok {
+		if filter.UserID, ok = requester.ID(w, r, h.resolver); !ok {
 			return
 		}
 	}
@@ -332,26 +391,33 @@ func (h *EventHandler) ListMapEvents(w http.ResponseWriter, r *http.Request) {
 		writeServiceError(w, err)
 		return
 	}
+	if h.translator != nil {
+		events = h.translator.TranslateMapEvents(r.Context(), lang, events)
+	}
 	response.WriteJSON(w, http.StatusOK, events)
 }
 
-func (h *EventHandler) GetPopularEvents(w http.ResponseWriter, r *http.Request){
+func (h *EventHandler) GetPopularEvents(w http.ResponseWriter, r *http.Request) {
+	lang, ok := language.Resolve(w, r, h.translator, h.resolver)
+	if !ok {
+		return
+	}
 	pageSize, err := strconv.Atoi(r.URL.Query().Get("pageSize"))
-	if err!=nil{
+	if err != nil {
 		response.WriteError(w, http.StatusBadRequest, "invalid page size")
 		return
 	}
 	pageNum, err := strconv.Atoi(r.URL.Query().Get("pageNum"))
-	if err!=nil{
+	if err != nil {
 		response.WriteError(w, http.StatusBadRequest, "invalid page num")
 		return
 	}
 	ev, err := h.eventService.GetPopularEvents(pageSize, pageNum)
-	if err!=nil{
+	if err != nil {
 		writeServiceError(w, err)
 		return
 	}
-	response.WriteJSON(w, http.StatusOK, ev)
+	response.WriteJSON(w, http.StatusOK, h.translateEvents(r, lang, ev))
 }
 
 // GetCategory handles GET /categories/{id}
@@ -434,6 +500,10 @@ func parseCoordParam(w http.ResponseWriter, name, value string) (float32, bool) 
 
 // SearchEvents handles GET /events/search?q={query}&pageNum={n}&pageSize={m}
 func (h *EventHandler) SearchEvents(w http.ResponseWriter, r *http.Request) {
+	lang, ok := language.Resolve(w, r, h.translator, h.resolver)
+	if !ok {
+		return
+	}
 	q := r.URL.Query().Get("q")
 	if q == "" {
 		q = r.URL.Query().Get("search")
@@ -450,5 +520,6 @@ func (h *EventHandler) SearchEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	result.Events = h.translateEvents(r, lang, result.Events)
 	response.WriteJSON(w, http.StatusOK, result)
 }

@@ -33,14 +33,18 @@ func writeServiceError(w http.ResponseWriter, err error) {
 	case errors.Is(err, event_service.ErrImageUploadFailed):
 		log.Printf("upload event image: %v", err)
 		response.WriteError(w, http.StatusBadGateway, "image storage unavailable")
+	case errors.Is(err, event_service.ErrEventNotActive):
+		response.WriteError(w, http.StatusConflict, "event is not active")
+	case errors.Is(err, event_service.ErrEventFinished):
+		response.WriteError(w, http.StatusConflict, "event has already finished")
 	case errors.Is(err, event_service.ErrInvalidEvent):
 		response.WriteError(w, http.StatusUnprocessableEntity, "event is invalid")
 	case errors.Is(err, event_service.ErrInvalidBoundingBox):
 		response.WriteError(w, http.StatusBadRequest, "invalid bounding box")
 	case errors.Is(err, event_service.ErrInvalidUserID):
 		response.WriteError(w, http.StatusBadRequest, "invalid user id")
-	case errors.Is(err, event_service.ErrUserNotRegistered):
-		response.WriteError(w, http.StatusUnauthorized, "user not registered")
+	case errors.Is(err, event_service.ErrCategoryNotAllowed):
+		response.WriteError(w, http.StatusBadRequest, "you are not allowed to add this category")
 	default:
 		log.Printf("internal error: %v", err)
 		response.WriteError(w, http.StatusInternalServerError, "internal server error")

@@ -6,18 +6,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"api-aprop/internal/models/event_model"
+	"api-aprop/internal/models/notification_model"
 	"api-aprop/internal/models/signup_model"
 	"api-aprop/internal/repositories/signup_repository"
 )
 
 const validUserID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
 
-type fakeEventRepository struct{
-	exists		bool
-	existsErr	error
+type fakeEventRepository struct {
+	exists    bool
+	existsErr error
 
-	gotEventID 	int
+	gotEventID int
 }
 
 type fakeRepository struct {
@@ -32,6 +35,11 @@ type fakeRepository struct {
 	events       []event_model.Event
 	listErr      error
 
+	attendanceUpdated bool
+	attendanceErr     error
+	attendanceCalls   int
+	gotAttendance     *bool
+
 	createCalls int
 	deleteCalls int
 	listCalls   int
@@ -45,19 +53,88 @@ func (f *fakeEventRepository) EventExists(eventID int) (bool, error) {
 	return f.exists, f.existsErr
 }
 
-func (f *fakeEventRepository) Create(e event_model.Event, official bool) (event_model.Event, error) { return event_model.Event{}, nil}
-func (f *fakeEventRepository) CreateOrReplace(e event_model.Event) (event_model.Event, error) { return event_model.Event{}, nil}
-func (f *fakeEventRepository) Update(id int, e event_model.Event, official bool) (event_model.Event, error) { return event_model.Event{}, nil}
-func (f *fakeEventRepository) UpdateImage(ctx context.Context, id int, imageURL string) error { return nil }
+func (f *fakeEventRepository) Cancel(context.Context, int) (int64, error) {
+	return 0, nil
+}
+
+func (f *fakeEventRepository) GetUnofficialState(ctx context.Context, id int) (string, error) {
+	return event_model.UnofficialStateActive, nil
+}
+
+func (f *fakeEventRepository) Create(e event_model.Event, official bool) (event_model.Event, error) {
+	return event_model.Event{}, nil
+}
+func (f *fakeEventRepository) CreateOrReplace(e event_model.Event) (event_model.Event, error) {
+	return event_model.Event{}, nil
+}
+func (f *fakeEventRepository) Update(id int, e event_model.Event, official bool) (event_model.Event, error) {
+	return event_model.Event{}, nil
+}
+func (f *fakeEventRepository) UpdateImage(ctx context.Context, id int, imageURL string) error {
+	return nil
+}
 func (f *fakeEventRepository) Delete(ctx context.Context, id int) error { return nil }
-func (f *fakeEventRepository) SetCategories(id int, cats []string, official bool) error { return nil }
-func (f *fakeEventRepository) Get(id int) (event_model.Event, error) { return event_model.Event{EndDate:time.Now().Add(time.Hour * time.Duration(24))}, nil}
-func (f *fakeEventRepository) List(params map[string]any) ([]event_model.Event, error) { return []event_model.Event{}, nil}
-func (f *fakeEventRepository) GetPopular(pageSize int, pageNum int) ([]event_model.Event, error) { return []event_model.Event{}, nil}
-func (f *fakeEventRepository) Search(ctx context.Context, query string, pageNum, pageSize int) (event_model.SearchResult, error) { return event_model.SearchResult{}, nil}
-func (f *fakeEventRepository) GetCategories() ([]event_model.Category, error) { return []event_model.Category{}, nil}
-func (f *fakeEventRepository) GetCategory(id int) (event_model.Category, error) { return event_model.Category{}, nil}
-func (f *fakeEventRepository) ListMapEvents(ctx context.Context, filter event_model.MapFilter) ([]event_model.MapEvent, error) { return []event_model.MapEvent{}, nil}
+func (f *fakeEventRepository) Get(id int) (event_model.Event, error) {
+	return event_model.Event{EndDate: time.Now().Add(time.Hour * time.Duration(24))}, nil
+}
+func (f *fakeEventRepository) List(params map[string]any) ([]event_model.Event, error) {
+	return []event_model.Event{}, nil
+}
+func (f *fakeEventRepository) ListRecommended(ctx context.Context, userID pgtype.UUID, pageSize, pageOffset int) ([]event_model.Event, error) {
+	return []event_model.Event{}, nil
+}
+func (f *fakeEventRepository) GetPopular(pageSize int, pageNum int) ([]event_model.Event, error) {
+	return []event_model.Event{}, nil
+}
+func (f *fakeEventRepository) Search(ctx context.Context, query string, pageNum, pageSize int) (event_model.SearchResult, error) {
+	return event_model.SearchResult{}, nil
+}
+func (f *fakeEventRepository) GetCategories() ([]event_model.Category, error) {
+	return []event_model.Category{}, nil
+}
+func (f *fakeEventRepository) GetCategory(id int) (event_model.Category, error) {
+	return event_model.Category{}, nil
+}
+func (f *fakeEventRepository) ListMapEvents(ctx context.Context, filter event_model.MapFilter) ([]event_model.MapEvent, error) {
+	return []event_model.MapEvent{}, nil
+}
+func (f *fakeEventRepository) GetReceivedRatings(id int) ([]event_model.ReceivedRating, error) {
+	return []event_model.ReceivedRating{}, nil
+}
+func (r *fakeEventRepository) CreateAstronomical(id string, e event_model.Event) error { return nil }
+
+type fakeNotificationRepository struct {
+	created_on_signup   int
+	created_on_unenroll int
+}
+
+func (f *fakeNotificationRepository) Get(id int) (notification_model.Notification, error) {
+	return notification_model.Notification{}, nil
+}
+func (f *fakeNotificationRepository) Create(notification_model.Notification) (int, error) {
+	return 0, nil
+}
+func (f *fakeNotificationRepository) GetUserNotifications(id pgtype.UUID, params map[string]any) ([]notification_model.Notification, error) {
+	return []notification_model.Notification{}, nil
+}
+func (f *fakeNotificationRepository) ReadNotification(id int) error              { return nil }
+func (f *fakeNotificationRepository) ReadUserNotifications(id pgtype.UUID) error { return nil }
+func (f *fakeNotificationRepository) GetNotificationTypes() ([]notification_model.NotificationType, error) {
+	return []notification_model.NotificationType{}, nil
+}
+func (f *fakeNotificationRepository) GetNotificationTypeByName(name string) (int, error) {
+	return 0, nil
+}
+func (f *fakeNotificationRepository) CreateReminders() ([]int32, error) { return []int32{}, nil }
+func (f *fakeNotificationRepository) CreateFriendSignupNotifications(id pgtype.UUID, event int, text string) ([]int32, error) {
+	switch text {
+	case "apuntat a":
+		f.created_on_signup++
+	case "desapuntat de":
+		f.created_on_unenroll++
+	}
+	return []int32{}, nil
+}
 
 func (f *fakeRepository) Create(_ context.Context, userID string, eventID int) (bool, error) {
 	f.createCalls++
@@ -84,6 +161,10 @@ func (f *fakeRepository) IsSignedUp(_ context.Context, userID string, eventID in
 	return f.isSignedUp, f.isSignedErr
 }
 
+func (f *fakeRepository) GetAttendance(_ context.Context, userID string, eventID int) (*bool, error) {
+	return nil, nil
+}
+
 func (f *fakeRepository) ListUserEvents(_ context.Context, userID string, dateRange signup_model.DateRange) ([]event_model.Event, error) {
 	f.listCalls++
 	f.gotUserID = userID
@@ -106,7 +187,7 @@ func TestSignUp(t *testing.T) {
 		userID      string
 		eventID     int
 		repo        fakeRepository
-		eventRepo	fakeEventRepository
+		eventRepo   fakeEventRepository
 		wantErr     error
 		wantCreated bool
 		wantCreate  int
@@ -127,7 +208,7 @@ func TestSignUp(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := tt.repo
 			eventRepo := tt.eventRepo
-			s := NewSignUpService(&repo, &eventRepo)
+			s := NewSignUpService(&repo, &eventRepo, &fakeNotificationRepository{})
 
 			got, err := s.SignUp(context.Background(), tt.userID, tt.eventID)
 
@@ -150,8 +231,8 @@ func TestSignUp(t *testing.T) {
 
 func TestSignUpNormalizesUserID(t *testing.T) {
 	repo := fakeRepository{created: true}
-	eventRepo := fakeEventRepository{exists:true}
-	s := NewSignUpService(&repo, &eventRepo)
+	eventRepo := fakeEventRepository{exists: true}
+	s := NewSignUpService(&repo, &eventRepo, &fakeNotificationRepository{})
 
 	got, err := s.SignUp(context.Background(), "3F2504E0-4F89-11D3-9A0C-0305E82C3301", 1)
 	if err != nil {
@@ -189,7 +270,7 @@ func TestListUserEvents(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := tt.repo
 			eventRepo := fakeEventRepository{}
-			s := NewSignUpService(&repo, &eventRepo)
+			s := NewSignUpService(&repo, &eventRepo, &fakeNotificationRepository{})
 
 			got, err := s.ListUserEvents(context.Background(), tt.userID, tt.dateRange)
 
@@ -244,7 +325,7 @@ func TestUnenroll(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := tt.repo
 			eventRepo := tt.eventRepo
-			s := NewSignUpService(&repo, &eventRepo)
+			s := NewSignUpService(&repo, &eventRepo, &fakeNotificationRepository{})
 
 			got, err := s.Unenroll(context.Background(), tt.userID, tt.eventID)
 
@@ -281,7 +362,7 @@ func TestGetEnrollmentStatus(t *testing.T) {
 			userID:     validUserID,
 			eventID:    1,
 			repo:       fakeRepository{countSignUps: 42, isSignedUp: true},
-			eventRepo: 	fakeEventRepository{exists: true}, 
+			eventRepo:  fakeEventRepository{exists: true},
 			wantStatus: signup_model.EnrollmentStatus{EventID: 1, IsEnrolled: true, EnrolledCount: 42},
 		},
 		{
@@ -289,7 +370,7 @@ func TestGetEnrollmentStatus(t *testing.T) {
 			userID:     validUserID,
 			eventID:    1,
 			repo:       fakeRepository{countSignUps: 15, isSignedUp: false},
-			eventRepo: 	fakeEventRepository{exists: true}, 
+			eventRepo:  fakeEventRepository{exists: true},
 			wantStatus: signup_model.EnrollmentStatus{EventID: 1, IsEnrolled: false, EnrolledCount: 15},
 		},
 		{
@@ -297,39 +378,39 @@ func TestGetEnrollmentStatus(t *testing.T) {
 			userID:     "",
 			eventID:    1,
 			repo:       fakeRepository{countSignUps: 10},
-			eventRepo: 	fakeEventRepository{exists: true}, 
+			eventRepo:  fakeEventRepository{exists: true},
 			wantStatus: signup_model.EnrollmentStatus{EventID: 1, IsEnrolled: false, EnrolledCount: 10},
 		},
 		{
-			name:    	"event not found",
-			userID:  	validUserID,
-			eventID: 	999,
-			repo:    	fakeRepository{},
-			eventRepo: 	fakeEventRepository{exists: false}, 
-			wantErr: 	ErrEventNotFound,
+			name:      "event not found",
+			userID:    validUserID,
+			eventID:   999,
+			repo:      fakeRepository{},
+			eventRepo: fakeEventRepository{exists: false},
+			wantErr:   ErrEventNotFound,
 		},
 		{
-			name:    	"invalid event id",
-			userID:  	validUserID,
-			eventID: 	-1,
-			repo:    	fakeRepository{},
-			eventRepo: 	fakeEventRepository{exists: true}, 
-			wantErr: 	ErrInvalidEventID,
+			name:      "invalid event id",
+			userID:    validUserID,
+			eventID:   -1,
+			repo:      fakeRepository{},
+			eventRepo: fakeEventRepository{exists: true},
+			wantErr:   ErrInvalidEventID,
 		},
 		{
-			name:    	"count error",
-			userID:  	validUserID,
-			eventID: 	1,
-			repo:    	fakeRepository{countErr: repoErr},
-			eventRepo: 	fakeEventRepository{exists: true}, 
-			wantErr: 	repoErr,
+			name:      "count error",
+			userID:    validUserID,
+			eventID:   1,
+			repo:      fakeRepository{countErr: repoErr},
+			eventRepo: fakeEventRepository{exists: true},
+			wantErr:   repoErr,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := tt.repo
 			eventRepo := tt.eventRepo
-			s := NewSignUpService(&repo, &eventRepo)
+			s := NewSignUpService(&repo, &eventRepo, &fakeNotificationRepository{})
 
 			got, err := s.GetEnrollmentStatus(context.Background(), tt.userID, tt.eventID)
 
@@ -343,5 +424,163 @@ func TestGetEnrollmentStatus(t *testing.T) {
 				t.Errorf("GetEnrollmentStatus = %+v, want %+v", got, tt.wantStatus)
 			}
 		})
+	}
+}
+
+func TestSignupNotifications(t *testing.T) {
+	tests := []struct {
+		name               string
+		userID             string
+		eventID            int
+		repo               fakeRepository
+		eventRepo          fakeEventRepository
+		wantErr            error
+		wantCreated        bool
+		wantCreate         int
+		notifRepo          fakeNotificationRepository
+		wantSignupNotifs   int
+		wantUnenrollNotifs int
+	}{
+		{name: "new sign up", userID: validUserID, eventID: 1, repo: fakeRepository{created: true}, eventRepo: fakeEventRepository{exists: true}, wantCreated: true, wantCreate: 1, notifRepo: fakeNotificationRepository{}, wantSignupNotifs: 1, wantUnenrollNotifs: 0},
+		{name: "signup fails", userID: "bad-id", eventID: 1, repo: fakeRepository{created: true}, eventRepo: fakeEventRepository{exists: true}, wantErr: ErrInvalidUserID, wantCreated: false, wantCreate: 0, notifRepo: fakeNotificationRepository{}, wantSignupNotifs: 0, wantUnenrollNotifs: 0},
+		{name: "signup already exists", userID: validUserID, eventID: 1, repo: fakeRepository{created: false}, eventRepo: fakeEventRepository{exists: true}, wantCreated: false, wantCreate: 1, notifRepo: fakeNotificationRepository{}, wantSignupNotifs: 0, wantUnenrollNotifs: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := tt.repo
+			eventRepo := tt.eventRepo
+			s := NewSignUpService(&repo, &eventRepo, &tt.notifRepo)
+
+			got, err := s.SignUp(context.Background(), tt.userID, tt.eventID)
+
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("error = %v, want %v", err, tt.wantErr)
+			}
+			if repo.createCalls != tt.wantCreate {
+				t.Errorf("Create calls = %d, want %d", repo.createCalls, tt.wantCreate)
+			}
+			if tt.wantErr != nil {
+				return
+			}
+			want := signup_model.SignUp{UserID: tt.userID, EventID: tt.eventID, Created: tt.wantCreated}
+			if got != want {
+				t.Errorf("SignUp = %+v, want %+v", got, want)
+			}
+			if tt.notifRepo.created_on_signup != tt.wantSignupNotifs {
+				t.Errorf("Create notification calls for signup = %d, want %d", tt.notifRepo.created_on_signup, tt.wantSignupNotifs)
+			}
+			if tt.notifRepo.created_on_unenroll != tt.wantUnenrollNotifs {
+				t.Errorf("Create notification calls for unenroll = %d, want %d", tt.notifRepo.created_on_unenroll, tt.wantUnenrollNotifs)
+			}
+		})
+	}
+}
+
+func TestUnenrollNotifications(t *testing.T) {
+	tests := []struct {
+		name               string
+		userID             string
+		eventID            int
+		repo               fakeRepository
+		eventRepo          fakeEventRepository
+		wantErr            error
+		wantDeleted        bool
+		wantDelete         int
+		notifRepo          fakeNotificationRepository
+		wantSignupNotifs   int
+		wantUnenrollNotifs int
+	}{
+		{name: "new unenroll", userID: validUserID, eventID: 1, repo: fakeRepository{deleted: true}, eventRepo: fakeEventRepository{exists: true}, wantDeleted: true, wantDelete: 1, notifRepo: fakeNotificationRepository{}, wantSignupNotifs: 0, wantUnenrollNotifs: 1},
+		{name: "unenroll fails", userID: "bad-id", eventID: 1, repo: fakeRepository{deleted: true}, eventRepo: fakeEventRepository{exists: true}, wantErr: ErrInvalidUserID, wantDeleted: false, wantDelete: 0, notifRepo: fakeNotificationRepository{}, wantSignupNotifs: 0, wantUnenrollNotifs: 0},
+		{name: "not enrolled", userID: validUserID, eventID: 1, repo: fakeRepository{deleted: false}, eventRepo: fakeEventRepository{exists: true}, wantDeleted: false, wantDelete: 1, notifRepo: fakeNotificationRepository{}, wantSignupNotifs: 0, wantUnenrollNotifs: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := tt.repo
+			eventRepo := tt.eventRepo
+			s := NewSignUpService(&repo, &eventRepo, &tt.notifRepo)
+
+			got, err := s.Unenroll(context.Background(), tt.userID, tt.eventID)
+
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("error = %v, want %v", err, tt.wantErr)
+			}
+			if repo.deleteCalls != tt.wantDelete {
+				t.Errorf("Delete calls = %d, want %d", repo.deleteCalls, tt.wantDelete)
+			}
+			if tt.wantErr != nil {
+				return
+			}
+			want := signup_model.Unenroll{UserID: tt.userID, EventID: tt.eventID, Deleted: tt.wantDeleted}
+			if got != want {
+				t.Errorf("Unenroll = %+v, want %+v", got, want)
+			}
+			if tt.notifRepo.created_on_signup != tt.wantSignupNotifs {
+				t.Errorf("Create notification calls for signup = %d, want %d", tt.notifRepo.created_on_signup, tt.wantSignupNotifs)
+			}
+			if tt.notifRepo.created_on_unenroll != tt.wantUnenrollNotifs {
+				t.Errorf("Create notification calls for unenroll = %d, want %d", tt.notifRepo.created_on_unenroll, tt.wantUnenrollNotifs)
+			}
+		})
+	}
+}
+
+func (f *fakeRepository) SetAttendance(_ context.Context, userID string, eventID int, attendance *bool) (bool, error) {
+	f.attendanceCalls++
+	f.gotAttendance = attendance
+	return f.attendanceUpdated, f.attendanceErr
+}
+
+// startEventRepository returns an event with a fixed start date.
+type startEventRepository struct {
+	fakeEventRepository
+	start time.Time
+}
+
+func (f *startEventRepository) Get(id int) (event_model.Event, error) {
+	return event_model.Event{StartDate: f.start}, nil
+}
+
+func TestR8_AttendanceAfterStart(t *testing.T) {
+	now := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+	yes := true
+	tests := []struct {
+		name        string
+		start       time.Time
+		enrolled    bool
+		attendance  *bool
+		wantErr     error
+		wantUpdates int
+	}{
+		{"started event accepts attendance", now.Add(-time.Hour), true, &yes, nil, 1},
+		{"future event rejects attendance", now.Add(time.Hour), true, &yes, ErrEventNotStarted, 0},
+		{"event starting exactly now rejects attendance", now, true, &yes, ErrEventNotStarted, 0},
+		{"future event allows clearing to unknown", now.Add(time.Hour), true, nil, nil, 1},
+		{"not enrolled", now.Add(-time.Hour), false, &yes, ErrNotEnrolled, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := fakeRepository{isSignedUp: tt.enrolled, attendanceUpdated: true}
+			s := NewSignUpService(&repo, &startEventRepository{fakeEventRepository: fakeEventRepository{exists: true}, start: tt.start}, &fakeNotificationRepository{})
+			s.now = func() time.Time { return now }
+
+			res, err := s.SetAttendance(context.Background(), validUserID, 7, tt.attendance)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("err = %v, want %v", err, tt.wantErr)
+			}
+			if repo.attendanceCalls != tt.wantUpdates {
+				t.Fatalf("repository updates = %d, want %d", repo.attendanceCalls, tt.wantUpdates)
+			}
+			if err == nil && (res.EventID != 7 || res.Attendance != tt.attendance) {
+				t.Fatalf("result = %+v", res)
+			}
+		})
+	}
+}
+
+func TestSetAttendanceEventNotFound(t *testing.T) {
+	s := NewSignUpService(&fakeRepository{}, &fakeEventRepository{exists: false}, &fakeNotificationRepository{})
+	if _, err := s.SetAttendance(context.Background(), validUserID, 7, nil); !errors.Is(err, ErrEventNotFound) {
+		t.Fatalf("err = %v, want ErrEventNotFound", err)
 	}
 }

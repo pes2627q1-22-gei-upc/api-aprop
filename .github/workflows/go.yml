@@ -24,6 +24,21 @@ jobs:
   test:
     name: Tests & Build
     runs-on: ubuntu-latest
+    # Real Postgres so the migration integration tests run instead of being skipped
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_POSTGRES_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
     steps:
       - uses: actions/checkout@v4
 
@@ -31,10 +46,8 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Compile executables (cmd/app, cmd/mcp)
-        run: |
-          go build -v ./cmd/app
-          go build -v ./cmd/mcp
+      - name: Compile executable (cmd/app)
+        run: go build -v ./cmd/app
 
       - name: Run unit and integration tests
         run: go test -race -coverprofile=coverage.out ./...
@@ -46,6 +59,65 @@ jobs:
         with:
           name: coverage
           path: coverage.out
+
+  # Reproduces the Render boot: Supabase applies supabase/migrations first, then the API
+  # (golang-migrate) migrates on top of it. A failure here is a failed deploy.
+  migrations-supabase:
+    name: Migrations on local Supabase
+    runs-on: ubuntu-latest
+    env:
+      DB_HOST: 127.0.0.1
+      DB_PORT: '54322'
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      DB_DATABASE: postgres
+      PGPASSWORD: postgres
+      # Required by the binary before it reaches the database; unused by `api migrate`
+      PORT: '8080'
+      APP_TOKEN: ci
+      FIREBASE_CREDENTIALS_FILE: ci.json
+      GENCAT_EVENTS_URL: http://localhost
+      GENCAT_PAGE_SIZE: '1'
+      GROQ_API_KEYS: ci
+      GROQ_MODEL: ci
+      TALAIA_API_KEY: ci
+      TALAIA_EVENTS_URL: http://localhost
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: supabase/setup-cli@689adcfb80d947100a1eab127289b97d1fb07b13 # v3.2.0
+        with:
+          version: latest
+
+      # Starting the stack applies supabase/migrations/ (fails on broken SQL).
+      # Only the database is needed: skip the other services to start faster.
+      - name: Start local Supabase
+        run: supabase start -x gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
+
+      - name: Build API
+        run: go build -o aprop-api ./cmd/app
+
+      - name: API migrates on top of Supabase
+        run: ./aprop-api migrate
+
+      - name: Second boot changes nothing
+        run: ./aprop-api migrate
+
+      - name: golang-migrate state is clean
+        run: |
+          dirty=$(psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -Atc "SELECT dirty FROM public.schema_migrations")
+          echo "dirty=$dirty"
+          [ "$dirty" = "f" ]
+
+      - name: A dirty state left by a crash heals on next boot
+        run: |
+          psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -c "UPDATE public.schema_migrations SET dirty = true"
+          ./aprop-api migrate
+          [ "$(psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -Atc 'SELECT dirty FROM public.schema_migrations')" = "f" ]
 
   lint:
     name: Lint (golangci-lint)
@@ -75,7 +147,7 @@ jobs:
   publish:
     name: Publish Docker image (GHCR)
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [test, lint, vulncheck]
+    needs: [test, lint, vulncheck, migrations-supabase]
     runs-on: ubuntu-latest
     permissions:
       contents: read

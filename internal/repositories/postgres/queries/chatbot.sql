@@ -37,3 +37,8 @@ FROM ChatbotRecommendations r
 JOIN Events e ON e.ID = r.Event
 WHERE r.UserID = sqlc.arg(user_id)::uuid AND r.ConversationStartedAt = sqlc.arg(conversation_started_at)::timestamptz
 ORDER BY r.SentAt, r.Position;
+
+-- name: UpsertChatbotFeedback :exec
+INSERT INTO ChatbotFeedback (UserID, ConversationStartedAt, SentAt, Helpful)
+VALUES (@UserID::uuid, @ConversationStartedAt::timestamptz, @SentAt::timestamptz, @Helpful::boolean)
+ON CONFLICT (UserID, ConversationStartedAt, SentAt) DO UPDATE SET Helpful = EXCLUDED.Helpful, CreatedAt = now();

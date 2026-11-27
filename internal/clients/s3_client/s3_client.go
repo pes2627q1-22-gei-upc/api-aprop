@@ -7,19 +7,31 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
+// S3Config configures the storage. Bucket, Region, Endpoint and PublicURL are used by the event images; the
+// avatars use the Supabase Storage API of SupabaseURL with SecretKey (#247).
 type S3Config struct {
 	Bucket    string
 	Region    string
 	Endpoint  string // Optional, e.g. https://<project>.supabase.co/storage/v1/s3 or custom endpoint
 	PublicURL string // Optional base URL to construct the public image URL
+
+	SupabaseURL  string        // Project URL, e.g. https://<ref>.supabase.co. Without it (or SecretKey) avatars are disabled
+	SecretKey    string        // Supabase secret key (sb_secret_...) or legacy service_role key; never sent to clients
+	AvatarBucket string        // Private bucket of the profile pictures, "avatars" by default
+	AvatarURLTTL time.Duration // Lifetime of the signed avatar URLs, DefaultAvatarURLTTL by default
 }
 
 type S3Client struct {
 	httpClient *http.Client
 	config     S3Config
+	now        func() time.Time
+
+	mu         sync.Mutex
+	signedURLs map[string]signedURL // cache of signed avatar URLs by object path
 }
 
 var _ Client = (*S3Client)(nil)
@@ -31,25 +43,22 @@ func NewS3Client(httpClient *http.Client, config S3Config) *S3Client {
 	if config.Region == "" {
 		config.Region = "eu-west-1"
 	}
+	if config.AvatarBucket == "" {
+		config.AvatarBucket = "avatars"
+	}
+	if config.AvatarURLTTL <= 0 {
+		config.AvatarURLTTL = DefaultAvatarURLTTL
+	}
+	config.SupabaseURL = strings.TrimRight(config.SupabaseURL, "/")
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 30 * time.Second}
 	}
 	return &S3Client{
 		httpClient: httpClient,
 		config:     config,
+		now:        time.Now,
+		signedURLs: map[string]signedURL{},
 	}
-}
-
-func (c *S3Client) UploadAvatar(ctx context.Context, userID string, filename string, contentType string, reader io.Reader) (string, error) {
-	switch contentType {
-	case "image/jpeg", "image/png", "image/webp":
-	default:
-		return "", ErrInvalidContentType
-	}
-
-	ext := extensionForMime(filename, contentType)
-	key := fmt.Sprintf("avatars/%s/avatar-%d%s", userID, time.Now().Unix(), ext)
-	return c.upload(ctx, key, contentType, reader)
 }
 
 func (c *S3Client) UploadEventImage(ctx context.Context, eventID int, filename string, contentType string, reader io.Reader) (string, error) {

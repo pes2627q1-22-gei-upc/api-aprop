@@ -59,7 +59,7 @@ Columna «Sprint (entra, acaba)»: format de la memòria §1.4. `TODO(confirmar)
 | Crear esdeveniment no oficial | 8 | |
 | Buscar esdeveniment | 6 | |
 | Cancel·lar esdeveniment no oficial | 5 | |
-| Valorar esdeveniment | 5 | |
+| Valorar esdeveniment | 5 | #184 (tasca backend, US #48) |
 | Desapuntar-se d'un esdeveniment | 1,5 | |
 | Editar esdeveniment no oficial | 2 | |
 | Llista d'esdeveniments recomanats | 1 | |

@@ -9,101 +9,44 @@ import (
 	"math"
 	"strings"
 	"time"
-	"slices"
-	"container/heap"
-
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"api-aprop/internal/clients/gencat_client"
 	"api-aprop/internal/clients/s3_client"
+	"api-aprop/internal/clients/talaia_client"
 	"api-aprop/internal/models/event_model"
-	"api-aprop/internal/repositories/auth_repository"
+	"api-aprop/internal/models/user_model"
 	"api-aprop/internal/repositories/event_repository"
 	"api-aprop/internal/repositories/preference_repository"
-	"api-aprop/internal/models/preference_model"
+	"api-aprop/internal/repositories/user_repository"
 )
 
-type Item struct {
-	Value    event_model.Event
-	Priority float32
-	Index    int
-}
-
-type PriorityQueue []*Item
-
-// heap.Interface implementation
-
-func (pq PriorityQueue) Len() int {
-	return len(pq)
-}
-
-func (pq PriorityQueue) Less(i, j int) bool {
-	return pq[i].Priority > pq[j].Priority
-}
-
-func (pq PriorityQueue) Swap(i, j int) {
-	pq[i], pq[j] = pq[j], pq[i]
-	pq[i].Index = i
-	pq[j].Index = j
-}
-
-func (pq *PriorityQueue) Push(x any) {
-	item := x.(*Item)
-	item.Index = len(*pq)
-	*pq = append(*pq, item)
-}
-
-func (pq *PriorityQueue) Pop() any {
-	old := *pq
-	n := len(old)
-	item := old[n-1]
-	old[n-1] = nil // Avoid retaining the item in memory
-	item.Index = -1
-	*pq = old[:n-1]
-	return item
-}
-
 type EventService struct {
-	eventRepository 		event_repository.Repository
-	authRepository  		auth_repository.Repository
-	gencatClient    		gencat_client.Client
-	preferenceRepository	preference_repository.Repository
-	s3Client        		s3_client.Client
+	eventRepository      event_repository.Repository
+	gencatClient         gencat_client.Client
+	talaiaClient         talaia_client.Client
+	preferenceRepository preference_repository.Repository
+	s3Client             s3_client.EventImageUploader
+	userRepository       user_repository.Repository
 }
 
-func NewEventService(eventRepository event_repository.Repository, authRepository auth_repository.Repository, preferenceRepository preference_repository.Repository, gencatClient gencat_client.Client, s3Client s3_client.Client) *EventService {
+func NewEventService(eventRepository event_repository.Repository, preferenceRepository preference_repository.Repository, gencatClient gencat_client.Client, s3Client s3_client.EventImageUploader, talaiaClient talaia_client.Client) *EventService {
 	return &EventService{
-		eventRepository: 		eventRepository,
-		authRepository:  		authRepository,
-		preferenceRepository:	preferenceRepository,
-		gencatClient:    		gencatClient,
-		s3Client:        		s3Client,
+		eventRepository:      eventRepository,
+		preferenceRepository: preferenceRepository,
+		gencatClient:         gencatClient,
+		talaiaClient:         talaiaClient,
+		s3Client:             s3Client,
 	}
 }
 
-// ResolveUserID returns the database ID (UUID) of the requester. The identifier is the Firebase UID set by
-// the auth middleware, or directly a UUID when the API runs without authentication (local development and tests).
-func (s *EventService) ResolveUserID(ctx context.Context, identifier string) (string, error) {
-	if identifier == "" {
-		return "", ErrUserNotRegistered
-	}
-	if uid, err := normalizeUserID(identifier); err == nil {
-		return uid, nil
-	}
-	if s.authRepository == nil {
-		return "", ErrUserNotRegistered
-	}
-	user, err := s.authRepository.GetByFirebaseUID(ctx, identifier)
-	if errors.Is(err, auth_repository.ErrUserNotFound) {
-		return "", fmt.Errorf("%w: %w", ErrUserNotRegistered, err)
-	}
-	if err != nil {
-		return "", fmt.Errorf("resolve user: %w", err)
-	}
-	return user.ID.String(), nil
+// WithUserRepository sets the user repository used to enrich event detail responses with creator info.
+func (s *EventService) WithUserRepository(r user_repository.Repository) *EventService {
+	s.userRepository = r
+	return s
 }
 
-func (s *EventService) GetEvent(id int) (event_model.Event, error) {
+// getEvent loads an event without the creator decoration; internal checks use it.
+func (s *EventService) getEvent(id int) (event_model.Event, error) {
 	e, err := s.eventRepository.Get(id)
 	if errors.Is(err, event_repository.ErrEventNotFound) {
 		return event_model.Event{}, fmt.Errorf("%w: %w", ErrEventNotFound, err)
@@ -114,41 +57,69 @@ func (s *EventService) GetEvent(id int) (event_model.Event, error) {
 	return e, nil
 }
 
-func (s *EventService) GetRecommendedEvents(ctx context.Context, userid string, pageSize int, pageNum int) ([]event_model.Event, error){
-	events, err := s.eventRepository.List(map[string]any{"pageSize":pageSize, "pageNum":pageNum, "filterCategory":0})
-	if errors.Is(err, event_repository.ErrInvalidFilter) {
-		return []event_model.Event{}, fmt.Errorf("%w: %w", ErrInvalidFilter, err)
-	}
-	if err!=nil{
-		return []event_model.Event{}, err
+func (s *EventService) GetReceivedRatings(id int) ([]event_model.ReceivedRating, error) {
+	_, err := s.getEvent(id)
+	if err != nil {
+		return []event_model.ReceivedRating{}, err
 	}
 
-	prefs, err := s.preferenceRepository.GetUserPreferences(ctx, userid)
-	if err!=nil{
-		return []event_model.Event{}, err
+	ratings, err := s.eventRepository.GetReceivedRatings(id)
+	if err != nil {
+		return []event_model.ReceivedRating{}, err
 	}
 
-	ordered_events := &PriorityQueue{}
-	heap.Init(ordered_events)
-	for _, ev := range(events){
-		prio := float32(1.0)
-		for _, cat := range(ev.Categories){
-			// A category without preference has weight 1, the default weight of UserPreferences
-			ind := slices.IndexFunc(prefs, func (p preference_model.UserPreference) bool {return p.CategoryName==cat})
-			if ind!=-1{
-				prio *= prefs[ind].Weight
+	return ratings, nil
+}
+
+func (s *EventService) GetEvent(id int) (event_model.Event, error) {
+	e, err := s.getEvent(id)
+	if err != nil {
+		return event_model.Event{}, err
+	}
+	if !e.IsOfficial && e.Creator.Valid && s.userRepository != nil {
+		ctx := context.Background()
+		// The creator info is decoration: a failed lookup is logged and leaves the fields null.
+		u, uErr := s.userRepository.GetByID(ctx, e.Creator)
+		if uErr != nil {
+			log.Printf("event %d: creator lookup failed: %v", id, uErr)
+		} else {
+			displayName := u.Name
+			if displayName == "" {
+				displayName = u.Username
+			}
+			if displayName != "" {
+				e.CreatorName = &displayName
 			}
 		}
-		heap.Push(ordered_events, &Item{Value: ev, Priority: prio})
+		e.CreatorReliability = u.Rating
+	}
+	return e, nil
+}
+
+// GetRecommendedEvents returns a paginated slice of active events ranked in SQL for userID using
+// UserPreferences (Interès./pes), SignUp category affinity (excluding joined events), and popularity.
+func (s *EventService) GetRecommendedEvents(ctx context.Context, userid string, pageSize int, pageNum int) ([]event_model.Event, error) {
+	uid, err := user_model.ParseID(userid)
+	if err != nil {
+		return nil, err
+	}
+	if pageSize <= 0 || pageNum < 0 {
+		return nil, fmt.Errorf("recommended events: %w: pageSize must be > 0 and pageNum >= 0", ErrInvalidFilter)
+	}
+	// TODO(DP-034): confirm the exact combination formula (UserPreferences + SignUp category boost + popularity)
+	// and whether already-enrolled events should be excluded rather than penalized.
+	if pageNum > math.MaxInt32/pageSize {
+		return []event_model.Event{}, nil
 	}
 
-	ret := []event_model.Event{}
-	for ordered_events.Len() > 0 {
-		tmp, _ := heap.Pop(ordered_events).(*Item)
-		ret = append(ret, tmp.Value)
+	events, err := s.eventRepository.ListRecommended(ctx, uid, pageSize, pageNum*pageSize)
+	if err != nil {
+		return nil, err
 	}
-
-	return ret, nil
+	if events == nil {
+		return []event_model.Event{}, nil
+	}
+	return events, nil
 }
 
 func (s *EventService) ListEvents(params map[string]any) ([]event_model.Event, error) {
@@ -193,7 +164,7 @@ func (s *EventService) ListMapEvents(ctx context.Context, filter event_model.Map
 		return nil, err
 	}
 	if filter.UserID != "" {
-		uid, err := normalizeUserID(filter.UserID)
+		uid, err := user_model.NormalizeID(filter.UserID)
 		if err != nil {
 			return nil, err
 		}
@@ -209,7 +180,7 @@ func (s *EventService) ListMapEvents(ctx context.Context, filter event_model.Map
 	return events, nil
 }
 
-func (s *EventService) GetPopularEvents(pageSize int, pageNum int) ([]event_model.Event, error){
+func (s *EventService) GetPopularEvents(pageSize int, pageNum int) ([]event_model.Event, error) {
 	events, err := s.eventRepository.GetPopular(pageSize, pageNum)
 	if errors.Is(err, event_repository.ErrInvalidFilter) {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidFilter, err)
@@ -219,7 +190,7 @@ func (s *EventService) GetPopularEvents(pageSize int, pageNum int) ([]event_mode
 
 // CreateUnofficialEvent validates and publishes a user-created unofficial event adhering to rule R5.
 func (s *EventService) CreateUnofficialEvent(ctx context.Context, userID string, e event_model.Event) (event_model.Event, error) {
-	uid, err := normalizeUserID(userID)
+	creatorUUID, err := user_model.ParseID(userID)
 	if err != nil {
 		return event_model.Event{}, err
 	}
@@ -229,29 +200,42 @@ func (s *EventService) CreateUnofficialEvent(ctx context.Context, userID string,
 		return event_model.Event{}, err
 	}
 
-	var creatorUUID pgtype.UUID
-	if err := creatorUUID.Scan(uid); err != nil {
-		return event_model.Event{}, fmt.Errorf("%w: %v", ErrInvalidUserID, err)
-	}
-
 	e.ID = 0
 	e.Code = 0
 	e.IsOfficial = false
 	e.Creator = creatorUUID
 	e.DateCreated = now
 
-	return s.eventRepository.Create(e, false)
+	ret, err := s.eventRepository.Create(e, false)
+	if errors.Is(err, event_repository.ErrCategoryNotAllowed) {
+		return event_model.Event{}, ErrCategoryNotAllowed
+	} else if errors.Is(err, event_repository.ErrCategoryNotFound) {
+		return event_model.Event{}, ErrCategoryNotFound
+	}
+	return ret, err
 }
 
-// UpdateUnofficialEvent replaces the fields of an unofficial event. The creator and the creation date are kept,
-// and rule R5 is checked against the original creation date. The handler checks that the requester is the creator.
+// UpdateUnofficialEvent replaces the fields of an unofficial event. Only Active events can be modified. The creator
+// and the creation date are kept, and rule R5 is checked against the original creation date. The handler checks that
+// the requester is the creator.
 func (s *EventService) UpdateUnofficialEvent(ctx context.Context, id int, e event_model.Event) (event_model.Event, error) {
-	stored, err := s.GetEvent(id)
+	stored, err := s.getEvent(id)
 	if err != nil {
 		return event_model.Event{}, err
 	}
 	if stored.IsOfficial || !stored.Creator.Valid {
 		return event_model.Event{}, fmt.Errorf("update event %d: %w: official events cannot be modified", id, ErrInvalidEvent)
+	}
+
+	state, err := s.eventRepository.GetUnofficialState(ctx, id)
+	if errors.Is(err, event_repository.ErrEventNotFound) {
+		return event_model.Event{}, fmt.Errorf("%w: %w", ErrEventNotFound, err)
+	}
+	if err != nil {
+		return event_model.Event{}, err
+	}
+	if state != event_model.UnofficialStateActive {
+		return event_model.Event{}, fmt.Errorf("update event %d: %w: state is %s", id, ErrEventNotActive, state)
 	}
 
 	if err := validateUnofficialEvent(e, stored.DateCreated); err != nil {
@@ -273,6 +257,9 @@ func (s *EventService) UpdateUnofficialEvent(ctx context.Context, id int, e even
 	if errors.Is(err, event_repository.ErrEventNotFound) {
 		return event_model.Event{}, fmt.Errorf("%w: %w", ErrEventNotFound, err)
 	}
+	if errors.Is(err, event_repository.ErrCategoryNotAllowed) {
+		return event_model.Event{}, fmt.Errorf("%w: %w", ErrCategoryNotAllowed, err)
+	}
 	if err != nil {
 		return event_model.Event{}, err
 	}
@@ -282,7 +269,7 @@ func (s *EventService) UpdateUnofficialEvent(ctx context.Context, id int, e even
 // DeleteUnofficialEvent deletes an unofficial event and everything that references it.
 // The handler checks that the requester is the creator.
 func (s *EventService) DeleteUnofficialEvent(ctx context.Context, id int) error {
-	stored, err := s.GetEvent(id)
+	stored, err := s.getEvent(id)
 	if err != nil {
 		return err
 	}
@@ -295,6 +282,56 @@ func (s *EventService) DeleteUnofficialEvent(ctx context.Context, id int) error 
 		return fmt.Errorf("%w: %w", ErrEventNotFound, err)
 	}
 	return err
+}
+
+// CancelUnofficialEvent cancels an Active unofficial event that has not finished yet: its state becomes Cancelled and
+// every user signed up to it, except the creator, gets a Cancel·lació notification. The handler checks that the
+// requester is the creator.
+// TODO(DP-041): finished events cannot be cancelled, and the event stays in the lists and open to sign ups.
+func (s *EventService) CancelUnofficialEvent(ctx context.Context, id int) (event_model.Cancellation, error) {
+	stored, err := s.getEvent(id)
+	if err != nil {
+		return event_model.Cancellation{}, err
+	}
+	if stored.IsOfficial || !stored.Creator.Valid {
+		return event_model.Cancellation{}, fmt.Errorf("cancel event %d: %w: official events cannot be cancelled", id, ErrInvalidEvent)
+	}
+	if eventFinished(stored, time.Now()) {
+		return event_model.Cancellation{}, fmt.Errorf("cancel event %d: %w", id, ErrEventFinished)
+	}
+
+	state, err := s.eventRepository.GetUnofficialState(ctx, id)
+	if errors.Is(err, event_repository.ErrEventNotFound) {
+		return event_model.Cancellation{}, fmt.Errorf("%w: %w", ErrEventNotFound, err)
+	}
+	if err != nil {
+		return event_model.Cancellation{}, err
+	}
+	if state != event_model.UnofficialStateActive {
+		return event_model.Cancellation{}, fmt.Errorf("cancel event %d: %w: state is %s", id, ErrEventNotActive, state)
+	}
+
+	// The repository checks the state again inside the transaction, in case another request cancelled it meanwhile
+	notified, err := s.eventRepository.Cancel(ctx, id)
+	switch {
+	case errors.Is(err, event_repository.ErrEventNotFound):
+		return event_model.Cancellation{}, fmt.Errorf("%w: %w", ErrEventNotFound, err)
+	case errors.Is(err, event_repository.ErrEventNotActive):
+		return event_model.Cancellation{}, fmt.Errorf("%w: %w", ErrEventNotActive, err)
+	case err != nil:
+		return event_model.Cancellation{}, err
+	}
+	return event_model.Cancellation{EventID: id, State: event_model.UnofficialStateCancelled, NotifiedUsers: notified}, nil
+}
+
+// eventFinished reports whether the last day of the event (its end date, or its start date when it has none) is
+// before today. Dates are compared by day, like rule R5.
+func eventFinished(e event_model.Event, now time.Time) bool {
+	last := e.EndDate
+	if last.IsZero() {
+		last = e.StartDate
+	}
+	return !last.IsZero() && day(last).Before(day(now.UTC()))
 }
 
 // UploadEventImage uploads an event poster/image to S3 storage and associates it with the event.
@@ -353,6 +390,20 @@ func (s *EventService) LoadOfficialEvents(ctx context.Context, pageSize int) err
 		total += len(events)
 		log.Printf("events loaded: %d", total)
 		i += 1
+	}
+	return nil
+}
+
+func (s *EventService) LoadAstronomicalEvents(ctx context.Context) error {
+	log.Printf("loading talaia events")
+	events, err := s.talaiaClient.FetchEvents(ctx, time.Now(), time.Now().AddDate(0, 0, 30))
+	if err != nil {
+		return fmt.Errorf("error loading talaia events: %v", err)
+	}
+	for id, event := range events {
+		if err := s.eventRepository.CreateAstronomical(id, event); err != nil {
+			log.Printf("store official event %s: %v", id, err)
+		}
 	}
 	return nil
 }
@@ -417,26 +468,4 @@ func validateBoundingBox(minLat, maxLat, minLng, maxLng float32) error {
 		return fmt.Errorf("%w: longitude range [%v, %v] must be within [-180, 180]", ErrInvalidBoundingBox, minLng, maxLng)
 	}
 	return nil
-}
-
-// normalizeUserID accepts only the canonical UUID form (8-4-4-4-12 hex digits) and lowercases it.
-func normalizeUserID(userID string) (string, error) {
-	if len(userID) != 36 {
-		return "", fmt.Errorf("%w: %q", ErrInvalidUserID, userID)
-	}
-	for i, c := range userID {
-		switch {
-		case i == 8 || i == 13 || i == 18 || i == 23:
-			if c != '-' {
-				return "", fmt.Errorf("%w: %q", ErrInvalidUserID, userID)
-			}
-		case !isHex(c):
-			return "", fmt.Errorf("%w: %q", ErrInvalidUserID, userID)
-		}
-	}
-	return strings.ToLower(userID), nil
-}
-
-func isHex(c rune) bool {
-	return ('0' <= c && c <= '9') || ('a' <= c && c <= 'f') || ('A' <= c && c <= 'F')
 }

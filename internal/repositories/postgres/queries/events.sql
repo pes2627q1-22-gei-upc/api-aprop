@@ -25,7 +25,7 @@ SELECT EXISTS (SELECT 1 FROM events WHERE id = $1);
 SELECT e.id, e.title, e.subtitle, e.description, e.schedule, e.tickets, e.url, e.ticketsurl,
 e.free, e.permanent, e.modality, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone,
 e.activityurl, e.startdate, e.enddate, e.place, e.latitude, e.longitude, e.postalcode, e.municipality,
-e.region, e.address, oe.code, ue.creator, ue.datecreated, c.name as category FROM events e left join officialevents oe on e.id=oe.id left join unofficialevents ue on e.id=ue.id
+e.region, e.address, oe.code, ue.creator, ue.state, ue.datecreated, e.rating, c.name as category FROM events e left join officialevents oe on e.id=oe.id left join unofficialevents ue on e.id=ue.id
 left join eventcategories ec on e.id = ec.event left join categories c on ec.category = c.id
 WHERE e.id = $1;
 
@@ -34,8 +34,9 @@ SELECT evlst.*, c.name as category FROM (
     SELECT e.id, e.title, e.subtitle, e.description, e.schedule, e.tickets, e.url, e.ticketsurl,
     e.free, e.permanent, e.modality, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone,
     e.activityurl, e.startdate, e.enddate, e.place, e.latitude, e.longitude, e.postalcode, e.municipality,
-    e.region, e.address, oe.code, ue.creator, ue.datecreated FROM events e left join officialevents oe on e.id=oe.id left join unofficialevents ue on e.id=ue.id
-    WHERE (@category::int = 0 or exists (select 1 from eventcategories ec where ec.event=e.id and ec.category = @category::int))   -- category filter
+    e.region, e.address, oe.code, ue.creator, ue.state, ue.datecreated, e.rating FROM events e left join officialevents oe on e.id=oe.id left join unofficialevents ue on e.id=ue.id
+    WHERE (ue.id is null or ue.state = 'Active'::unofficialeventstate)
+    and (@category::int = 0 or exists (select 1 from eventcategories ec where ec.event=e.id and ec.category = @category::int))   -- category filter
     and (@region::text = '' or e.region = @region::text)    -- region filter
     and (@startbefore::date is null or e.startdate <= @startbefore::date)   -- start-before filter
     and (@startafter::date is null or e.startdate >= @startafter::date)   -- start-after filter
@@ -55,9 +56,9 @@ SELECT evlst.*, c.name as category FROM (
     SELECT e.id, e.title, e.subtitle, e.description, e.schedule, e.tickets, e.url, e.ticketsurl,
     e.free, e.permanent, e.modality, e.relatedurls, e.urlnames, e.images, e.videos, e.email, e.phone,
     e.activityurl, e.startdate, e.enddate, e.place, e.latitude, e.longitude, e.postalcode, e.municipality,
-    e.region, e.address, oe.code, ue.creator, ue.datecreated, count(s.userid) as num_signups FROM events e left join officialevents oe on e.id=oe.id
+    e.region, e.address, oe.code, ue.creator, ue.state, ue.datecreated, e.rating, count(s.userid) as num_signups FROM events e left join officialevents oe on e.id=oe.id
     left join unofficialevents ue on e.id=ue.id left join signup s on s.event=e.id
-    WHERE e.enddate is null or e.enddate > now()
+    WHERE (ue.id is null or ue.state = 'Active'::unofficialeventstate) and (e.enddate is null or e.enddate > now())
     GROUP BY e.id, oe.id, ue.id ORDER BY num_signups DESC, e.enddate ASC NULLS LAST
     LIMIT $1 OFFSET $2
 ) evlst left join eventcategories ec on evlst.id = ec.event left join categories c on ec.category = c.id ORDER BY evlst.num_signups DESC, evlst.enddate ASC NULLS LAST, evlst.id ASC;
@@ -136,7 +137,7 @@ DELETE FROM eventratings WHERE event = $1;
 DELETE FROM userratings WHERE event = $1;
 
 -- name: DeleteEventMessages :exec
-DELETE FROM messages WHERE event = $1;
+DELETE FROM EventMessages WHERE Event = $1;
 
 -- name: DeleteEventNotifications :exec
 DELETE FROM notifications WHERE event = @event::int;
@@ -152,3 +153,70 @@ DELETE FROM unofficialevents WHERE id = $1;
 
 -- name: DeleteEvent :execrows
 DELETE FROM events WHERE id = $1;
+
+-- name: CancelUnofficialEvent :execrows
+-- Marks the unofficial event as Cancelled; no rows if it does not exist or is no longer Active.
+UPDATE UnofficialEvents SET State = 'Cancelled' WHERE ID = $1 AND State = 'Active';
+
+-- name: GetUnofficialEventState :one
+-- State of an unofficial event; no rows if the event is official or does not exist.
+SELECT State::text AS state FROM UnofficialEvents WHERE ID = $1;
+
+-- name: GetEventRatings :many
+SELECT Rating, RatingDate from EventRatings where event=$1;
+
+-- name: UpsertAstronomicalEvent :one
+WITH existing AS MATERIALIZED (
+    SELECT ae.eventid
+    FROM astronomicalevents ae
+    WHERE ae.astronomicalid = sqlc.arg(astronomical_id)
+),
+
+updated_event AS (
+    UPDATE events
+    SET
+        title = sqlc.arg(title),
+        description = sqlc.arg(description),
+        startdate = sqlc.arg(start_date),
+        enddate = sqlc.arg(end_date),
+        schedule = sqlc.arg(schedule),
+        place = sqlc.arg(place),
+        latitude = sqlc.arg(latitude),
+        longitude = sqlc.arg(longitude)
+    WHERE id = (SELECT eventid FROM existing)
+    RETURNING id
+),
+
+new_event AS (
+    INSERT INTO events (
+        title, description, startdate, enddate,
+        schedule, place, latitude, longitude
+    )
+    SELECT
+        sqlc.arg(title),
+        sqlc.arg(description),
+        sqlc.arg(start_date),
+        sqlc.arg(end_date),
+        sqlc.arg(schedule),
+        sqlc.arg(place),
+        sqlc.arg(latitude),
+        sqlc.arg(longitude)
+    WHERE NOT EXISTS (SELECT 1 FROM existing)
+    RETURNING id
+),
+
+new_astronomical_event AS (
+    INSERT INTO astronomicalevents (astronomicalid, eventid)
+    SELECT sqlc.arg(astronomical_id), id
+    FROM new_event
+),
+
+new_official_event AS (
+    INSERT INTO officialevents (id)
+    SELECT id FROM new_event
+)
+
+SELECT COALESCE(
+    (SELECT id FROM new_event),
+    0
+);
